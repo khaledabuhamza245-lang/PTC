@@ -35,6 +35,7 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
           local-dir: ./frontend/
           server-dir: ./public_html/
           dangerous-clean-slate: false
@@ -64,6 +65,7 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
           local-dir: ./backend/
           server-dir: ./ptc-hub-backend/
           dangerous-clean-slate: false
