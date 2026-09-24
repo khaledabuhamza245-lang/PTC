@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>جدولي الأسبوعي — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="ابنِ جدولك الدراسي الأسبوعي، بمحاضراتك ومواعيدك، واطبعه أو صدّره لتقويمك.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;600;700;800&family=Tajawal:wght@400;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+/* ---------- جدولي الأسبوعي ---------- */
+.sch-wrap{max-width:1180px}
+
+/* شريط التحكم العلوي */
+.sch-toolbar{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:14px 16px;margin-bottom:18px
+}
+.sch-toolbar .spacer{flex:1}
+.sch-tbtn{
+  display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:11px;
+  font-family:var(--font-ar);font-weight:700;font-size:13.5px;cursor:pointer;
+  border:1px solid var(--line-2);background:var(--paper-2);color:var(--ink);transition:.18s
+}
+.sch-tbtn:hover{border-color:var(--copper);color:var(--copper)}
+.sch-tbtn.primary{background:var(--olive);color:var(--paper);border-color:var(--olive)}
+.sch-tbtn.primary:hover{background:color-mix(in srgb,var(--olive) 85%,black);color:var(--paper)}
+.sch-tbtn.danger:hover{border-color:#c0392b;color:#c0392b}
+.sch-tbtn svg{width:16px;height:16px}
+
+/* الشبكة الأسبوعية */
+.sch-grid-wrap{
+  background:var(--card);border:1px solid var(--line);border-radius:18px;
+  overflow-x:auto;margin-bottom:16px
+}
+.sch-grid{
+  display:grid;
+  grid-template-columns:64px repeat(6,minmax(140px,1fr));
+  min-width:940px;position:relative
+}
+.sch-corner{border-bottom:1px solid var(--line);border-inline-start:1px solid var(--line)}
+.sch-day-head{
+  padding:14px 8px;text-align:center;font-family:var(--font-display);font-size:14.5px;
+  color:var(--olive);border-bottom:1px solid var(--line);border-inline-start:1px solid var(--line);
+  position:sticky;top:0;background:var(--card);z-index:3
+}
+.sch-day-head.is-today{color:var(--copper);background:color-mix(in srgb,var(--copper) 8%,var(--card))}
+.sch-day-head span{display:block;font-family:var(--font-ar);font-size:10px;color:var(--faint);font-weight:400;margin-top:2px}
+.sch-hour-label{
+  padding:4px 6px;text-align:center;font-family:var(--font-mono);font-size:10.5px;color:var(--faint);
+  border-inline-start:1px solid var(--line);position:relative;top:-8px
+}
+.sch-cell{
+  border-inline-start:1px solid var(--line);border-top:1px solid var(--line);
+  height:52px;position:relative
+}
+.sch-cell.is-today-col{background:color-mix(in srgb,var(--copper) 4%,transparent)}
+.sch-lecture{
+  position:absolute;inset-inline:3px;border-radius:10px;padding:6px 9px;overflow:hidden;
+  cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.12);transition:.15s;
+  border-inline-start:4px solid transparent;z-index:2
+}
+.sch-lecture:hover{transform:scale(1.015);box-shadow:0 4px 12px rgba(0,0,0,.18);z-index:5}
+.sch-lecture.conflict{outline:2px dashed #c0392b;outline-offset:1px}
+.sch-lecture-title{font-family:var(--font-ar);font-weight:700;font-size:12px;line-height:1.35;
+  display:flex;align-items:center;gap:4px}
+.sch-lecture-meta{font-family:var(--font-ar);font-size:10px;line-height:1.5;margin-top:2px;opacity:.85}
+.sch-lecture-icon{flex-shrink:0;font-size:11px}
+
+.sch-empty{padding:60px 20px;text-align:center;color:var(--faint);font-family:var(--font-ar)}
+.sch-empty svg{width:44px;height:44px;margin-bottom:12px;opacity:.5}
+
+/* الشريط السفلي — إجمالي الساعات */
+.sch-summary{
+  display:flex;gap:24px;flex-wrap:wrap;align-items:center;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px
+}
+.sch-summary-item{display:flex;align-items:center;gap:8px;font-family:var(--font-ar);font-size:13px;color:var(--muted)}
+.sch-summary-item b{font-family:var(--font-display);font-size:17px;color:var(--olive)}
+.sch-summary-item.online b{color:#3b6ea5}
+
+/* المودال */
+.sch-modal-overlay{
+  display:none;position:fixed;inset:0;z-index:9999;align-items:flex-start;justify-content:center;
+  padding:50px 16px 30px;overflow-y:auto;background:rgba(25,29,22,.6);backdrop-filter:blur(3px)
+}
+.sch-modal-overlay.open{display:flex}
+.sch-modal-box{
+  width:min(560px,100%);background:var(--card);border:1px solid var(--line-2);border-radius:18px;
+  padding:24px;box-shadow:var(--shadow-lg);position:relative;animation:schModalIn .18s ease-out
+}
+@keyframes schModalIn{from{opacity:0;transform:translateY(-10px) scale(.98)}to{opacity:1;transform:none}}
+.sch-modal-close{position:absolute;top:14px;left:14px;width:30px;height:30px;border-radius:9px;
+  border:1px solid var(--line-2);background:var(--paper-2);color:var(--muted);cursor:pointer;font-size:14px}
+.sch-modal-close:hover{border-color:#c0392b;color:#c0392b}
+.sch-modal-box h3{font-family:var(--font-display);font-size:19px;color:var(--olive);margin-bottom:16px}
+.sch-fld{margin-bottom:14px}
+.sch-fld label{display:block;font-family:var(--font-ar);font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px}
+.sch-fld input[type=text],.sch-fld select,.sch-fld input[type=time]{
+  width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--line-2);border-radius:10px;
+  background:var(--paper);color:var(--ink);font-family:var(--font-ar);font-size:13.5px
+}
+.sch-course-pick{position:relative}
+.sch-course-pick-list{
+  position:absolute;inset-inline:0;top:calc(100% + 6px);z-index:40;max-height:240px;overflow-y:auto;
+  background:var(--card);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow-lg);padding:6px
+}
+.sch-course-pick-item{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;
+  border-radius:9px;cursor:pointer;font-family:var(--font-ar);font-size:13px
+}
+.sch-course-pick-item:hover,.sch-course-pick-item.kbd-active{background:var(--paper-2)}
+.sch-course-pick-item code{font-family:var(--font-mono);font-size:11px;color:var(--copper);direction:ltr}
+.sch-course-pick-empty{padding:12px 10px;font-family:var(--font-ar);font-size:12.5px;color:var(--faint)}
+.sch-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sch-type-toggle{display:flex;gap:10px}
+.sch-type-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:11px;
+  border:1.5px solid var(--line-2);background:var(--paper-2);color:var(--muted);cursor:pointer;
+  font-family:var(--font-ar);font-weight:700;font-size:13px;transition:.15s
+}
+.sch-type-btn.active{border-color:var(--olive);background:color-mix(in srgb,var(--olive) 12%,var(--paper-2));color:var(--olive)}
+.sch-days-picker{display:flex;gap:6px;flex-wrap:wrap}
+.sch-day-btn{
+  width:42px;height:42px;border-radius:11px;border:1.5px solid var(--line-2);background:var(--paper-2);
+  color:var(--muted);cursor:pointer;font-family:var(--font-ar);font-weight:700;font-size:12.5px;transition:.15s
+}
+.sch-day-btn.active{border-color:var(--copper);background:color-mix(in srgb,var(--copper) 15%,var(--paper-2));color:var(--copper)}
+.sch-color-picker{display:flex;gap:8px;flex-wrap:wrap}
+.sch-color-swatch{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:.15s}
+.sch-color-swatch.active{border-color:var(--ink);transform:scale(1.15)}
+.sch-modal-msg{font-family:var(--font-ar);font-size:12.5px;padding:9px 12px;border-radius:9px;margin-top:12px;display:none}
+.sch-modal-msg.show{display:block}
+.sch-modal-msg.err{background:color-mix(in srgb,#c0392b 12%,transparent);color:#c0392b}
+.sch-modal-msg.warn{background:color-mix(in srgb,var(--copper) 15%,transparent);color:var(--copper)}
+.sch-modal-actions{display:flex;gap:8px;margin-top:18px}
+
+@media print{
+  @page{margin:8mm}
+  .nav,.college-bar,.foot,.sch-toolbar,.page-head p,.crumb{display:none!important}
+  body{background:#fff}
+
+  /*
+   * السبب الحقيقي للنقص: grid-template-columns بالعرض العادي يفرض حدًّا
+   * أدنى 140px لكل عمود يوم — قيد لا يزول بمجرد جعل الحاوية 100%، فتبقى
+   * الشبكة عاجزة عن الانكماش لعرض ورقة أضيق (خصوصًا الوضع الطولي الذي
+   * تفتحه أغلب المتصفحات افتراضيًا بصرف النظر عن @page:landscape، فهي
+   * مجرد تلميح لا تلتزم به كل المتصفحات). الحل: إلغاء الحدّ الأدنى
+   * كليًا هنا فقط، فتتوزّع الأعمدة بالتساوي على أي عرض ورقة متاح.
+   */
+  .wrap,.sch-wrap{max-width:100%!important;width:100%!important;margin:0!important;padding:0!important}
+  main,body{width:100%!important;overflow:visible!important}
+
+  .sch-grid-wrap{border:none;box-shadow:none;overflow:visible!important;margin:0 auto}
+  .sch-grid{
+    min-width:0!important;width:100%!important;
+    grid-template-columns:34px repeat(6,1fr)!important
+  }
+  .sch-day-head{font-size:8.5px;padding:4px 1px;position:static;letter-spacing:-.2px}
+  .sch-day-head span{display:none}
+  .sch-hour-label{font-size:6.5px;padding:2px 1px}
+  .sch-lecture{padding:3px 4px}
+  .sch-lecture-title{font-size:7px;gap:2px}
+  .sch-lecture-icon{font-size:7px}
+  .sch-lecture-meta{font-size:6px;margin-top:0}
+  .sch-lecture{box-shadow:none}
+}
+@media (max-width:768px){
+  .sch-row2{grid-template-columns:1fr}
+  .sch-toolbar{padding:10px 12px;gap:8px}
+  .sch-tbtn{padding:9px 12px;font-size:12.5px}
+  .sch-tbtn svg{width:14px;height:14px}
+  .sch-grid{grid-template-columns:52px repeat(6,minmax(108px,1fr))!important;min-width:700px}
+  .sch-day-head{font-size:12.5px;padding:10px 4px}
+  .sch-lecture-title{font-size:11px}
+  .sch-lecture-meta{font-size:9.5px}
+  .sch-summary{gap:14px;padding:12px 14px}
+  .sch-summary-item{font-size:12px}
+  .sch-summary-item b{font-size:15px}
+}
+@media (max-width:480px){
+  .sch-toolbar{flex-direction:column;align-items:stretch}
+  .sch-toolbar .sch-tbtn{justify-content:center}
+  .sch-toolbar .spacer{display:none}
+}
+</style>
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<script id="ptc-fast-auth-guard">
+try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
+</script>
+</head>
+<body>
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب"><span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span><span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span></a>
+    <div class="nav-links" id="menu">
+      <a href="index.html" data-nav="home"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg></span>الرئيسية</a>
+      <div class="nav-drop" data-nav="curriculum">
+        <button class="nav-drop-btn" type="button"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>المناهج الدراسية <svg class="dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="nav-drop-menu">
+          <div class="dd-year">
+          <a href="year1.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الأولى</a>
+          <div class="dd-sems">
+            <a href="year1.html#sem0">الفصل الأول</a>
+            <a href="year1.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year2.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثانية</a>
+          <div class="dd-sems">
+            <a href="year2.html#sem0">الفصل الأول</a>
+            <a href="year2.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year3.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثالثة</a>
+          <div class="dd-sems">
+            <a href="year3.html#sem0">الفصل الأول</a>
+            <a href="year3.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year4.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الرابعة</a>
+          <div class="dd-sems">
+            <a href="year4.html#sem0">الفصل الأول</a>
+            <a href="year4.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <a href="electives.html" class="dd-elective"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>المساقات الاختيارية</a>
+        </div>
+      </div>
+      <a href="study-tools.html" data-nav="rihab"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/><path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M4 21h16"/><path d="M9 21v-3a3 3 0 0 1 6 0v3"/></svg></span>زاد الطالب</a>
+    </div>
+    <div class="auth-slot" id="authSlot">
+      <a class="auth-link" href="login.html" title="تسجيل الدخول"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg></span><span class="auth-label">دخول</span></a>
+    </div>
+    <div class="nav-actions">
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    <button class="burger" onclick="toggleNav()" aria-label="menu"><i data-icon="menu"></i></button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap sch-wrap">
+    <div class="crumb"><a href="index.html"><i data-icon="home"></i> الرئيسية</a> / <a href="profile.html">حسابي</a> / جدولي الأسبوعي</div>
+    <h1>جدولي الأسبوعي <span class="em"><i data-icon="calendar" data-size="24"></i></span></h1>
+    <p>ابنِ جدولك بمحاضراتك ومواعيدك، واطبعه أو صدّره لتقويمك — محفوظ بمتصفحك فقط.</p>
+  </div>
+</header>
+
+<section class="wrap sch-wrap" style="padding-bottom:60px">
+
+  <div class="sch-toolbar">
+    <button class="sch-tbtn primary" onclick="Schedule.openAddModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      إضافة محاضرة
+    </button>
+    <span class="spacer"></span>
+    <button class="sch-tbtn" onclick="Schedule.exportIcs()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      تصدير لتقويم Google
+    </button>
+    <button class="sch-tbtn" onclick="Schedule.exportPdf()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      طباعة
+    </button>
+    <button class="sch-tbtn" onclick="Schedule.exportPdf()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      حفظ PDF
+    </button>
+    <button class="sch-tbtn danger" onclick="Schedule.clearAll()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      مسح الكل
+    </button>
+  </div>
+
+  <div class="sch-grid-wrap">
+    <div id="schGrid" class="sch-grid"></div>
+  </div>
+
+  <div class="sch-summary" id="schSummary"></div>
+
+</section>
+</main>
+
+<!-- مودال إضافة/تعديل محاضرة -->
+<div class="sch-modal-overlay" id="schModalOverlay">
+  <div class="sch-modal-box">
+    <button type="button" class="sch-modal-close" onclick="Schedule.closeModal()" aria-label="إغلاق">✕</button>
+    <h3 id="schModalTitle">إضافة محاضرة</h3>
+
+    <div class="sch-fld">
+      <label for="schCourseSearch">المساق</label>
+      <div class="sch-course-pick">
+        <input id="schCourseSearch" type="text" autocomplete="off" role="combobox"
+               aria-controls="schCourseList" aria-expanded="false"
+               placeholder="اكتب اسم المساق أو رمزه..."
+               onfocus="Schedule.coursePickOpen(true)" oninput="Schedule.coursePickOpen()"
+               onblur="Schedule.coursePickClose()" onkeydown="Schedule.coursePickKey(event)">
+        <div class="sch-course-pick-list" id="schCourseList" role="listbox" hidden></div>
+      </div>
+      <select id="schCourseSelect" onchange="Schedule.onCourseSelectChange()" style="display:none"></select>
+    </div>
+
+    <div class="sch-fld" id="schCustomNameField" style="display:none">
+      <label for="schCustomName">اسم المساق / النشاط</label>
+      <input type="text" id="schCustomName" placeholder="مثال: نادي البرمجة">
+    </div>
+
+    <div class="sch-fld">
+      <label for="schInstructor">اسم المدرّس (اختياري)</label>
+      <input type="text" id="schInstructor" placeholder="د. محمد أحمد">
+    </div>
+
+    <div class="sch-fld">
+      <label>طبيعة المحاضرة</label>
+      <div class="sch-type-toggle">
+        <button type="button" class="sch-type-btn active" id="schTypeInPerson" onclick="Schedule.setType('in_person')"><i data-icon="building"></i> وجاهي</button>
+        <button type="button" class="sch-type-btn" id="schTypeOnline" onclick="Schedule.setType('online')"><i data-icon="globe"></i> إلكتروني</button>
+      </div>
+    </div>
+
+    <div class="sch-fld">
+      <label>الأيام</label>
+      <div class="sch-days-picker" id="schDaysPicker"></div>
+    </div>
+
+    <div class="sch-row2">
+      <div class="sch-fld">
+        <label for="schStartTime">وقت البدء</label>
+        <input type="time" id="schStartTime" value="09:00">
+      </div>
+      <div class="sch-fld">
+        <label for="schEndTime">وقت الانتهاء</label>
+        <input type="time" id="schEndTime" value="10:00">
+      </div>
+    </div>
+
+    <div class="sch-fld">
+      <label>لون البطاقة</label>
+      <div class="sch-color-picker" id="schColorPicker"></div>
+    </div>
+
+    <input type="hidden" id="schEditId">
+
+    <div class="sch-modal-msg" id="schModalMsg"></div>
+
+    <div class="sch-modal-actions">
+      <button class="sch-tbtn primary" type="button" onclick="Schedule.save()">حفظ المحاضرة</button>
+      <button class="sch-tbtn danger" type="button" id="schDeleteBtn" onclick="Schedule.deleteCurrent()" style="display:none">حذف</button>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+    <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<script src="core.js" defer></script>
+<script src="site-dialog.js" defer></script>
+<script src="announcements.js" defer></script>
+<script src="schedule.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+# ==========================================================================
+# .gitignore قياسي لمشروع Laravel — هذا الملف كان ناقصًا كليًا بالمشروع
+# الأصلي (أهم اكتشاف بتقرير الفحص)، وهو سبب رئيسي ليش لازم ننشئه قبل
+# أول Commit مباشرة.
+# ==========================================================================
+
+# مكتبات Composer الخارجية — يعاد توليدها بالكامل بأمر
+# "composer install"، لا داعي لتخزين ١٠٨+ ميجا منها بالريبو
+/vendor
+
+# أسرار البيئة الحقيقية — لا تُرفع أبدًا (مفتاح التشفير، كلمة سر قاعدة
+# البيانات، مفاتيح خدمة البريد). القالب الآمن للمشاركة هو .env.example
+/.env
+/.env.local
+.env.backup
+.env.production
+
+# ملفات كاش وتشغيل لارافيل المؤقتة (تُنشأ تلقائيًا وقت التشغيل)
+/bootstrap/cache/*.php
+!/bootstrap/cache/.gitignore
+/storage/*.key
+/storage/app/*
+!/storage/app/public
+!/storage/app/private
+!/storage/app/.gitignore
+/storage/framework/cache/*
+!/storage/framework/cache/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/logs/*
+!/storage/logs/.gitignore
+
+# ملفات محرر وبيئة تطوير محلية
+/.idea
+/.vscode
+.DS_Store
+Thumbs.db
+
+# سجلات أخطاء PHP قديمة
+error_log
+
+# اعتماديات Node لو استُخدمت مستقبلًا لأدوات بناء (Vite وغيرها)
+/node_modules
+/public/hot
+/public/build
+
+# ملف قفل بيئة اختبار PHPUnit
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml

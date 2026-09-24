@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>زاد الطالب — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="زاد الطالب — أدوات الطالب: خطط المراجعة قبل كل مادة، الأدوات الهندسية، روابط مفيدة، وروضة الذاكرين.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="هندسة أنظمة الحاسوب — كلية فلسطين التقنية">
+<meta property="og:title" content="زاد الطالب — هندسة أنظمة الحاسوب">
+<meta property="og:description" content="زاد الطالب — أدوات الطالب: خطط المراجعة قبل كل مادة، الأدوات الهندسية، روابط مفيدة، وروضة الذاكرين.">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="زاد الطالب — هندسة أنظمة الحاسوب">
+<meta name="twitter:description" content="زاد الطالب — أدوات الطالب: خطط المراجعة قبل كل مادة، الأدوات الهندسية، روابط مفيدة، وروضة الذاكرين.">
+<meta name="twitter:image" content="icon-512.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;600;700;800&family=Tajawal:wght@400;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.prep-search-wrap{position:relative;margin-bottom:8px}
+.prep-search{width:100%;padding:10px 34px 10px 12px;border-radius:9px;background:var(--paper);border:1px solid var(--line-2);color:var(--ink);font-family:var(--font-ar);font-size:14px;outline:none;transition:.2s}
+.prep-search:focus{border-color:var(--copper);box-shadow:0 0 0 3px rgba(176,106,53,.1)}
+.prep-clear{position:absolute;inset-block-start:19px;inset-inline-start:8px;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;border:none;background:var(--paper-2);color:var(--muted);font-size:15px;line-height:1;cursor:pointer;display:none;place-items:center;transition:.15s}
+.prep-clear:hover{background:var(--line);color:var(--ink)}
+.prep-clear.show{display:grid}
+.prep-options{position:absolute;inset-inline:0;inset-block-start:calc(100% + 4px);z-index:30;background:var(--card);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow-lg);overflow:hidden;max-height:280px;overflow-y:auto;display:none}
+.prep-options.show{display:block;animation:fadeUp .2s ease}
+.prep-opt{width:100%;text-align:start;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;background:none;border:none;border-bottom:1px solid var(--line);cursor:pointer;transition:.15s}
+.prep-opt:last-child{border-bottom:none}
+.prep-opt:hover{background:var(--paper-2)}
+.prep-opt .po-name{font-family:var(--font-ar);font-size:13.5px;color:var(--ink)}
+.prep-opt:hover .po-name{color:var(--copper)}
+.prep-opt code{font-family:var(--font-mono);font-size:10px;color:var(--faint);white-space:nowrap}
+.prep-opt-empty{padding:14px;text-align:center;font-family:var(--font-ar);color:var(--faint);font-size:13.5px}
+.tool{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
+.tool:hover{border-color:var(--olive-2);transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+.tool h3{font-family:var(--font-display);font-size:19px;color:var(--olive);margin-bottom:3px}
+.tool .sub{font-family:var(--font-ar);color:var(--muted);font-size:14px;margin-bottom:18px}
+.links a{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:9px;color:var(--muted);transition:.2s;border:1px solid transparent;font-family:var(--font-ar)}
+.links a:hover{background:var(--paper-2);color:var(--ink);border-color:var(--line)}
+.tool-linked{position:relative}
+.tool-linked .tool-open{position:absolute;inset:0;z-index:1;border-radius:var(--radius)}
+.tool-linked .links{position:relative;z-index:2}
+.tool-linked:hover{border-color:var(--olive-2);transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+.tool-enter{font-family:var(--font-ar);font-weight:700;color:var(--copper);font-size:14px;margin-top:14px;display:flex;align-items:center;gap:7px;transition:.2s}
+.tool-enter svg{width:15px;height:15px}
+.tool-linked:hover .tool-enter{color:var(--olive-2);transform:translateX(-4px)}
+.prep-result{margin-top:16px}
+.prep-empty{font-family:var(--font-ar);color:var(--faint);font-size:14px;text-align:center;padding:16px 8px}
+.prep-head{font-family:var(--font-display);font-size:16px;color:var(--olive);font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.prep-head .pcode{font-family:var(--font-mono);font-size:11px;color:var(--paper);background:var(--copper);border-radius:6px;padding:3px 8px}
+.prep-ar{font-family:var(--font-ar);color:var(--muted);font-size:13px;margin-bottom:12px}
+.prep-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.prep-list li{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;
+  background:var(--paper);border:1px solid var(--line);font-family:var(--font-body);
+  font-size:14px;color:var(--ink);transition:.18s;animation:prepIn .35s cubic-bezier(.2,.8,.3,1) both;
+}
+.prep-list li:hover{border-color:var(--copper);transform:translateX(-3px)}
+.prep-list li .pnum{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:rgba(60,74,47,.1);color:var(--olive);font-family:var(--font-mono);font-size:11px;font-weight:700;flex-shrink:0}
+.prep-list li:nth-child(1){animation-delay:.03s}.prep-list li:nth-child(2){animation-delay:.07s}
+.prep-list li:nth-child(3){animation-delay:.11s}.prep-list li:nth-child(4){animation-delay:.15s}
+.prep-list li:nth-child(5){animation-delay:.19s}.prep-list li:nth-child(6){animation-delay:.23s}
+@keyframes prepIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+</style>
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<script id="ptc-fast-auth-guard">
+try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
+</script>
+</head>
+<body>
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب"><span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span><span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span></a>
+    <div class="nav-links" id="menu">
+      <a href="index.html" data-nav="home"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg></span>الرئيسية</a>
+      <div class="nav-drop" data-nav="curriculum">
+        <button class="nav-drop-btn" type="button"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>المناهج الدراسية <svg class="dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="nav-drop-menu">
+          <div class="dd-year">
+          <a href="year1.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الأولى</a>
+          <div class="dd-sems">
+            <a href="year1.html#sem0">الفصل الأول</a>
+            <a href="year1.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year2.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثانية</a>
+          <div class="dd-sems">
+            <a href="year2.html#sem0">الفصل الأول</a>
+            <a href="year2.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year3.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثالثة</a>
+          <div class="dd-sems">
+            <a href="year3.html#sem0">الفصل الأول</a>
+            <a href="year3.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year4.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الرابعة</a>
+          <div class="dd-sems">
+            <a href="year4.html#sem0">الفصل الأول</a>
+            <a href="year4.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <a href="electives.html" class="dd-elective"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>المساقات الاختيارية</a>
+        </div>
+      </div>
+      <a href="study-tools.html" data-nav="rihab" class="active"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/><path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M4 21h16"/><path d="M9 21v-3a3 3 0 0 1 6 0v3"/></svg></span>زاد الطالب</a>
+    </div>
+    <div class="auth-slot" id="authSlot">
+      <a class="auth-link" href="login.html" title="تسجيل الدخول"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg></span><span class="auth-label">دخول</span></a>
+    </div>
+    <div class="nav-actions">
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    <button class="burger" onclick="toggleNav()" aria-label="menu"><i data-icon="menu"></i></button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <div class="crumb"><a href="index.html"><i data-icon="home"></i> الرئيسية</a> / أدوات الدراسة</div>
+    <h1>زاد الطالب <span class="em"><i data-icon="mosque"></i></span></h1>
+    <p>بالعلمِ تُبنى العقول، وبالإيمانِ تُسدّد الخطى. صمّمنا 'زاد الطالب' ليكون رفيقك المتكامل؛ يمنحك الأدوات التقنية لتسهيل دراستك، والبيئة الإيمانية لثبات قلبك، لتسير نحو أهدافك بعزيمة المؤمن القوي.</p>
+  </div>
+</header>
+
+<section style="padding-top:8px">
+  <div class="wrap">
+    <div class="verse reveal" style="margin-bottom:22px;margin-top:0">
+      <div class="kind" id="kind">آية</div>
+      <div class="ayah" id="ayah">﴿ وَقُل رَّبِّ زِدْنِي عِلْمًا ﴾</div>
+      <div class="surah" id="surah">طه: 114</div>
+    </div>
+
+    <div class="tools-grid">
+      <div class="tool reveal">
+        <h3><i data-icon="clipboard"></i> ماذا أراجع قبل المادة؟</h3><div class="sub">ابحث عن المساق لتعرف المواضيع التي يُنصح بمراجعتها قبله.</div>
+        <div class="prep-search-wrap">
+          <input class="prep-search" id="prepSearch" placeholder="ابحث عن مساق بالاسم أو الرمز..." aria-label="البحث عن مساق بالاسم أو الرمز" oninput="filterPrep(this.value)" autocomplete="off">
+          <button class="prep-clear" id="prepClear" onclick="prepClearSearch()" aria-label="مسح">×</button>
+          <div class="prep-options" id="prepOptions"></div>
+        </div>
+        <div class="prep-result" id="prepResult">
+          <div class="prep-empty">اكتب اسم مساق للبحث عن متطلبات مراجعته <i data-icon="bookOpen"></i></div>
+        </div>
+      </div>
+
+      <div class="tool reveal tool-linked">
+        <a class="tool-open" href="tools.html#directory" aria-label="افتح دليل الأدوات الهندسية"></a>
+        <h3><i data-icon="settings"></i> الأدوات الهندسية</h3><div class="sub">حاسبات تعمل داخل متصفحك وبلا إنترنت — تحقّق من إجابتك قبل أن تسلّم.</div>
+        <div class="links">
+          <a href="tools.html#numbers"><i data-icon="refresh"></i> أنظمة العد</a>
+          <a href="tools.html#subnet"><i data-icon="target"></i> الشبكات الفرعية</a>
+          <a href="tools.html#truth"><i data-icon="layers"></i> جدول الحقيقة</a>
+          <a href="tools.html#bigo"><i data-icon="chart"></i> Big-O</a>
+          <a href="tools.html#kmap"><i data-icon="target"></i> تبسيط بولي</a>
+        </div>
+        <div class="tool-enter">كل الأدوات <i data-icon="arrowLeft"></i></div>
+      </div>
+
+      <div class="tool reveal">
+        <h3><i data-icon="link"></i> روابط مفيدة</h3><div class="sub">مصادر تعليمية خارجية.</div>
+        <div class="links">
+          <a href="https://www.geeksforgeeks.org" target="_blank" rel="noopener"><i data-icon="bookOpen"></i> GeeksforGeeks</a>
+          <a href="https://leetcode.com" target="_blank" rel="noopener"><i data-icon="bookOpen"></i> LeetCode</a>
+          <a href="https://www.w3schools.com" target="_blank" rel="noopener"><i data-icon="link"></i> W3Schools</a>
+          <a href="https://cs50.harvard.edu" target="_blank" rel="noopener"><i data-icon="graduation"></i> Harvard CS50</a>
+          <a href="https://roadmap.sh" target="_blank" rel="noopener"><i data-icon="target"></i> Developer Roadmaps</a>
+        </div>
+      </div>
+
+      <a href="roadmaps.html" class="tool reveal">
+        <h3><i data-icon="target"></i> خرائط طريق التخصصات</h3><div class="sub">مسار كامل من الصفر للاحتراف بأهم تخصصات هندسة الحاسوب — تطوير الويب، تطبيقات الموبايل، وأكثر قريبًا. مصادر منتقاة بعناية، عربية وإنجليزية.</div>
+        <div class="tool-enter">استكشف الخرائط <i data-icon="arrowLeft"></i></div>
+      </a>
+
+      <a href="rawdah.html" class="tool reveal spiritual-card">
+        <h3><i data-icon="leaf"></i> روضة الذاكرين</h3><div class="sub">واحتك الروحانية: أذكار الصباح والمساء، القرآن الكريم، أحاديث، مواعيد الصلاة، ومسبحة.</div>
+        <div class="spiritual-preview">
+          <span><i data-icon="sunrise"></i> أذكار الصباح</span><span><i data-icon="moon"></i> أذكار المساء</span><span><i data-icon="quran"></i> المصحف كامل</span>
+          <span><i data-icon="quote"></i> أحاديث</span><span><i data-icon="mosque"></i> مواعيد الصلاة</span><span><i data-icon="beads"></i> المسبحة</span>
+        </div>
+        <div class="spiritual-enter">ادخل الروضة <i data-icon="arrowLeft"></i></div>
+      </a>
+
+
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+    <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<script src="prep-guide.js" defer></script>
+
+<script>
+// live search for "ماذا أراجع قبل المادة؟"
+function filterPrep(q){
+  const clr=document.getElementById('prepClear');
+  if(clr) clr.classList.toggle('show',(q||'').length>0);
+  const box=document.getElementById('prepOptions');
+  q=(q||'').trim().toLowerCase();
+  if(!q){ box.classList.remove('show'); box.innerHTML=''; return; }
+  if(typeof PREP_GUIDE==='undefined'){ return; }
+  const matches=Object.keys(PREP_GUIDE).filter(code=>{
+    const c=PREP_GUIDE[code];
+    return code.toLowerCase().includes(q)||c.name.toLowerCase().includes(q)||c.ar.includes(q);
+  }).slice(0,10);
+  if(!matches.length){ box.innerHTML='<div class="prep-opt-empty">لا يوجد مساق بهذا الاسم</div>'; box.classList.add('show'); return; }
+  box.innerHTML=matches.map(code=>{
+    const c=PREP_GUIDE[code];
+    // code يدخل سلسلة JS داخل onclick — الهروب HTML لا يكفي هناك لأن
+    // المحلّل يفكّ &#39; قبل تنفيذ JS، فيُقيَّد بمحارف آمنة في السياقين.
+    const safeCode=String(code).replace(/[^A-Za-z0-9 ]/g,'');
+    return `<button class="prep-opt" onclick="pickPrep('${safeCode}')"><span class="po-name">${PTCUtils.escapeHTML(c.name)} — ${PTCUtils.escapeHTML(c.ar)}</span><code>${PTCUtils.escapeHTML(code)}</code></button>`;
+  }).join('');
+  box.classList.add('show');
+}
+function pickPrep(code){
+  document.getElementById('prepSearch').value='';
+  document.getElementById('prepOptions').classList.remove('show');
+  document.getElementById('prepClear').classList.remove('show');
+  showPrep(code);
+}
+function prepClearSearch(){
+  const inp=document.getElementById('prepSearch');
+  inp.value=''; filterPrep(''); inp.focus();
+  document.getElementById('prepResult').innerHTML='<div class="prep-empty">اكتب اسم مساق للبحث عن متطلبات مراجعته <i data-icon="bookOpen"></i></div>';
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('.prep-search-wrap')) document.getElementById('prepOptions').classList.remove('show'); });
+
+/* حُذفت مزامنة الأجهزة بكود نسخ/لصق (collectData و exportSync و
+   importSync): كانت تكتب في #syncBox و #syncMsg وهما غير موجودين في
+   الترميز، ولا زرّ يستدعي أيًّا من الدالتين — فكانت ترمي عند أول نداء
+   لو وصلها نداء. المزامنة الحقيقية تتم عبر الحساب على الخادم. */
+
+function showPrep(code){
+  const box=document.getElementById('prepResult');
+  if(!code){ box.innerHTML='<div class="prep-empty">اختر مساقاً من القائمة لعرض متطلبات مراجعته <i data-icon="bookOpen"></i></div>'; return; }
+  const c=PREP_GUIDE[code];
+  if(!c){ box.textContent='تعذّر العثور على بيانات هذا المساق.'; return; }
+  const items=c.topics.map((t,i)=>{
+    const label = (typeof t==='string') ? t : t.topic;
+    const link  = (typeof t==='object' && t.link) ? PTCUtils.safeUrl(t.link) : null;
+    const safeLabel=PTCUtils.escapeHTML(label);
+    const inner = link ? `<a href="${PTCUtils.escapeHTML(link)}" target="_blank" rel="noopener noreferrer" style="color:inherit">${safeLabel} ↗</a>` : safeLabel;
+    return `<li><span class="pnum">${i+1}</span><span>${inner}</span></li>`;
+  }).join('');
+  box.innerHTML=`<div class="prep-head"><span class="pcode">${PTCUtils.escapeHTML(code)}</span>${PTCUtils.escapeHTML(c.name)}</div>
+    <div class="prep-ar">${PTCUtils.escapeHTML(c.ar)} — يُنصح بمراجعة:</div>
+    <ul class="prep-list">${items}</ul>`;
+}
+</script>
+<script src="core.js" defer></script>
+<script src="contribute.js" defer></script>
+<script src="announcements.js" defer></script>
+<script>window.addEventListener('DOMContentLoaded',async()=>{if(typeof PTCAuth!=='undefined')await PTCAuth.requireAuth('login.html');});</script>
+</body>
+</html>

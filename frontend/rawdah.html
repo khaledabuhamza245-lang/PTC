@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>روضة الذاكرين — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="روضة الذاكرين — أذكار الصباح والمساء والنوم، المصحف كاملاً مع التلاوة، أحاديث نبوية، أدعية، مواعيد الصلاة، ومسبحة.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="هندسة أنظمة الحاسوب — كلية فلسطين التقنية">
+<meta property="og:title" content="روضة الذاكرين — هندسة أنظمة الحاسوب">
+<meta property="og:description" content="روضة الذاكرين — أذكار الصباح والمساء والنوم، المصحف كاملاً مع التلاوة، أحاديث نبوية، أدعية، مواعيد الصلاة، ومسبحة.">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="روضة الذاكرين — هندسة أنظمة الحاسوب">
+<meta name="twitter:description" content="روضة الذاكرين — أذكار الصباح والمساء والنوم، المصحف كاملاً مع التلاوة، أحاديث نبوية، أدعية، مواعيد الصلاة، ومسبحة.">
+<meta name="twitter:image" content="icon-512.png">
+
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;600;700;800&family=Tajawal:wght@400;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.rawdah-hero{text-align:center;padding:10px 0 4px}
+.back-bar{display:flex;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.back-bar a{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--olive);font-family:var(--font-ar);font-size:14px;transition:.2s;cursor:pointer}
+.back-bar a:hover{border-color:var(--copper);background:var(--paper-2);transform:translateY(-1px)}
+
+/* section tabs */
+.rw-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px;justify-content:center}
+.rw-tab{padding:11px 20px;border-radius:12px;border:1px solid var(--line-2);background:var(--card);color:var(--muted);font-family:var(--font-ar);font-weight:700;font-size:14.5px;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:8px}
+.rw-tab:hover{border-color:var(--copper);color:var(--olive)}
+.rw-tab.active{background:var(--olive);color:var(--paper);border-color:var(--olive)}
+.rw-pane{display:none;animation:fadeUp .4s ease}
+.rw-pane.show{display:block}
+
+/* adhkar cards */
+.dhikr-card{background:linear-gradient(180deg,var(--card),var(--paper-2));border:1px solid var(--line);border-radius:16px;padding:22px 26px;margin-bottom:16px;box-shadow:var(--shadow);border-inline-start:4px solid var(--copper);position:relative}
+.dhikr-card .dh-text{font-family:var(--font-serif-ar);font-size:19px;line-height:2.2;color:var(--olive)}
+.dhikr-card .dh-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.dhikr-card .dh-count{font-family:var(--font-ar);font-size:12.5px;color:var(--copper);font-weight:700}
+.dhikr-card .dh-virtue{font-family:var(--font-ar);font-size:12px;color:var(--muted);flex:1}
+.dhikr-card .dh-rep{width:34px;height:34px;border-radius:9px;background:var(--olive);color:var(--paper);border:none;cursor:pointer;font-family:var(--font-mono);font-weight:600;font-size:14px;transition:.15s;flex-shrink:0}
+.dhikr-card .dh-rep:hover{background:var(--olive-2)}
+.dhikr-card.done{opacity:.55}
+.dhikr-card.done .dh-rep{background:var(--olive-2)}
+
+/* Quran */
+.quran-controls{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.q-nav-btn{width:46px;height:46px;border-radius:12px;border:1px solid var(--line-2);background:var(--card);color:var(--olive);font-size:22px;cursor:pointer;transition:.2s;display:grid;place-items:center}
+.q-nav-btn:hover{border-color:var(--copper);background:var(--paper-2)}
+.q-nav-btn:disabled{opacity:.4;cursor:default}
+.q-page-info{font-family:var(--font-ar);font-size:15px;color:var(--olive);font-weight:700;min-width:130px;text-align:center}
+.q-jump{display:flex;align-items:center;gap:8px;font-family:var(--font-ar);font-size:13px;color:var(--muted)}
+.q-jump input{width:64px;padding:8px 10px;border-radius:8px;border:1px solid var(--line-2);background:var(--paper);color:var(--ink);font-family:var(--font-mono);text-align:center;outline:none}
+.q-jump input:focus{border-color:var(--copper)}
+.quran-toolbar{display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+.q-tool{padding:10px 16px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--olive);font-family:var(--font-ar);font-size:13.5px;cursor:pointer;transition:.2s}
+.q-tool:hover{border-color:var(--copper);background:var(--paper-2)}
+.q-tool.saved{background:var(--olive);color:var(--paper);border-color:var(--olive)}
+.q-tool.audio{border-color:var(--copper);color:var(--copper)}
+.q-tool.audio.playing{background:var(--copper);color:#fff}
+.audio-state{font-family:var(--font-ar);font-size:11.5px;color:var(--muted)}
+.surah-search-wrap{position:relative;max-width:420px;margin:0 auto 18px}
+.surah-search{width:100%;padding:12px 16px 12px 38px;border-radius:12px;border:1px solid var(--line-2);background:var(--card);color:var(--ink);font-family:var(--font-ar);font-size:15px;outline:none;box-shadow:var(--shadow);transition:.2s}
+.surah-search:focus{border-color:var(--copper);box-shadow:0 0 0 3px rgba(176,106,53,.1)}
+.surah-clear{position:absolute;top:50%;left:10px;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;border:none;background:var(--paper-2);color:var(--muted);font-size:15px;line-height:1;cursor:pointer;display:none;place-items:center;transition:.15s}
+.surah-clear:hover{background:var(--line);color:var(--ink)}
+.surah-clear.show{display:grid}
+.surah-results{position:absolute;inset-inline:0;inset-block-start:calc(100% + 6px);z-index:40;background:var(--card);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow-lg);overflow:hidden;max-height:320px;overflow-y:auto;display:none}
+.surah-results.show{display:block;animation:fadeUp .25s ease}
+.surah-opt{width:100%;text-align:start;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;background:none;border:none;border-bottom:1px solid var(--line);cursor:pointer;transition:.15s;font-family:var(--font-ar);font-size:14.5px;color:var(--ink)}
+.surah-opt:last-child{border-bottom:none}
+.surah-opt:hover{background:var(--paper-2);color:var(--copper)}
+.surah-opt .surah-pg{font-family:var(--font-mono);font-size:11px;color:var(--faint);white-space:nowrap}
+.surah-empty{padding:16px;text-align:center;font-family:var(--font-ar);color:var(--faint);font-size:14px}
+.quran-page{background:linear-gradient(180deg,#fdfaf2,#f7f1e3);border:1px solid var(--line-2);border-radius:16px;padding:34px 30px;box-shadow:var(--shadow-lg);min-height:400px;position:relative}
+[data-theme="dark"] .quran-page{background:linear-gradient(180deg,#22261d,#1c1f18)}
+.quran-page .surah-header{text-align:center;font-family:var(--font-serif-ar);font-size:22px;color:var(--copper);font-weight:700;margin:18px 0;padding:12px;border-block:2px solid var(--line-2)}
+.quran-page .basmala{text-align:center;font-family:var(--font-serif-ar);font-size:24px;color:var(--olive);margin:16px 0}
+.quran-text{font-family:var(--font-serif-ar);font-size:26px;line-height:2.6;color:#2a2620;text-align:justify;text-align-last:center}
+[data-theme="dark"] .quran-text{color:#ece7db}
+.quran-text .ayah-num{display:inline-grid;place-items:center;width:30px;height:30px;margin:0 4px;font-family:var(--font-mono);font-size:12px;color:var(--copper);border:2px solid var(--copper);border-radius:50%;vertical-align:middle}
+.quran-loading{text-align:center;padding:60px 20px;font-family:var(--font-ar);color:var(--muted)}
+.q-spinner{width:36px;height:36px;border:3px solid var(--line);border-top-color:var(--copper);border-radius:50%;margin:0 auto 14px;animation:spin 1s linear infinite}
+.q-retry-btn{margin-top:14px;padding:10px 20px;border-radius:10px;border:1px solid var(--copper);background:var(--card);color:var(--copper);font-family:var(--font-ar);font-size:13.5px;font-weight:700;cursor:pointer;transition:.2s}
+.q-retry-btn:hover{background:var(--copper);color:#fff}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* hadith */
+.hadith-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 26px;margin-bottom:14px;box-shadow:var(--shadow);border-inline-start:4px solid var(--olive-2)}
+.hadith-card .hd-text{font-family:var(--font-serif-ar);font-size:18px;line-height:2.1;color:var(--ink)}
+.hadith-card .hd-src{font-family:var(--font-ar);font-size:12.5px;color:var(--copper);margin-top:12px;font-weight:700}
+.hadith-more{display:block;margin:8px auto 0;padding:12px 28px;border-radius:10px;border:1px dashed var(--line-2);background:none;color:var(--olive);font-family:var(--font-ar);font-weight:700;cursor:pointer;transition:.2s}
+.hadith-more:hover{border-color:var(--copper);color:var(--copper)}
+
+/* prayer times */
+.rw-prayers{max-width:440px;margin:0 auto}
+.rw-prayer-row{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-radius:12px;background:var(--card);border:1px solid var(--line);margin-bottom:10px;transition:.2s}
+.rw-prayer-row.next{background:linear-gradient(120deg,rgba(176,106,53,.12),var(--card));border-color:var(--copper)}
+.rw-prayer-row .pr-name{font-family:var(--font-serif-ar);font-size:20px;color:var(--olive);font-weight:700}
+.rw-prayer-row .pr-time{font-family:var(--font-mono);font-size:16px;color:var(--copper);font-weight:600}
+.rw-prayer-row .pr-badge{font-family:var(--font-ar);font-size:11px;color:var(--copper);background:rgba(176,106,53,.15);padding:3px 10px;border-radius:20px;margin-inline-start:8px}
+
+/* tasbeeh */
+.tasbeeh-wrap{max-width:400px;margin:0 auto;text-align:center;background:linear-gradient(180deg,var(--card),var(--paper-2));border:1px solid var(--line-2);border-radius:20px;padding:30px;box-shadow:var(--shadow-lg)}
+.tb-phrase{font-family:var(--font-serif-ar);font-size:30px;color:var(--olive);margin-bottom:8px;min-height:44px}
+.tb-target{font-family:var(--font-ar);font-size:13px;color:var(--muted);margin-bottom:18px}
+.tb-count{font-family:var(--font-mono);font-size:64px;font-weight:600;color:var(--copper);line-height:1;transition:.2s}
+.tb-count.pulse{transform:scale(1.12)}
+.tb-tap{width:100%;padding:20px;margin-top:20px;border-radius:16px;border:none;background:var(--olive);color:var(--paper);font-family:var(--font-ar);font-weight:700;font-size:18px;cursor:pointer;transition:.12s;user-select:none}
+.tb-tap:hover{background:var(--olive-2)}
+.tb-tap:active{transform:scale(.97)}
+.tb-controls{display:flex;gap:10px;margin-top:14px}
+.tb-mini{flex:1;padding:11px;border-radius:10px;border:1px solid var(--line-2);background:var(--paper);color:var(--ink);font-family:var(--font-ar);font-size:13px;cursor:pointer;transition:.15s}
+.tb-mini:hover{border-color:var(--copper)}
+.tb-phrases{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+.tb-chip{padding:7px 13px;border-radius:20px;border:1px solid var(--line-2);background:var(--paper);color:var(--muted);font-family:var(--font-ar);font-size:12.5px;cursor:pointer;transition:.15s}
+.tb-chip.active{background:var(--copper);color:var(--paper);border-color:var(--copper)}
+</style>
+<script id="ptc-fast-auth-guard">
+try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
+</script>
+</head>
+<body>
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب">
+      <span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span>
+      <span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span>
+    </a>
+    <div class="nav-links" id="menu">
+      <a href="index.html" data-nav="home"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg></span>الرئيسية</a>
+      <div class="nav-drop" data-nav="curriculum">
+        <button class="nav-drop-btn" type="button"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>المناهج الدراسية <svg class="dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="nav-drop-menu">
+          <div class="dd-year">
+          <a href="year1.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الأولى</a>
+          <div class="dd-sems">
+            <a href="year1.html#sem0">الفصل الأول</a>
+            <a href="year1.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year2.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثانية</a>
+          <div class="dd-sems">
+            <a href="year2.html#sem0">الفصل الأول</a>
+            <a href="year2.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year3.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثالثة</a>
+          <div class="dd-sems">
+            <a href="year3.html#sem0">الفصل الأول</a>
+            <a href="year3.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year4.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الرابعة</a>
+          <div class="dd-sems">
+            <a href="year4.html#sem0">الفصل الأول</a>
+            <a href="year4.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <a href="electives.html" class="dd-elective"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>المساقات الاختيارية</a>
+        </div>
+      </div>
+      <a href="study-tools.html" data-nav="rihab" class="active"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/><path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M4 21h16"/><path d="M9 21v-3a3 3 0 0 1 6 0v3"/></svg></span>زاد الطالب</a>
+    </div>
+    <div class="auth-slot" id="authSlot">
+      <a class="auth-link" href="login.html" title="تسجيل الدخول"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg></span><span class="auth-label">دخول</span></a>
+    </div>
+    <div class="nav-actions">
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    <button class="burger" onclick="toggleNav()" aria-label="menu"><i data-icon="menu"></i></button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <div class="crumb"><a href="index.html">الرئيسية</a> / <a href="study-tools.html">زاد الطالب</a> / روضة الذاكرين</div>
+    <h1>روضة الذاكرين <span class="em"><i data-icon="leaf"></i></span></h1>
+    <p>واحة روحانية بين محاضراتك: أذكار الصباح والمساء، القرآن الكريم، أحاديث نبوية، مواعيد الصلاة، ومسبحة — لتبقى صلتك بالله حاضرة.</p>
+  </div>
+</header>
+
+<section style="padding-top:14px">
+  <div class="wrap">
+    <!-- أزرار "الصفحة الرئيسية"/"الصفحة السابقة" أُزيلت من هنا: مسار
+         التنقّل (breadcrumb) بأعلى الصفحة (الرئيسية / زاد الطالب /
+         روضة الذاكرين) يغطّي نفس الحاجة أصلًا، فبقاؤهما كان تكرارًا
+         بلا فائدة إضافية. -->
+    <div class="rw-tabs">
+      <button class="rw-tab active" onclick="rwTab('morning',this)"><i data-icon="sunrise"></i> أذكار الصباح</button>
+      <button class="rw-tab" onclick="rwTab('evening',this)"><i data-icon="moon"></i> أذكار المساء</button>
+      <button class="rw-tab" onclick="rwTab('night',this)"><i data-icon="stars"></i> أذكار النوم</button>
+      <button class="rw-tab" onclick="rwTab('quran',this)"><i data-icon="quran"></i> المصحف</button>
+      <button class="rw-tab" onclick="rwTab('hadith',this)"><i data-icon="quote"></i> أحاديث</button>
+      <button class="rw-tab" onclick="rwTab('dua',this)"><i data-icon="hands"></i> أدعية</button>
+      <button class="rw-tab" onclick="rwTab('prayer',this)"><i data-icon="mosque"></i> مواعيد الصلاة</button>
+      <button class="rw-tab" onclick="rwTab('tasbeeh',this)"><i data-icon="beads"></i> المسبحة</button>
+    </div>
+
+    <div class="rw-pane show" id="pane-morning"></div>
+    <div class="rw-pane" id="pane-evening"></div>
+    <div class="rw-pane" id="pane-night"></div>
+    <div class="rw-pane" id="pane-dua"></div>
+
+    <div class="rw-pane" id="pane-quran">
+      <div class="quran-controls">
+        <button class="q-nav-btn" id="qPrev" onclick="qPage(qCurrent-1)" title="السابقة">›</button>
+        <span class="q-page-info" id="qInfo">صفحة —</span>
+        <button class="q-nav-btn" id="qNext" onclick="qPage(qCurrent+1)" title="التالية">‹</button>
+        <span class="q-jump">انتقل لصفحة <input type="number" id="qJump" min="1" max="604" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();qJumpToPage(this.value);this.blur();}" onchange="qJumpToPage(this.value)"> / 604</span>
+      </div>
+      <div class="quran-toolbar">
+        <button class="q-tool" id="bmSave" onclick="saveBookmark()" title="حفظ الصفحة"><i data-icon="bookmark"></i> حفظ الصفحة</button>
+        <button class="q-tool" id="bmGo" onclick="gotoBookmark()" title="الذهاب للمحفوظة"><i data-icon="bookmark"></i> صفحتي المحفوظة</button>
+        <button class="q-tool audio" id="audioBtn" onclick="toggleAudio()" title="تشغيل التلاوة"><i data-icon="volume"></i> استمع للصفحة</button>
+        <span class="audio-state" id="audioState"></span>
+      </div>
+      <div class="surah-search-wrap">
+        <input class="surah-search" id="surahSearch" placeholder="ابحث عن سورة بالاسم..." aria-label="البحث عن سورة بالاسم" oninput="filterSurah(this.value)" autocomplete="off">
+        <button class="surah-clear" id="surahClear" onclick="clearSurahSearch()" aria-label="مسح البحث" type="button">×</button>
+        <div class="surah-results" id="surahResults"></div>
+      </div>
+      <div class="quran-page" id="quranPage">
+        <div class="quran-loading"><div class="q-spinner"></div>جارٍ تحميل المصحف...</div>
+      </div>
+    </div>
+
+    <div class="rw-pane" id="pane-hadith"></div>
+
+    <div class="rw-pane" id="pane-prayer">
+      <div class="rw-prayers" id="rwPrayers">
+        <div class="quran-loading"><div class="q-spinner"></div>جارٍ تحميل المواعيد...</div>
+      </div>
+      <p style="text-align:center;font-family:var(--font-ar);color:var(--faint);font-size:12.5px;margin-top:16px">المواعيد بتوقيت مدينة غزة</p>
+    </div>
+
+    <div class="rw-pane" id="pane-tasbeeh">
+      <div class="tasbeeh-wrap">
+        <div class="tb-phrase" id="tbPhrase">سُبْحَانَ اللَّهِ</div>
+        <div class="tb-target" id="tbTarget">الهدف: 33</div>
+        <div class="tb-count" id="tbCount">0</div>
+        <button class="tb-tap" onclick="tbTap()">اضغط للتسبيح <i data-icon="beads"></i></button>
+        <div class="tb-controls">
+          <button class="tb-mini" onclick="tbReset()"><i data-icon="refresh"></i> تصفير</button>
+        </div>
+        <div class="tb-phrases" id="tbChips"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<script src="core.js" defer></script>
+<script src="contribute.js" defer></script>
+<script src="announcements.js" defer></script>
+<script src="adhkar-data.js" defer></script>
+<script>
+// ===== tabs =====
+function rwTab(name,btn){
+  document.querySelectorAll('.rw-tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.rw-pane').forEach(p=>p.classList.remove('show'));
+  document.getElementById('pane-'+name).classList.add('show');
+  if(name==='quran' && !qLoaded) qPage(qCurrent);
+  if(name==='prayer' && !prayerLoaded) loadRwPrayers();
+  // نثبّت التبويب الحالي بالرابط، حتى لو حدّثت الصفحة ترجع لنفس التبويب لا لتبويب "الصباح" الافتراضي.
+  try{ history.replaceState(null,'','#'+name); }catch(e){}
+}
+
+// ===== تقدّم يومي: يبقى أثناء نفس اليوم، ويتصفّر تلقائيًا مع بداية يوم جديد =====
+// الفكرة: المفتاح نفسه فيه تاريخ اليوم، فبمجرد ما يتغيّر التاريخ (منتصف الليل)
+// بيصير المفتاح غير موجود أصلاً، فيبدأ العدّاد من الصفر تلقائيًا بدون أي مؤقّت.
+function rwTodayKey(){
+  const d=new Date();
+  return 'ptc_rw_daily_'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function rwLoadDaily(){
+  try{ return JSON.parse(localStorage.getItem(rwTodayKey()))||{}; }catch(e){ return {}; }
+}
+function rwSaveDaily(data){
+  try{
+    localStorage.setItem(rwTodayKey(),JSON.stringify(data));
+    // تنظيف مفاتيح الأيام القديمة حتى ما تتراكم بالتخزين المحلي
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && k.indexOf('ptc_rw_daily_')===0 && k!==rwTodayKey()) localStorage.removeItem(k);
+    }
+  }catch(e){}
+}
+
+// ===== adhkar rendering =====
+function renderAdhkar(id,list){
+  const daily=rwLoadDaily();
+  const saved=(daily.adhkar&&daily.adhkar[id])||[];
+  const box=document.getElementById('pane-'+id);
+  box.innerHTML=list.map((d,i)=>{
+    const n=Number(saved[i])||0;
+    const doneCls=n>=Number(d.count)?' done':'';
+    return `
+    <div class="dhikr-card${doneCls}" id="${id}-${i}">
+      <div class="dh-text">${PTCUtils.escapeHTML(d.text)}</div>
+      <div class="dh-meta">
+        <span class="dh-virtue">${PTCUtils.escapeHTML(d.virtue||'')}</span>
+        <span class="dh-count">${d.count>1?`كرّرها ${Number(d.count)} مرات`:'مرة واحدة'} · <span id="${id}-c-${i}">${n}</span>/${Number(d.count)}</span>
+        <button class="dh-rep" onclick="repDhikr('${id}',${i},${Number(d.count)})">+</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function repDhikr(id,i,total){
+  const el=document.getElementById(`${id}-c-${i}`);
+  let n=+el.textContent+1;
+  if(n>=total){ n=total; document.getElementById(`${id}-${i}`).classList.add('done'); }
+  el.textContent=n;
+
+  const daily=rwLoadDaily();
+  daily.adhkar=daily.adhkar||{};
+  daily.adhkar[id]=daily.adhkar[id]||[];
+  daily.adhkar[id][i]=n;
+  rwSaveDaily(daily);
+}
+// open the right tab if arriving from a reminder link (#morning / #evening / #night / #hadith ...)
+function openTabFromHash(){
+  const h=(location.hash||'').replace('#','');
+  const valid=['morning','evening','night','quran','hadith','dua','prayer','tasbeeh'];
+  if(valid.includes(h)){
+    const btn=[...document.querySelectorAll('.rw-tab')].find(b=>(b.getAttribute('onclick')||'').includes(`'${h}'`));
+    if(btn) rwTab(h,btn);
+  }
+}
+window.addEventListener('DOMContentLoaded',openTabFromHash);
+window.addEventListener('hashchange',openTabFromHash);
+// ملاحظة: لا نستدعي openTabFromHash() هون بشكل فوري ومباشر — هذا الجزء من
+// السكربت يُنفَّذ قبل تعريف متغيّرات تبويب المصحف (qCurrent وغيرها) بالأسفل،
+// واستدعاء رجوع لتبويب "المصحف" بهذي اللحظة بالذات (أي طالب كان فاتح صفحة
+// المصحف وعمل تحديث للصفحة، فالرابط برجع فيه #quran) كان يسبب خطأ جافاسكريبت
+// فوري (الوصول لمتغيّر قبل تهيئته)، فتضل الصفحة عالقة فارغة بلا رقم صفحة ولا
+// محتوى إطلاقًا. الاستماع لحدث DOMContentLoaded أعلاه كافٍ تمامًا ويضمن إنه
+// كل متغيّرات الصفحة (بما فيها قسم المصحف بالأسفل) تكون جاهزة قبل التنفيذ.
+
+// ===== hadith =====
+let hadithShown=6;
+function renderHadith(){
+  const box=document.getElementById('pane-hadith');
+  const shown=HADITHS.slice(0,hadithShown);
+  box.innerHTML=shown.map(h=>`<div class="hadith-card"><div class="hd-text">${PTCUtils.escapeHTML(h.text)}</div><div class="hd-src">${PTCUtils.escapeHTML(h.src)}</div></div>`).join('')
+    + (hadithShown<HADITHS.length?`<button class="hadith-more" onclick="hadithShown+=6;renderHadith()">عرض المزيد (${HADITHS.length-hadithShown} حديث)</button>`:'');
+}
+
+// ===== Quran (AlQuran Cloud API, page by page) =====
+// surah name <i data-icon="arrowLeft"></i> starting page (Madani mushaf, 604 pages)
+const SURAHS=[
+ ["الفاتحة",1],["البقرة",2],["آل عمران",50],["النساء",77],["المائدة",106],["الأنعام",128],
+ ["الأعراف",151],["الأنفال",177],["التوبة",187],["يونس",208],["هود",221],["يوسف",235],
+ ["الرعد",249],["إبراهيم",255],["الحجر",262],["النحل",267],["الإسراء",282],["الكهف",293],
+ ["مريم",305],["طه",312],["الأنبياء",322],["الحج",332],["المؤمنون",342],["النور",350],
+ ["الفرقان",359],["الشعراء",367],["النمل",377],["القصص",385],["العنكبوت",396],["الروم",404],
+ ["لقمان",411],["السجدة",415],["الأحزاب",418],["سبأ",428],["فاطر",434],["يس",440],
+ ["الصافات",446],["ص",453],["الزمر",458],["غافر",467],["فصلت",477],["الشورى",483],
+ ["الزخرف",489],["الدخان",496],["الجاثية",499],["الأحقاف",502],["محمد",507],["الفتح",511],
+ ["الحجرات",515],["ق",518],["الذاريات",520],["الطور",523],["النجم",526],["القمر",528],
+ ["الرحمن",531],["الواقعة",534],["الحديد",537],["المجادلة",542],["الحشر",545],["الممتحنة",549],
+ ["الصف",551],["الجمعة",553],["المنافقون",554],["التغابن",556],["الطلاق",558],["التحريم",560],
+ ["الملك",562],["القلم",564],["الحاقة",566],["المعارج",568],["نوح",570],["الجن",572],
+ ["المزمل",574],["المدثر",575],["القيامة",577],["الإنسان",578],["المرسلات",580],["النبأ",582],
+ ["النازعات",583],["عبس",585],["التكوير",586],["الانفطار",587],["المطففين",587],["الانشقاق",589],
+ ["البروج",590],["الطارق",591],["الأعلى",591],["الغاشية",592],["الفجر",593],["البلد",594],
+ ["الشمس",595],["الليل",595],["الضحى",596],["الشرح",596],["التين",597],["العلق",597],
+ ["القدر",598],["البينة",598],["الزلزلة",599],["العاديات",599],["القارعة",600],["التكاثر",600],
+ ["العصر",601],["الهمزة",601],["الفيل",601],["قريش",602],["الماعون",602],["الكوثر",602],
+ ["الكافرون",603],["النصر",603],["المسد",603],["الإخلاص",604],["الفلق",604],["الناس",604]
+];
+function filterSurah(q){
+  const clr=document.getElementById('surahClear');
+  if(clr) clr.classList.toggle('show',(q||'').trim().length>0);
+  q=(q||'').trim();
+  const box=document.getElementById('surahResults');
+  if(!q){ box.classList.remove('show'); box.innerHTML=''; return; }
+  const norm=s=>s.replace(/[أإآ]/g,'ا').replace(/ة/g,'ه');
+  const nq=norm(q);
+  const matches=SURAHS.map((s,i)=>({name:s[0],page:s[1],num:i+1}))
+    .filter(s=>norm(s.name).includes(nq)||String(s.num)===q).slice(0,8);
+  if(!matches.length){ box.innerHTML='<div class="surah-empty">لا توجد سورة بهذا الاسم</div>'; box.classList.add('show'); return; }
+  box.innerHTML=matches.map(s=>`<button class="surah-opt" onclick="goSurah(${Number(s.page)})"><span>${Number(s.num)}. سورة ${PTCUtils.escapeHTML(s.name)}</span><span class="surah-pg">ص ${Number(s.page)}</span></button>`).join('');
+  box.classList.add('show');
+}
+function goSurah(page){
+  document.getElementById('surahSearch').value='';
+  document.getElementById('surahResults').classList.remove('show');
+  const clr=document.getElementById('surahClear');
+  if(clr) clr.classList.remove('show');
+  qPage(page);
+}
+function clearSurahSearch(){
+  const input=document.getElementById('surahSearch');
+  input.value='';
+  filterSurah('');
+  input.focus();
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('.surah-search-wrap')) document.getElementById('surahResults').classList.remove('show'); });
+
+// ===== bookmark =====
+function saveBookmark(){
+  try{ localStorage.setItem('ptc_quran_bookmark',qCurrent); }catch(e){}
+  const b=document.getElementById('bmSave');
+  PTCUtils.setIconLabel(b,'check','حُفظت صفحة '+qCurrent);
+  b.classList.add('saved');
+  setTimeout(()=>{PTCUtils.setIconLabel(b,'bookmark','حفظ الصفحة');b.classList.remove('saved');},1800);
+  refreshBookmarkBtn();
+}
+function gotoBookmark(){
+  let p=null; try{ p=+localStorage.getItem('ptc_quran_bookmark'); }catch(e){}
+  if(!p){ alert('لم تحفظ أي صفحة بعد. اضغط "حفظ الصفحة" أولاً.'); return; }
+  qPage(p);
+}
+function refreshBookmarkBtn(){
+  let p=null; try{ p=+localStorage.getItem('ptc_quran_bookmark'); }catch(e){}
+  const g=document.getElementById('bmGo');
+  if(g) PTCUtils.setIconLabel(g,'bookmark',p?`صفحتي المحفوظة (${p})`:'صفحتي المحفوظة');
+}
+
+// ===== audio recitation (uses the shared background player in app.js) =====
+function toggleAudio(){
+  if(typeof QuranAudio==='undefined') return;
+  if(QuranAudio.isPlaying() && QuranAudio.currentPage()===qCurrent){ QuranAudio.pause(); }
+  else { QuranAudio.playPage(qCurrent); }
+  syncAudioBtn();
+}
+function syncAudioBtn(){
+  const btn=document.getElementById('audioBtn'), st=document.getElementById('audioState');
+  if(!btn||typeof QuranAudio==='undefined') return;
+  const playing=QuranAudio.isPlaying()&&QuranAudio.currentPage()===qCurrent;
+  PTCUtils.setIconLabel(btn,playing?'pause':'volume',playing?'إيقاف التلاوة':'استمع للصفحة');
+  btn.classList.toggle('playing',playing);
+  if(st) st.textContent = QuranAudio.isPlaying() ? `يُتلى الآن: صفحة ${QuranAudio.currentPage()}` : '';
+}
+window.addEventListener('ptc-audio-change',syncAudioBtn);
+setInterval(syncAudioBtn,1000);
+
+let qCurrent=(()=>{ try{ const p=Number(localStorage.getItem('ptc_quran_last_page')); return p>=1&&p<=604?p:1; }catch(e){ return 1; } })(), qLoaded=false;
+function qJumpToPage(value){
+  const jumpInput=document.getElementById('qJump');
+  const raw=(value==null?'':String(value)).trim();
+  const n=parseInt(raw,10);
+  if(!raw || isNaN(n)){
+    jumpInput.value=qCurrent;
+    return;
+  }
+  if(n<1 || n>604){
+    jumpInput.value=qCurrent;
+    if(typeof showToast==='function'){
+      showToast('تنبيه','رقم الصفحة غير موجود','المصحف الكريم يحتوي على 604 صفحة فقط — الرجاء إدخال رقم بين 1 و604.',4);
+    }
+    return;
+  }
+  if(n===qCurrent) return;
+  qPage(n);
+}
+function qPage(n){
+  n=Math.max(1,Math.min(604,n));
+  qCurrent=n; qLoaded=true;
+  try{ localStorage.setItem('ptc_quran_last_page',String(n)); }catch(e){}
+  document.getElementById('qInfo').textContent='صفحة '+n;
+  document.getElementById('qPrev').disabled=(n<=1);
+  document.getElementById('qNext').disabled=(n>=604);
+  document.getElementById('qJump').value=n;
+  qLoadPageData(n);
+}
+let qLoadToken=0;
+function qLoadPageData(n){
+  const token=++qLoadToken;
+  const box=document.getElementById('quranPage');
+  box.innerHTML='<div class="quran-loading"><div class="q-spinner"></div>جارٍ تحميل الصفحة...</div>';
+  const hasAbort=(typeof AbortController!=='undefined');
+  const controller=hasAbort?new AbortController():null;
+  // بعض الأحيان يتأخر رد الخادم الخارجي (Alquran Cloud API) لثوانٍ طويلة أو لا يرد إطلاقًا —
+  // بدل ما تضل الصفحة عالقة على "جارٍ التحميل" للأبد، نلغي الطلب تلقائيًا بعد 12 ثانية
+  // ونعرض زر إعادة محاولة صريح بدل إجبار الطالب يطلع من الصفحة ويرجعلها.
+  const timeoutId=hasAbort?setTimeout(()=>controller.abort(),12000):null;
+  fetch(`https://api.alquran.cloud/v1/page/${n}/quran-uthmani`, hasAbort?{signal:controller.signal}:{})
+    .then(r=>{ if(!r.ok) throw new Error('http-'+r.status); return r.json(); })
+    .then(d=>{
+      if(token!==qLoadToken) return;
+      if(timeoutId) clearTimeout(timeoutId);
+      const ayahs=d.data.ayahs;
+      let html=''; let lastSurah=null;
+      ayahs.forEach(a=>{
+        if(a.surah.number!==lastSurah){
+          lastSurah=a.surah.number;
+          // API returns names like "سُورَةُ ٱلْفَاتِحَةِ" — use as-is, strip any duplicate prefix
+          let sName=(a.surah.name||'').trim();
+          if(!/^سُورَةُ|^سورة/.test(sName)) sName='سورة '+sName;
+          html+=`<div class="surah-header">${PTCUtils.escapeHTML(sName)}</div>`;
+          if(a.numberInSurah===1 && a.surah.number!==1 && a.surah.number!==9){
+            html+='<div class="basmala">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>';
+          }
+        }
+        let text=a.text;
+        // strip leading basmala from first ayah (already shown)
+        if(a.numberInSurah===1 && a.surah.number!==1 && a.surah.number!==9){
+          text=text.replace(/^بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\s*/,'');
+        }
+        html+=`<span class="q-ayah">${PTCUtils.escapeHTML(text)}<span class="ayah-num">${Number(a.numberInSurah)||''}</span> </span>`;
+      });
+      box.innerHTML=`<div class="quran-text">${html}</div>`;
+      box.scrollIntoView({behavior:'smooth',block:'start'});
+    })
+    .catch(()=>{
+      if(timeoutId) clearTimeout(timeoutId);
+      if(token!==qLoadToken) return;
+      box.innerHTML=`<div class="quran-loading">تعذّر تحميل المصحف — الخادم بطيء أو الاتصال منقطع.<br><button type="button" class="q-retry-btn" onclick="qLoadPageData(${n})">إعادة المحاولة</button></div>`;
+    });
+}
+
+// ===== prayer times (Gaza) =====
+let prayerLoaded=false;
+function loadRwPrayers(){
+  prayerLoaded=true;
+  const to12=tm=>{let[h,m]=tm.split(':').map(Number);const ap=h<12?'ص':'م';h=h%12||12;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ap}`;};
+  fetch('https://api.aladhan.com/v1/timings?latitude=31.5017&longitude=34.4668&method=4')
+    .then(r=>r.json()).then(d=>{
+      const t=d.data.timings;
+      const order=[['الفجر',t.Fajr],['الشروق',t.Sunrise],['الظهر',t.Dhuhr],['العصر',t.Asr],['المغرب',t.Maghrib],['العشاء',t.Isha]];
+      const now=new Date(); const mins=now.getHours()*60+now.getMinutes();
+      let ni=order.findIndex(([n,tm])=>{const[h,m]=tm.split(':').map(Number);return h*60+m>mins;});
+      if(ni<0)ni=0;
+      document.getElementById('rwPrayers').innerHTML=order.map(([n,tm],i)=>
+        `<div class="rw-prayer-row ${i===ni?'next':''}"><span class="pr-name">${n}${i===ni?'<span class="pr-badge">القادمة</span>':''}</span><span class="pr-time">${to12(tm)}</span></div>`
+      ).join('');
+    })
+    .catch(()=>{document.getElementById('rwPrayers').innerHTML='<div class="quran-loading">تعذّر تحميل المواعيد. تحتاج اتصالاً بالإنترنت.</div>';});
+}
+
+// ===== tasbeeh =====
+const TB_PHRASES=[
+  {t:"سُبْحَانَ اللَّهِ",target:33},
+  {t:"الْحَمْدُ لِلَّهِ",target:33},
+  {t:"اللَّهُ أَكْبَرُ",target:34},
+  {t:"لَا إِلَهَ إِلَّا اللَّهُ",target:100},
+  {t:"أَسْتَغْفِرُ اللَّهَ",target:100},
+  {t:"سُبْحَانَ اللَّهِ وَبِحَمْدِهِ",target:100},
+  {t:"لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ",target:100},
+];
+let tbIdx=0, tbCount=0;
+(function initTasbihFromDaily(){
+  const daily=rwLoadDaily();
+  if(daily.tasbih){
+    tbIdx=Number(daily.tasbih.idx)||0;
+    tbCount=Number((daily.tasbih.counts||{})[tbIdx])||0;
+  }
+})();
+function tbSaveDaily(){
+  const daily=rwLoadDaily();
+  daily.tasbih=daily.tasbih||{counts:{}};
+  daily.tasbih.idx=tbIdx;
+  daily.tasbih.counts=daily.tasbih.counts||{};
+  daily.tasbih.counts[tbIdx]=tbCount;
+  rwSaveDaily(daily);
+}
+function tbChips(){
+  document.getElementById('tbChips').innerHTML=TB_PHRASES.map((p,i)=>`<button class="tb-chip ${i===tbIdx?'active':''}" onclick="tbPick(${i})">${p.t}</button>`).join('');
+}
+function tbPick(i){
+  tbIdx=i;
+  const daily=rwLoadDaily();
+  tbCount=Number((daily.tasbih&&daily.tasbih.counts||{})[i])||0;
+  update();
+  tbSaveDaily();
+}
+function tbTap(){
+  tbCount++;
+  const c=document.getElementById('tbCount');
+  c.classList.add('pulse'); setTimeout(()=>c.classList.remove('pulse'),150);
+  if(tbCount===TB_PHRASES[tbIdx].target){ if(navigator.vibrate)navigator.vibrate(200); }
+  update();
+  tbSaveDaily();
+}
+function tbReset(){ tbCount=0; update(); tbSaveDaily(); }
+function update(){
+  document.getElementById('tbPhrase').textContent=TB_PHRASES[tbIdx].t;
+  document.getElementById('tbTarget').textContent='الهدف: '+TB_PHRASES[tbIdx].target;
+  document.getElementById('tbCount').textContent=tbCount;
+  tbChips();
+}
+update();
+
+// ===== مراقبة حية لتغيّر اليوم: تصفّر العدادات تلقائيًا مع منتصف الليل =====
+// بدون الحاجة لتحديث الصفحة يدويًا — نفحص كل دقيقة هل تغيّر مفتاح اليوم.
+let rwWatchedKey=rwTodayKey();
+setInterval(()=>{
+  const nowKey=rwTodayKey();
+  if(nowKey===rwWatchedKey) return;
+  rwWatchedKey=nowKey;
+
+  // أذكار الصباح والمساء والنوم: نعيد رسمها فتبدأ عداداتها من الصفر لليوم الجديد.
+  renderAdhkar('morning',MORNING_FULL);
+  renderAdhkar('evening',EVENING_FULL);
+  renderAdhkar('night',NIGHT_FULL);
+
+  // المسبحة: نرجعها لبداية أول عبارة بعدّاد صفر لليوم الجديد.
+  tbIdx=0; tbCount=0;
+  update();
+},60000);
+
+/*
+ * التصيير الأولي يلي بده adhkar-data.js (MORNING_FULL/EVENING_FULL/
+ * NIGHT_FULL/DUAS/HADITHS) وapp.js (PTCUtils) — كانت هاي الاستدعاءات
+ * تنفَّذ فورًا بمواضعها الأصلية بالأعلى، وهاد كان آمنًا طالما تلك
+ * الملفات تحمّلت وتنفَّذت synchronous قبلها بالترتيب. بعد ما صارت
+ * تتحمّل بـdefer (بالتوازي)، لازم ننتظر DOMContentLoaded صراحة قبل
+ * أول استخدام لها — بلا أي تغيير على منطقها الداخلي، بس بموضع تنفيذ
+ * مختلف (مجمّعة هون بدل انتشارها بمواضعها الأصلية).
+ */
+window.addEventListener('DOMContentLoaded', function(){
+  renderAdhkar('morning',MORNING_FULL);
+  renderAdhkar('evening',EVENING_FULL);
+  renderAdhkar('night',NIGHT_FULL);
+
+  const duaBox=document.getElementById('pane-dua');
+  duaBox.innerHTML=DUAS.map(d=>`<div class="dhikr-card"><div class="dh-text">${PTCUtils.escapeHTML(d.text)}</div>${d.src?`<div class="dh-meta"><span class="dh-virtue">${PTCUtils.escapeHTML(d.src)}</span></div>`:''}</div>`).join('');
+
+  renderHadith();
+  refreshBookmarkBtn();
+});
+</script>
+
+<script>window.addEventListener('DOMContentLoaded',async()=>{if(typeof PTCAuth!=='undefined')await PTCAuth.requireAuth('login.html');});</script>
+</body>
+</html>

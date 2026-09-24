@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>الصفحة غير موجودة — PTC Hub</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#3c4a2f">
+
+  <link rel="icon" href="logo.png">
+  <link rel="apple-touch-icon" href="logo.png">
+  <link rel="stylesheet" href="style.css">
+
+<style>
+.err-page{
+  min-height:80vh;display:flex;align-items:center;justify-content:center;
+  padding:32px 20px;text-align:center
+}
+.err-card{max-width:460px}
+.err-icon{width:96px;height:96px;margin:0 auto 20px;color:var(--olive);opacity:.9}
+.err-code{font-family:var(--font-display);font-size:15px;letter-spacing:3px;color:var(--copper);
+  font-weight:700;margin-bottom:6px}
+.err-title{font-family:var(--font-display);font-size:26px;color:var(--olive);margin-bottom:12px}
+.err-text{font-family:var(--font-ar);font-size:14.5px;color:var(--muted);line-height:1.9;margin-bottom:28px}
+.err-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+</style>
+</head>
+
+<body>
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب">
+      <span class="seal">
+        <img src="logo.png" alt="شعار كلية فلسطين التقنية">
+      </span>
+      <span class="txt">
+        <b>هندسة أنظمة الحاسوب</b>
+        <small>Computer Systems Eng</small>
+      </span>
+    </a>
+  </div>
+</nav>
+
+<main class="err-page">
+  <div class="err-card">
+    <svg class="err-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/>
+      <path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/>
+      <path d="M4 21h16"/>
+      <path d="M9 21v-3a3 3 0 0 1 6 0v3"/>
+      <path d="M9.5 12.5l1.2 1.2 3.3-3.3" stroke="var(--copper)"/>
+    </svg>
+
+    <div class="err-code">404</div>
+    <h1 class="err-title">واضح إننا ضيّعنا المساق</h1>
+    <p class="err-text">
+      الصفحة يلي بتدوّر عليها مش موجودة — يمكن الرابط تغيّر، أو كتب غلط.
+      جرّب ترجع للرئيسية أو تدوّر عن يلي بدك ياه من هناك.
+    </p>
+
+    <div class="err-actions">
+      <a href="index.html" class="btn btn-primary">
+        <span>الصفحة الرئيسية</span>
+      </a>
+      <a href="study-tools.html" class="btn btn-ghost">
+        <span>رِحاب العلم</span>
+      </a>
+    </div>
+  </div>
+</main>
+
+<script>
+  try{
+    if(localStorage.getItem('ptc_theme')==='dark'){
+      document.documentElement.setAttribute('data-theme','dark');
+    }
+  }catch(e){}
+</script>
+
+</body>
+</html>

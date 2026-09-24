@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>الأدوات الهندسية — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="أدوات هندسية تعمل داخل المتصفح وبلا إنترنت: أنظمة العد، الشبكات الفرعية، جدول الحقيقة، Big-O، وتبسيط بولي.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="هندسة أنظمة الحاسوب — كلية فلسطين التقنية">
+<meta property="og:title" content="الأدوات الهندسية — هندسة أنظمة الحاسوب">
+<meta property="og:description" content="أدوات هندسية تعمل داخل المتصفح وبلا إنترنت: أنظمة العد، الشبكات الفرعية، جدول الحقيقة، Big-O، وتبسيط بولي.">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="الأدوات الهندسية — هندسة أنظمة الحاسوب">
+<meta name="twitter:description" content="أدوات هندسية تعمل داخل المتصفح وبلا إنترنت: أنظمة العد، الشبكات الفرعية، جدول الحقيقة، Big-O، وتبسيط بولي.">
+<meta name="twitter:image" content="icon-512.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;600;700;800&family=Tajawal:wght@400;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.prep-search-wrap{position:relative;margin-bottom:8px}
+.prep-search{width:100%;padding:10px 34px 10px 12px;border-radius:9px;background:var(--paper);border:1px solid var(--line-2);color:var(--ink);font-family:var(--font-ar);font-size:14px;outline:none;transition:.2s}
+.prep-search:focus{border-color:var(--copper);box-shadow:0 0 0 3px rgba(176,106,53,.1)}
+.prep-clear{position:absolute;inset-block-start:19px;inset-inline-start:8px;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;border:none;background:var(--paper-2);color:var(--muted);font-size:15px;line-height:1;cursor:pointer;display:none;place-items:center;transition:.15s}
+.prep-clear:hover{background:var(--line);color:var(--ink)}
+.prep-clear.show{display:grid}
+.prep-options{position:absolute;inset-inline:0;inset-block-start:calc(100% + 4px);z-index:30;background:var(--card);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow-lg);overflow:hidden;max-height:280px;overflow-y:auto;display:none}
+.prep-options.show{display:block;animation:fadeUp .2s ease}
+.prep-opt{width:100%;text-align:start;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;background:none;border:none;border-bottom:1px solid var(--line);cursor:pointer;transition:.15s}
+.prep-opt:last-child{border-bottom:none}
+.prep-opt:hover{background:var(--paper-2)}
+.prep-opt .po-name{font-family:var(--font-ar);font-size:13.5px;color:var(--ink)}
+.prep-opt:hover .po-name{color:var(--copper)}
+.prep-opt code{font-family:var(--font-mono);font-size:10px;color:var(--faint);white-space:nowrap}
+.prep-opt-empty{padding:14px;text-align:center;font-family:var(--font-ar);color:var(--faint);font-size:13.5px}
+.tool{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
+.tool h3{font-family:var(--font-display);font-size:19px;color:var(--olive);margin-bottom:3px}
+.tool .sub{font-family:var(--font-ar);color:var(--muted);font-size:14px;margin-bottom:18px}
+.links a{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:9px;color:var(--muted);transition:.2s;border:1px solid transparent;font-family:var(--font-ar)}
+.links a:hover{background:var(--paper-2);color:var(--ink);border-color:var(--line)}
+.prep-result{margin-top:16px}
+.prep-empty{font-family:var(--font-ar);color:var(--faint);font-size:14px;text-align:center;padding:16px 8px}
+.prep-head{font-family:var(--font-display);font-size:16px;color:var(--olive);font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.prep-head .pcode{font-family:var(--font-mono);font-size:11px;color:var(--paper);background:var(--copper);border-radius:6px;padding:3px 8px}
+.prep-ar{font-family:var(--font-ar);color:var(--muted);font-size:13px;margin-bottom:12px}
+.prep-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.prep-list li{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;
+  background:var(--paper);border:1px solid var(--line);font-family:var(--font-body);
+  font-size:14px;color:var(--ink);transition:.18s;animation:prepIn .35s cubic-bezier(.2,.8,.3,1) both;
+}
+.prep-list li:hover{border-color:var(--copper);transform:translateX(-3px)}
+.prep-list li .pnum{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:rgba(60,74,47,.1);color:var(--olive);font-family:var(--font-mono);font-size:11px;font-weight:700;flex-shrink:0}
+.prep-list li:nth-child(1){animation-delay:.03s}.prep-list li:nth-child(2){animation-delay:.07s}
+.prep-list li:nth-child(3){animation-delay:.11s}.prep-list li:nth-child(4){animation-delay:.15s}
+.prep-list li:nth-child(5){animation-delay:.19s}.prep-list li:nth-child(6){animation-delay:.23s}
+@keyframes prepIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+</style>
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<script id="ptc-fast-auth-guard">
+try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
+</script>
+</head>
+<body>
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب"><span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span><span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span></a>
+    <div class="nav-links" id="menu">
+      <a href="index.html" data-nav="home"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg></span>الرئيسية</a>
+      <div class="nav-drop" data-nav="curriculum">
+        <button class="nav-drop-btn" type="button"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>المناهج الدراسية <svg class="dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="nav-drop-menu">
+          <div class="dd-year">
+          <a href="year1.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الأولى</a>
+          <div class="dd-sems">
+            <a href="year1.html#sem0">الفصل الأول</a>
+            <a href="year1.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year2.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثانية</a>
+          <div class="dd-sems">
+            <a href="year2.html#sem0">الفصل الأول</a>
+            <a href="year2.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year3.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثالثة</a>
+          <div class="dd-sems">
+            <a href="year3.html#sem0">الفصل الأول</a>
+            <a href="year3.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year4.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الرابعة</a>
+          <div class="dd-sems">
+            <a href="year4.html#sem0">الفصل الأول</a>
+            <a href="year4.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <a href="electives.html" class="dd-elective"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>المساقات الاختيارية</a>
+        </div>
+      </div>
+      <a href="study-tools.html" data-nav="rihab" class="active"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/><path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M4 21h16"/><path d="M9 21v-3a3 3 0 0 1 6 0v3"/></svg></span>زاد الطالب</a>
+    </div>
+    <div class="auth-slot" id="authSlot">
+      <a class="auth-link" href="login.html" title="تسجيل الدخول"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg></span><span class="auth-label">دخول</span></a>
+    </div>
+    <div class="nav-actions">
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    <button class="burger" onclick="toggleNav()" aria-label="menu"><i data-icon="menu"></i></button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <div class="crumb"><a href="index.html"><i data-icon="home"></i> الرئيسية</a> / <a href="study-tools.html">زاد الطالب</a> / الأدوات الهندسية</div>
+    <h1>الأدوات الهندسية <span class="em"><i data-icon="settings"></i></span></h1>
+    <p>أدوات حسابية تعمل داخل متصفحك مباشرة — بلا خادم وبلا إنترنت بعد أول زيارة. تحقّق من نتيجتك قبل أن تسلّم ورقتك.</p>
+  </div>
+</header>
+
+<section class="wrap tools-section">
+  <div class="tl-tabs" id="toolTabs">
+    <button class="tl-tab tl-tab-dir active" type="button" data-tool-tab="directory"><i data-icon="book"></i> دليل الأدوات</button>
+    <button class="tl-tab" type="button" data-tool-tab="numbers"><i data-icon="refresh"></i> أنظمة العد</button>
+    <button class="tl-tab" type="button" data-tool-tab="subnet"><i data-icon="target"></i> الشبكات الفرعية</button>
+    <button class="tl-tab" type="button" data-tool-tab="truth"><i data-icon="layers"></i> جدول الحقيقة</button>
+    <button class="tl-tab" type="button" data-tool-tab="bigo"><i data-icon="chart"></i> Big-O</button>
+    <button class="tl-tab" type="button" data-tool-tab="kmap"><i data-icon="target"></i> تبسيط بولي</button>
+    <button class="tl-tab" type="button" data-tool-tab="glossary"><i data-icon="bookOpen"></i> القاموس</button>
+  </div>
+
+  <!-- ─────────────── أنظمة العد ─────────────── -->
+  <div class="tl-pane" id="pane-numbers">
+    <div class="tool">
+      <h3>التحويل بين أنظمة العد</h3>
+      <p class="sub">اكتب في أي خانة، وتتحدّث الثلاث الأخرى في اللحظة نفسها. تقبل البادئات <code>0x</code> و<code>0b</code> و<code>0o</code>، والفراغات والشرطة السفلية كفواصل، والأرقام الهندية.</p>
+
+      <div class="nb-grid">
+        <label class="nb-field"><span class="nb-label">ثنائي <small>Binary · 2</small></span>
+          <input class="nb-in" id="nbBin" data-base="2" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="1111 1011" dir="ltr"></label>
+        <label class="nb-field"><span class="nb-label">ثماني <small>Octal · 8</small></span>
+          <input class="nb-in" id="nbOct" data-base="8" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="373" dir="ltr"></label>
+        <label class="nb-field"><span class="nb-label">عشري <small>Decimal · 10</small></span>
+          <input class="nb-in" id="nbDec" data-base="10" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="251" dir="ltr"></label>
+        <label class="nb-field"><span class="nb-label">سداسي عشري <small>Hex · 16</small></span>
+          <input class="nb-in" id="nbHex" data-base="16" autocomplete="off" spellcheck="false" placeholder="FB" dir="ltr"></label>
+      </div>
+
+      <div class="nb-msg" id="nbMsg" role="status" aria-live="polite"></div>
+      <div class="nb-actions"><button type="button" class="tl-btn" id="nbClear">مسح</button></div>
+    </div>
+
+    <div class="tool">
+      <h3>مكمّل الاثنين</h3>
+      <p class="sub">النمط نفسه يعني رقمين مختلفين: واحدًا بإشارة وآخر بلا إشارة. هنا يظهر الاثنان معًا حتى لا تلتبس بتة الإشارة بقيمة عادية.</p>
+
+      <div class="tw-widths" id="twWidths">
+        <button type="button" class="tw-w" data-bits="4">4 بت</button>
+        <button type="button" class="tw-w active" data-bits="8">8 بت</button>
+        <button type="button" class="tw-w" data-bits="16">16 بت</button>
+        <button type="button" class="tw-w" data-bits="32">32 بت</button>
+        <button type="button" class="tw-w" data-bits="64">64 بت</button>
+      </div>
+
+      <div class="tw-out" id="twOut"></div>
+      <div class="nb-msg" id="twMsg" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── الشبكات الفرعية ─────────────── -->
+  <div class="tl-pane" id="pane-subnet">
+    <div class="tool">
+      <h3>حاسبة الشبكات الفرعية</h3>
+      <p class="sub">أدخل عنوانًا وبادئة. تقبل البادئة رقمًا (<code>24</code>) أو قناعًا نقطيًا (<code>255.255.255.0</code>).</p>
+
+      <div class="nb-grid">
+        <label class="nb-field"><span class="nb-label">عنوان IPv4</span>
+          <input class="nb-in" id="snIp" autocomplete="off" spellcheck="false" placeholder="192.168.1.130" dir="ltr"></label>
+        <label class="nb-field"><span class="nb-label">البادئة أو القناع</span>
+          <input class="nb-in" id="snPrefix" autocomplete="off" spellcheck="false" placeholder="26" dir="ltr"></label>
+      </div>
+
+      <div class="nb-msg" id="snMsg" role="status" aria-live="polite"></div>
+      <div class="tw-out" id="snOut"></div>
+    </div>
+
+    <div class="tool">
+      <h3>تقسيم إلى شبكات فرعية</h3>
+      <p class="sub">أدخل بادئة أطول من الأولى لترى الشبكات الناتجة.</p>
+
+      <div class="nb-grid">
+        <label class="nb-field"><span class="nb-label">البادئة الجديدة</span>
+          <input class="nb-in" id="snNew" autocomplete="off" spellcheck="false" placeholder="28" dir="ltr"></label>
+      </div>
+
+      <div class="nb-msg" id="snSplitMsg" role="status" aria-live="polite"></div>
+      <div class="tbl-wrap"><table class="tl-table" id="snSplitOut"></table></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── جدول الحقيقة ─────────────── -->
+  <div class="tl-pane" id="pane-truth">
+    <div class="tool">
+      <h3>جدول الحقيقة</h3>
+      <p class="sub">اكتب تعبيرًا بوليًا بأي صيغة تعوّدتها. المتغيّرات حروف مفردة.</p>
+
+      <div class="nb-field">
+        <span class="nb-label">التعبير</span>
+        <input class="nb-in" id="thExpr" autocomplete="off" spellcheck="false" placeholder="!(A &amp; B) &lt;-&gt; (!A | !B)" dir="ltr">
+      </div>
+
+      <div class="th-legend">
+        <span><b>و</b> · <code dir="ltr">&amp; &amp;&amp; ∧ and *</code></span>
+        <span><b>أو</b> · <code dir="ltr">| || ∨ or +</code></span>
+        <span><b>نفي</b> · <code dir="ltr">! ~ ¬ not</code></span>
+        <span><b>حصري</b> · <code dir="ltr">^ ⊕ xor</code></span>
+        <span><b>استلزام</b> · <code dir="ltr">-&gt; =&gt; →</code></span>
+        <span><b>تكافؤ</b> · <code dir="ltr">&lt;-&gt; ↔ ≡</code></span>
+      </div>
+
+      <div class="nb-msg" id="thMsg" role="status" aria-live="polite"></div>
+      <div class="th-verdict" id="thVerdict"></div>
+      <div class="tbl-wrap"><table class="tl-table" id="thOut"></table></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── Big-O ─────────────── -->
+  <div class="tl-pane" id="pane-bigo">
+    <div class="tool">
+      <h3>مقارنة رتب النمو</h3>
+      <p class="sub">الترتيب في أي كتاب. المفيد هو الفجوة: عند <code>n = 1000</code> تفعل <code dir="ltr">O(n log n)</code> عشرة آلاف خطوة و<code dir="ltr">O(n²)</code> مليونًا.</p>
+
+      <div class="nb-field" style="max-width:260px">
+        <span class="nb-label">حجم المدخل n</span>
+        <input class="nb-in" id="boN" type="number" min="1" value="1000" autocomplete="off" dir="ltr">
+      </div>
+
+      <div class="nb-msg" id="boMsg" role="status" aria-live="polite"></div>
+      <div class="tbl-wrap"><table class="tl-table" id="boOut"></table></div>
+    </div>
+
+    <div class="tool">
+      <h3>المنحنيات</h3>
+      <p class="sub">المحور الرأسي لوغاريتمي — بغيره يبتلع <code dir="ltr">O(n!)</code> الرسم كلّه فتصير البقية خطًّا على المحور.</p>
+      <div class="bo-chart" id="boChart"></div>
+      <div class="bo-legend" id="boLegend"></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── تبسيط بولي ─────────────── -->
+  <div class="tl-pane" id="pane-kmap">
+    <div class="tool">
+      <h3>تبسيط التعابير البولية</h3>
+      <p class="sub">أدخل أرقام الحدود التي قيمتها 1. الخوارزمية Quine–McCluskey تعطي نفس جواب خريطة كارنو، وتصحّ لعدد متغيّرات أكبر مما تتّسع له الشبكة.</p>
+
+      <div class="nb-grid">
+        <label class="nb-field"><span class="nb-label">عدد المتغيّرات</span>
+          <select class="nb-in" id="kmVars" style="cursor:pointer">
+            <option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option>
+          </select></label>
+        <label class="nb-field"><span class="nb-label">الحدود (1)</span>
+          <input class="nb-in" id="kmMin" autocomplete="off" spellcheck="false" placeholder="0,2,5,7,8,10,13,15" dir="ltr"></label>
+        <label class="nb-field"><span class="nb-label">لامبالٍ (اختياري)</span>
+          <input class="nb-in" id="kmDc" autocomplete="off" spellcheck="false" placeholder="1,3" dir="ltr"></label>
+      </div>
+
+      <div class="nb-msg" id="kmMsg" role="status" aria-live="polite"></div>
+      <div class="km-result" id="kmResult"></div>
+      <div class="tbl-wrap"><table class="tl-table" id="kmTerms"></table></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── القاموس ─────────────── -->
+  <div class="tl-pane" id="pane-glossary">
+    <div class="tool">
+      <h3>قاموس المصطلحات الهندسية</h3>
+      <p class="sub">ابحث بالإنجليزية أو العربية أو داخل الشرح.</p>
+
+      <div class="nb-field">
+        <span class="nb-label">بحث</span>
+        <input class="nb-in" id="glSearch" autocomplete="off" spellcheck="false" placeholder="cache · التعاود · LIFO" style="font-family:var(--font-ar);letter-spacing:0">
+      </div>
+
+      <div class="nb-msg" id="glMsg" role="status" aria-live="polite"></div>
+      <div class="gl-list" id="glOut"></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── دليل الأدوات ─────────────── -->
+  <div class="tl-pane show" id="pane-directory">
+    <div class="tool">
+      <h3>دليل الأدوات الهندسية</h3>
+      <p class="sub">
+        كل برنامج وأداة ومفهوم يحتاجه التخصص، مصنّفًا حسب نوعه لا حسب المادة —
+        لأن الأداة الواحدة تخدم عدة مساقات. وتحت كل أداة المساقات التي تُستعمل فيها.
+      </p>
+
+      <div class="dir-controls">
+        <div class="nb-field">
+          <span class="nb-label">بحث</span>
+          <input class="nb-in" id="dirSearch" autocomplete="off" spellcheck="false"
+                 placeholder="Wireshark · تشفير · جدولة"
+                 style="font-family:var(--font-ar);letter-spacing:0">
+        </div>
+
+        <div class="dir-filters" id="dirFilters">
+          <button type="button" class="dir-f active" data-dir-type="">الكل</button>
+          <button type="button" class="dir-f" data-dir-type="software"><i data-icon="download"></i> برامج</button>
+          <button type="button" class="dir-f" data-dir-type="online"><i data-icon="external"></i> أدوات ويب</button>
+          <button type="button" class="dir-f" data-dir-type="concept"><i data-icon="bookOpen"></i> مفاهيم</button>
+          <button type="button" class="dir-f" data-dir-type="library"><i data-icon="book"></i> مكتبات</button>
+        </div>
+      </div>
+
+      <div class="nb-msg" id="dirMsg" role="status" aria-live="polite"></div>
+      <div class="dir-list" id="dirOut"></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+    <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<script src="core.js" defer></script>
+<script src="contribute.js" defer></script>
+<script src="announcements.js" defer></script>
+
+<script src="tools-numbers.js" defer></script>
+<script src="tools-subnet.js" defer></script>
+<script src="tools-truth.js" defer></script>
+<script src="tools-bigo.js" defer></script>
+<script src="tools-kmap.js" defer></script>
+<script src="glossary.js" defer></script>
+<script src="tools-registry.js" defer></script>
+<script src="site-dialog.js" defer></script>
+<script src="tools-directory.js" defer></script>
+<script src="tools-page.js" defer></script>
+</body>
+</html>

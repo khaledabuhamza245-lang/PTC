@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تسجيل الدخول — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="تسجيل الدخول أو إنشاء حساب في موقع هندسة أنظمة الحاسوب — كلية فلسطين التقنية.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="هندسة أنظمة الحاسوب — كلية فلسطين التقنية">
+<meta property="og:title" content="تسجيل الدخول — هندسة أنظمة الحاسوب">
+<meta property="og:description" content="تسجيل الدخول أو إنشاء حساب في موقع هندسة أنظمة الحاسوب — كلية فلسطين التقنية.">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="تسجيل الدخول — هندسة أنظمة الحاسوب">
+<meta name="twitter:description" content="تسجيل الدخول أو إنشاء حساب في موقع هندسة أنظمة الحاسوب — كلية فلسطين التقنية.">
+<meta name="twitter:image" content="icon-512.png">
+
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;600;700;800&family=Tajawal:wght@400;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+/* ============================================================
+   تصميم صفحة الدخول/التسجيل — نسخة مُهدَّأة تتبع هوية الموقع الفعلية
+   بالكامل (نفس var(--card)، var(--olive)، var(--copper)... في الوضعين
+   النهاري والليلي، لا ألوان مستقلة). زر تبديل الوضع بالأعلى يعمل هنا
+   بلا أي استثناء، تمامًا كباقي صفحات الموقع.
+   ============================================================ */
+
+/* -- توهّج واحد خافت جدًا خلف المحتوى، بلا ضجيج بصري -- */
+.bg-glow{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.bg-glow span{position:absolute;width:640px;height:640px;border-radius:50%;filter:blur(110px);
+  opacity:.14;background:radial-gradient(circle,var(--copper),transparent 70%);
+  top:-220px;inset-inline-end:-200px;animation:glowDrift 30s ease-in-out infinite}
+@keyframes glowDrift{0%,100%{transform:translate(0,0)}50%{transform:translate(-40px,50px)}}
+@media(prefers-reduced-motion:reduce){.bg-glow span{animation:none}}
+
+body[data-minimal-nav="1"] main{position:relative;z-index:2}
+/* حماية إضافية ضد أي انزياح أفقي بالجوال (خصوصًا بمتصفحات لا تدعم
+   overflow:clip بإحكام): hidden كحل احتياطي يُقرأ أولًا ثم clip يستبدله
+   بالمتصفحات الحديثة فقط، فيبقى hidden ساريًا بالمتصفحات الأقدم. */
+body[data-minimal-nav="1"]{overflow-x:hidden;overflow-x:clip;max-width:100vw}
+
+/* -- التخطيط: بانر تعريفي + بطاقة الدخول جنبًا إلى جنب على الشاشات
+      الكبيرة، ويطويان لعمود واحد على الجوال/التابلت -- */
+.app-layout{
+  position:relative;z-index:2;display:grid;grid-template-columns:1fr 1fr;
+  max-width:1180px;width:100%;margin:0 auto;padding:44px 20px 30px;gap:36px;align-items:center
+}
+
+.hero-section{
+  background:var(--card);border:1px solid var(--line);border-radius:26px;padding:44px 34px;text-align:center;
+  display:flex;flex-direction:column;align-items:center;box-shadow:var(--shadow-lg);
+  position:relative;overflow:hidden;animation:heroIn .6s ease-out both
+}
+@keyframes heroIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.grad-cap-wrapper{
+  width:82px;height:82px;background:linear-gradient(135deg,var(--gold),var(--copper));border-radius:22px;
+  display:flex;align-items:center;justify-content:center;font-size:2rem;color:var(--card);
+  margin-bottom:22px;box-shadow:0 10px 26px rgba(176,106,53,.28)
+}
+[data-theme="dark"] .grad-cap-wrapper{color:#141814}
+.hero-title{font-size:1.85rem;font-weight:900;color:var(--olive);margin-bottom:12px;font-family:var(--font-display)}
+.hero-desc{font-size:1rem;color:var(--muted);line-height:1.75;max-width:400px;margin-bottom:26px;font-family:var(--font-ar)}
+.hero-badges{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.feature-badge{
+  display:inline-flex;align-items:center;gap:7px;background:var(--paper-2);border:1px solid var(--line-2);
+  color:var(--olive);padding:8px 16px;border-radius:50px;font-size:.85rem;font-weight:600;
+  transition:transform .2s,background .2s;font-family:var(--font-ar)
+}
+.feature-badge i{color:var(--copper);display:inline-flex}
+.feature-badge:hover{transform:translateY(-2px);background:var(--paper)}
+
+.mobile-badges{display:none;flex-direction:column;align-items:center;text-align:center;margin-bottom:20px;gap:10px}
+.mobile-badges .mini-cap{
+  width:50px;height:50px;border-radius:15px;background:linear-gradient(135deg,var(--gold),var(--copper));
+  display:flex;align-items:center;justify-content:center;color:var(--card);font-size:1.3rem
+}
+[data-theme="dark"] .mobile-badges .mini-cap{color:#141814}
+.mobile-badges h1{font-size:1.15rem;font-weight:900;color:var(--olive);font-family:var(--font-display)}
+.mobile-badges .chips{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+
+.auth-wrap{max-width:460px;margin:0;position:relative;z-index:2}
+
+.auth-card{
+  background:var(--card);border:1px solid var(--line-2);border-radius:22px;padding:30px 28px;
+  box-shadow:var(--shadow-lg);animation:cardIn .6s .08s ease-out both
+}
+@keyframes cardIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+/* -- تبويب منزلق بدل التبديل الفوري -- */
+.auth-tabs{position:relative;display:flex;gap:6px;background:var(--paper-2);border-radius:13px;padding:5px;margin-bottom:24px;border:1px solid var(--line)}
+/* هذه الصفحة RTL دومًا (dir="rtl" ثابت بأعلى المستند)، فاستُخدمت هنا
+   right الفعلية بدل خاصية inline-end المنطقية عمدًا: inline-end في RTL
+   تعني يسار العنصر لا يمينه، وهو ما كان يضع المؤشر تحت التبويب الخطأ
+   بالضبط — تسجيل الدخول (أول تبويب، يمين الشاشة بترتيب RTL) كان يظهر
+   بلا تظليل والتظليل يظهر تحت «حساب جديد» رغم كونه غير نشط. */
+.tab-indicator{position:absolute;top:5px;bottom:5px;width:calc(50% - 5px);right:5px;background:linear-gradient(135deg,var(--copper),var(--copper-soft));border-radius:9px;transition:transform .32s ease;box-shadow:0 4px 14px rgba(176,106,53,.28)}
+.tab-indicator.to-signup{transform:translateX(-100%)}
+.auth-tab{flex:1;position:relative;z-index:2;padding:11px;border-radius:9px;border:none;background:none;cursor:pointer;font-family:var(--font-ar);font-weight:700;font-size:14.5px;color:var(--muted);transition:color .25s}
+.auth-tab.active{color:var(--card)}
+[data-theme="dark"] .auth-tab.active{color:#141814}
+
+.fld{margin-bottom:14px;position:relative}
+.fld label{display:block;font-family:var(--font-ar);font-size:12.5px;color:var(--olive);margin-bottom:7px;font-weight:600}
+.fld input,.fld select{width:100%;padding:12px 14px;border-radius:11px;border:1px solid var(--line-2);background:var(--paper);color:var(--ink);font-family:var(--font-ar);font-size:14.5px;outline:none;transition:border-color .2s,box-shadow .2s}
+.fld input::placeholder{color:var(--faint)}
+.fld input:focus,.fld select:focus{border-color:var(--copper);box-shadow:0 0 0 3px rgba(176,106,53,.14)}
+.fld .hint{font-family:var(--font-ar);font-size:11.5px;color:var(--faint);margin-top:4px}
+
+/* -- مؤشر قوة كلمة السر بحساب جديد فقط: إضافة عملية بدل الزخرفة، بنفس
+      ألوان الموقع (باهت ← نحاسي ← زيتوني) بدل الأحمر/الأخضر المعتاد -- */
+.pw-strength{display:flex;gap:5px;margin-top:8px;height:4px}
+.pw-strength i{flex:1;border-radius:3px;background:var(--line);transition:background .25s}
+.pw-strength-label{font-size:11px;color:var(--faint);margin-top:5px;display:block;min-height:14px;font-family:var(--font-ar)}
+
+.auth-btn{
+  width:100%;padding:14px;border-radius:12px;border:none;background:var(--olive);color:var(--paper);
+  font-family:var(--font-ar);font-weight:700;font-size:15.5px;cursor:pointer;transition:.2s;margin-top:6px;
+  display:flex;align-items:center;justify-content:center;gap:8px
+}
+.auth-btn:hover{background:var(--olive-2)}
+.auth-btn:disabled{opacity:.6;cursor:default}
+.auth-msg{margin-top:14px;padding:12px 14px;border-radius:10px;font-family:var(--font-ar);font-size:13.5px;display:none}
+.auth-msg.show{display:block}
+.auth-msg.err{background:rgba(192,57,43,.12);color:#c0392b;border:1px solid rgba(192,57,43,.3)}
+.auth-msg.ok{background:rgba(143,174,120,.15);color:var(--olive);border:1px solid var(--olive-2)}
+[data-theme="dark"] .auth-msg.err{background:rgba(255,120,105,.14);border-color:rgba(255,120,105,.45);color:#ff8f80}
+[data-theme="dark"] .auth-msg.ok{background:rgba(143,174,120,.16);border-color:var(--olive-2);color:var(--olive-2)}
+.auth-alt{text-align:center;margin-top:16px;font-family:var(--font-ar);font-size:13px;color:var(--muted)}
+.auth-alt a{color:var(--copper);cursor:pointer}
+/* «نسيت كلمة السر؟» زرّ لا رابط: يستقبل التركيز بلوحة المفاتيح ويُضغط
+   بالمسافة، وهو لا ينقل إلى صفحة حتى يكون رابطًا. */
+.auth-link-btn{
+  background:none;border:0;padding:3px 6px;font:inherit;color:var(--copper);
+  cursor:pointer;border-radius:7px;
+  transition:transform .12s ease,opacity .12s ease,background .15s ease
+}
+.auth-link-btn:hover{text-decoration:underline;background:color-mix(in srgb,var(--copper) 8%,transparent)}
+.auth-link-btn:active{transform:scale(.93);opacity:.65}
+.auth-link-btn:focus-visible{outline:2px solid var(--copper);outline-offset:2px}
+.auth-link-btn[disabled]{opacity:.5;cursor:progress;text-decoration:none;background:none;transform:none}
+@media(prefers-reduced-motion:reduce){
+  .auth-link-btn{transition:none}
+  .auth-link-btn:active{transform:none}
+}
+.setup-note{background:rgba(201,154,74,.12);border:1px solid var(--gold);border-radius:12px;padding:16px;margin-bottom:20px;font-family:var(--font-ar);font-size:13px;color:var(--ink);line-height:1.9}
+.setup-note b{color:var(--copper)}
+.setup-note code{font-family:var(--font-mono);font-size:11.5px;background:var(--paper-2);padding:2px 6px;border-radius:5px}
+
+.auth-divider{display:flex;align-items:center;gap:12px;margin:14px 0 4px;color:var(--faint);font-family:var(--font-ar);font-size:12.5px}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--line-2)}
+
+.pw-wrap{position:relative}
+.pw-wrap input{width:100%;padding-inline-end:44px}
+.pw-toggle{
+  position:absolute;top:50%;transform:translateY(-50%);
+  inset-inline-end:10px;
+  background:none;border:none;cursor:pointer;
+  font-size:17px;line-height:1;padding:4px;
+  opacity:.7;color:var(--muted)
+}
+.pw-toggle:hover{opacity:1}
+
+.google-btn-frame{
+  display:flex;justify-content:center;margin-top:14px;
+  padding:14px;border-radius:16px;
+  background:var(--paper-2);border:1px solid var(--line)
+}
+
+.onboard-overlay{
+  position:fixed;inset:0;z-index:10000;
+  background:rgba(20,18,12,.55);
+  display:flex;align-items:center;justify-content:center;
+  padding:20px
+}
+.onboard-card{
+  background:var(--card);border:1px solid var(--line-2);border-radius:20px;
+  box-shadow:var(--shadow-lg);
+  padding:30px 30px 32px;max-width:420px;width:100%;text-align:center;
+  animation:cardIn .35s ease-out both
+}
+.onboard-card .ob-icon{
+  width:56px;height:56px;margin:0 auto 16px;border-radius:16px;
+  background:linear-gradient(135deg,var(--gold),var(--copper));color:var(--card);
+  display:flex;align-items:center;justify-content:center;font-size:1.5rem
+}
+[data-theme="dark"] .onboard-card .ob-icon{color:#141814}
+.onboard-card h2{font-family:var(--font-display);color:var(--olive);font-size:20px;margin-bottom:8px}
+.onboard-card p{font-family:var(--font-ar);color:var(--muted);font-size:13.5px;line-height:1.7;margin-bottom:20px}
+.onboard-card .fld{text-align:right}
+
+/* ==========================================================
+   الاستجابة لكل الشاشات
+   ========================================================== */
+@media(max-width:1024px){
+  .app-layout{gap:24px;padding:36px 18px 24px}
+  .hero-section{padding:34px 24px}
+  .hero-title{font-size:1.6rem}
+}
+@media(max-width:860px){
+  .app-layout{grid-template-columns:minmax(0,1fr);gap:16px;padding:22px 16px 20px;max-width:460px}
+  .hero-section{display:none}
+  .mobile-badges{display:flex}
+  .auth-card{padding:24px 18px}
+}
+@media(max-width:380px){
+  .auth-card{padding:18px 15px;border-radius:20px}
+  .fld input,.fld select{padding:11px 13px;font-size:.86rem}
+  .mobile-badges h1{font-size:1.05rem}
+}
+</style>
+</head>
+<body data-minimal-nav="1">
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+<div class="bg-glow" aria-hidden="true"><span></span></div>
+
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب">
+      <span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span>
+      <span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span>
+    </a>
+    <div class="nav-links" id="menu">
+    </div>
+    <div class="nav-actions">
+      <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<h1 class="sr-only">تسجيل الدخول أو إنشاء حساب</h1>
+<section>
+  <div class="app-layout">
+
+    <!-- البانر التعريفي (شاشات كبيرة) -->
+    <section class="hero-section">
+      <div class="grad-cap-wrapper"><i data-icon="graduation"></i></div>
+      <h2 class="hero-title">هندسة أنظمة الحاسوب</h2>
+      <p class="hero-desc">مكتبتك الرقمية الكاملة: محاضرات، ملخصات، مشاريع، ومساعد ذكي يرافقك من أول محاضرة للتخرّج.</p>
+      <div class="hero-badges">
+        <span class="feature-badge"><i data-icon="book"></i> كل المساقات</span>
+        <span class="feature-badge"><i data-icon="bulb"></i> مساعد AI</span>
+        <span class="feature-badge"><i data-icon="chart"></i> تتبّع تقدّمك</span>
+      </div>
+    </section>
+
+  <div class="wrap auth-wrap">
+    <!-- نسخة مصغّرة من التعريف تظهر فقط على الجوال/التابلت بدل البانر -->
+    <div class="mobile-badges">
+      <span class="mini-cap"><i data-icon="graduation"></i></span>
+      <h1>هندسة أنظمة الحاسوب</h1>
+      <div class="chips">
+        <span class="feature-badge"><i data-icon="book"></i> كل المساقات</span>
+        <span class="feature-badge"><i data-icon="bulb"></i> مساعد AI</span>
+        <span class="feature-badge"><i data-icon="chart"></i> تتبّع تقدّمك</span>
+      </div>
+    </div>
+
+    <div id="setupNote" class="setup-note" style="display:none">
+      <i data-icon="settings"></i> <b>لم يتم ضبط رابط الباك إند بعد.</b><br>
+      شغّل مشروع <code>ptc-hub-backend</code>، ثم ضع رابط الـ API في ملف <code>api-config.js</code>.
+      <br>التفاصيل كاملة في ملف <code>دليل-التسجيل.md</code>.
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <span class="tab-indicator" id="tabIndicator"></span>
+        <button class="auth-tab active" id="tabLogin" onclick="showTab('login')">تسجيل الدخول</button>
+        <button class="auth-tab" id="tabSignup" onclick="showTab('signup')">حساب جديد</button>
+      </div>
+
+      <!-- LOGIN -->
+      <form id="formLogin" onsubmit="doLogin(event)">
+        <div class="fld">
+          <label for="liEmail">البريد الإلكتروني</label>
+          <input type="email" id="liEmail" dir="ltr" required placeholder="example@gmail.com" autocomplete="email">
+        </div>
+        <div class="fld">
+          <label for="liPass">كلمة السر</label>
+          <div class="pw-wrap">
+            <input type="password" id="liPass" required placeholder="••••••••" autocomplete="current-password">
+            <button type="button" class="pw-toggle" onclick="togglePw('liPass',this)" aria-label="إظهار كلمة السر"><i data-icon="eye"></i></button>
+          </div>
+        </div>
+        <button class="auth-btn" type="submit" id="liBtn">دخول</button>
+        <div class="auth-alt"><button type="button" class="auth-link-btn" id="liResetBtn" onclick="doReset()">نسيت كلمة السر؟</button></div>
+      </form>
+
+      <!-- SIGNUP -->
+      <form id="formSignup" style="display:none" onsubmit="doSignup(event)">
+        <div class="fld">
+          <label for="suFullName">الاسم الثلاثي</label>
+          <input type="text" id="suFullName" required maxlength="150" placeholder="أحمد محمد عيسى" autocomplete="name">
+          <div class="hint">اكتب اسمك الأول واسم أبيك واسم عائلتك، مفصولين بمسافة.</div>
+        </div>
+        <div class="fld">
+          <label for="suYear">السنة الدراسية الحالية</label>
+          <select id="suYear" required>
+            <option value="">— اختر السنة —</option>
+            <option value="1">السنة الأولى</option>
+            <option value="2">السنة الثانية</option>
+            <option value="3">السنة الثالثة</option>
+            <option value="4">السنة الرابعة</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label for="suSemester">الفصل الدراسي الحالي</label>
+          <select id="suSemester" required>
+            <option value="">— اختر الفصل —</option>
+            <option value="1">الفصل الأول</option>
+            <option value="2">الفصل الثاني</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label for="suEmail">البريد الإلكتروني (جيميل)</label>
+          <input type="email" id="suEmail" dir="ltr" required placeholder="example@gmail.com" autocomplete="email">
+        </div>
+        <div class="fld">
+          <label for="suPass">كلمة السر</label>
+          <div class="pw-wrap">
+            <input type="password" id="suPass" required minlength="8" placeholder="٨ أحرف على الأقل" autocomplete="new-password" oninput="updatePwStrength(this.value)">
+            <button type="button" class="pw-toggle" onclick="togglePw('suPass',this)" aria-label="إظهار كلمة السر"><i data-icon="eye"></i></button>
+          </div>
+          <div class="pw-strength" id="pwStrength"><i></i><i></i><i></i></div>
+          <span class="pw-strength-label" id="pwStrengthLabel"></span>
+          <div class="hint">استخدم ٨ أحرف على الأقل — ستستخدمها للدخول من أي جهاز.</div>
+        </div>
+        <button class="auth-btn" type="submit" id="suBtn">إنشاء الحساب</button>
+      </form>
+
+      <div id="googleAuthBlock">
+        <div class="auth-divider"><span>أو</span></div>
+        <div class="google-btn-frame">
+          <div id="googleSignInBtn"></div>
+        </div>
+      </div>
+
+      <form id="formReset" style="display:none" onsubmit="doNewPassword(event)">
+        <div class="fld">
+          <label for="rsEmail">البريد الإلكتروني</label>
+          <input type="email" id="rsEmail" required dir="ltr" autocomplete="email">
+        </div>
+        <div class="fld">
+          <label for="rsPass">كلمة السر الجديدة</label>
+          <div class="pw-wrap">
+            <input type="password" id="rsPass" required minlength="8" placeholder="٨ أحرف على الأقل" autocomplete="new-password">
+            <button type="button" class="pw-toggle" onclick="togglePw('rsPass',this)" aria-label="إظهار كلمة السر"><i data-icon="eye"></i></button>
+          </div>
+        </div>
+        <div class="fld">
+          <label for="rsPass2">تأكيد كلمة السر</label>
+          <div class="pw-wrap">
+            <input type="password" id="rsPass2" required minlength="8" placeholder="أعد كتابتها" autocomplete="new-password">
+            <button type="button" class="pw-toggle" onclick="togglePw('rsPass2',this)" aria-label="إظهار كلمة السر"><i data-icon="eye"></i></button>
+          </div>
+        </div>
+        <button class="auth-btn" type="submit" id="rsBtn">حفظ كلمة السر</button>
+      </form>
+      <div class="auth-msg" id="authMsg"></div>
+    </div>
+
+    <div class="auth-alt" style="margin-top:18px">
+      بتسجيلك ستُحفظ مساقاتك وتقدّمك في حسابك، وتصل إليها من أي جهاز.
+    </div>
+  </div>
+
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<div id="onboardModal" class="onboard-overlay" style="display:none">
+  <div class="onboard-card">
+    <div class="ob-icon"><i data-icon="graduation"></i></div>
+    <h2>بيانتك الدراسية</h2>
+    <p>خطوة وحدة أخيرة قبل ما تدخل — حدد سنتك وفصلك الحالي، حتى تنزلك مساقاتك تلقائيًا.</p>
+    <div class="fld">
+      <label for="obYear">السنة الدراسية الحالية</label>
+      <select id="obYear" required>
+        <option value="">— اختر السنة —</option>
+        <option value="1">السنة الأولى</option>
+        <option value="2">السنة الثانية</option>
+        <option value="3">السنة الثالثة</option>
+        <option value="4">السنة الرابعة</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label for="obSemester">الفصل الدراسي الحالي</label>
+      <select id="obSemester" required>
+        <option value="">— اختر الفصل —</option>
+        <option value="1">الفصل الأول</option>
+        <option value="2">الفصل الثاني</option>
+      </select>
+    </div>
+    <button class="auth-btn" type="button" onclick="submitOnboarding()" id="obBtn">متابعة</button>
+    <div class="auth-msg" id="obMsg"></div>
+  </div>
+</div>
+
+<script src="core.js" defer></script>
+<script src="contribute.js" defer></script>
+<script src="announcements.js" defer></script>
+<script>
+let resetMode=false;
+let authSubmitting=false;
+
+function showTab(which){
+  const login=which==='login';
+  resetMode=false;
+  document.querySelector('.auth-tabs').style.display='flex';
+  document.getElementById('googleAuthBlock').style.display='block';
+  document.getElementById('tabLogin').classList.toggle('active',login);
+  document.getElementById('tabSignup').classList.toggle('active',!login);
+  document.getElementById('tabIndicator').classList.toggle('to-signup',!login);
+  document.getElementById('formLogin').style.display=login?'block':'none';
+  document.getElementById('formSignup').style.display=login?'none':'block';
+  document.getElementById('formReset').style.display='none';
+  msg('');
+}
+
+function showResetForm(token,email){
+  resetMode=true;
+  document.querySelector('.auth-tabs').style.display='none';
+  document.getElementById('googleAuthBlock').style.display='none';
+  document.getElementById('formLogin').style.display='none';
+  document.getElementById('formSignup').style.display='none';
+  document.getElementById('formReset').style.display='block';
+  document.getElementById('rsEmail').value=email||'';
+  document.getElementById('formReset').dataset.token=token||'';
+}
+
+function togglePw(id,btn){
+  const input=document.getElementById(id);
+  const hidden=input.type==='password';
+  input.type=hidden?'text':'password';
+  btn.innerHTML=hidden?'<i data-icon="eyeOff"></i>':'<i data-icon="eye"></i>';
+  btn.setAttribute('aria-label',hidden?'إخفاء كلمة السر':'إظهار كلمة السر');
+}
+
+function msg(text,kind){
+  const m=document.getElementById('authMsg');
+  if(!text){ m.classList.remove('show'); return; }
+  m.textContent=text; m.className='auth-msg show '+(kind||'err');
+}
+
+/* ترجمة أخطاء الخادم إلى عربية مفهومة.
+ *
+ * الترتيب هنا ليس تجميلًا: الشرط الأعمّ يبتلع ما تحته. وكان شرط
+ * 'password' فوق شروط الرابط، فرسالة لارافيل
+ * «This password reset token is invalid» تحوي الكلمة فتُترجَم «كلمة
+ * السر قصيرة» — يقرؤها الطالب فيطيل كلمة سرّه مرارًا بلا فائدة، والعلّة
+ * في رابطٍ أبطله رابط أحدث. فأي شرط جديد يُضاف: ضعه فوق الأعمّ منه.
+ */
+function niceError(e){
+  const s=(e&&e.message||'').toLowerCase();
+  if(s.includes('token')||s.includes('الرابط')) return 'رابط إعادة التعيين غير صالح أو انتهت صلاحيته. اطلب رابطاً جديداً واستعمل أحدث رسالة تصلك.';
+  if(s.includes('expire')||s.includes('انتهت')) return 'انتهت صلاحية الرابط (ساعة واحدة). اطلب رابطاً جديداً.';
+  if(s.includes('بيانات الدخول')||s.includes('invalid login')) return 'البريد أو كلمة السر غير صحيحة.';
+  if(s.includes('already')||s.includes('مستخدم من قبل')||s.includes('unique')) return 'هذا البريد مسجّل مسبقاً.';
+  if(s.includes('confirmation')||s.includes('متطابقت')) return 'كلمتا السر غير متطابقتين.';
+  /* الطول وحده، لا كل ما ورد فيه لفظ password. */
+  if(s.includes('at least')||s.includes('8 characters')||s.includes('قصيرة')) return 'كلمة السر قصيرة — استخدم ٨ أحرف فأكثر.';
+  if(s.includes('email')||s.includes('البريد')) return 'تأكد من صحة البريد الإلكتروني.';
+  return e&&e.message ? e.message : 'حدث خطأ، حاول مرة أخرى.';
+}
+
+async function doSignup(e){
+  e.preventDefault();
+  const btn=document.getElementById('suBtn'); btn.disabled=true; authSubmitting=true; msg('');
+  try{
+    const fullNameParts=document.getElementById('suFullName').value.trim().split(/\s+/).filter(Boolean);
+    if(fullNameParts.length<3){
+      msg('اكتب اسمك الثلاثي كاملاً: الاسم الأول واسم الأب واسم العائلة.');
+      btn.disabled=false; authSubmitting=false;
+      return;
+    }
+    await PTCAuth.signUp({
+      email:document.getElementById('suEmail').value.trim(),
+      password:document.getElementById('suPass').value,
+      firstName:fullNameParts[0],
+      fatherName:fullNameParts[1],
+      lastName:fullNameParts.slice(2).join(' '),
+      year:document.getElementById('suYear').value,
+      semester:document.getElementById('suSemester').value
+    });
+    msg('تم إنشاء حسابك بنجاح. جارٍ فتح الصفحة الرئيسية...','ok');
+    location.replace('index.html');
+    return;
+  }catch(err){ msg(niceError(err)); }
+  authSubmitting=false; btn.disabled=false;
+}
+
+async function doLogin(e){
+  e.preventDefault();
+  const btn=document.getElementById('liBtn'); btn.disabled=true; authSubmitting=true; msg('');
+  try{
+    await PTCAuth.signIn(
+      document.getElementById('liEmail').value.trim(),
+      document.getElementById('liPass').value
+    );
+    msg('تم الدخول بنجاح. جارٍ فتح الصفحة الرئيسية...','ok');
+    location.replace('index.html');
+    return;
+  }catch(err){ msg(niceError(err)); }
+  authSubmitting=false; btn.disabled=false;
+}
+
+/* الطلب يستغرق قرابة الثانية: الطابور sync فالبريد يُرسَل داخل الطلب
+ * نفسه. فبلا حالة انتظار يبقى الزرّ ساكنًا والطالب لا يدري أوصلت ضغطته
+ * أم لا، فيضغط ثانية — وكل طلب يُبطل توكن ما قبله، فتصله رسالتان أولاهما
+ * برابط ميت. لذا القفل هنا صحّة لا تجميل. */
+async function doReset(){
+  const btn=document.getElementById('liResetBtn');
+  if(btn.disabled) return;
+
+  const email=document.getElementById('liEmail').value.trim();
+  if(!email){ msg('اكتب بريدك الإلكتروني أولاً ثم اضغط "نسيت كلمة السر".'); return; }
+
+  const label=btn.textContent;
+  btn.disabled=true; btn.textContent='جارٍ الإرسال...'; msg('');
+  try{ await PTCAuth.resetPassword(email); msg('إذا كان البريد مسجلاً، سيصلك رابط إعادة التعيين.','ok'); }
+  catch(err){ msg(niceError(err)); }
+  finally{ btn.disabled=false; btn.textContent=label; }
+}
+
+async function doNewPassword(e){
+  e.preventDefault();
+  const pass=document.getElementById('rsPass').value;
+  const pass2=document.getElementById('rsPass2').value;
+  // يُفحص هنا قبل الشبكة: مفتاح الإعادة يصلح مرة واحدة، فرحلةُ ذهاب
+  // وإياب تنتهي بـ٤٢٢ على خطأ مطبعي ثمنها مفتاح محروق.
+  if(pass!==pass2){ msg('كلمتا السر غير متطابقتين.'); return; }
+  const btn=document.getElementById('rsBtn'); btn.disabled=true; msg('');
+  try{
+    await PTCAuth.setNewPassword({
+      token:document.getElementById('formReset').dataset.token,
+      email:document.getElementById('rsEmail').value.trim(),
+      password:pass,
+      passwordConfirmation:pass2
+    });
+    msg('تم تغيير كلمة السر. يمكنك تسجيل الدخول الآن.','ok');
+    history.replaceState({},'',location.pathname);
+    setTimeout(()=>showTab('login'),1200);
+  }catch(err){ msg(niceError(err)); }
+  btn.disabled=false;
+}
+
+/* مؤشر قوة كلمة السر بحساب جديد — تقييم من ٣ درجات محسوب من الطول
+   وتنوّع الأحرف (أرقام+حروف، أحرف كبيرة+صغيرة)، بألوان الموقع نفسها
+   بدل الأحمر/الأخضر المعتاد. زخرفة عملية لا بصرية بحتة. */
+function updatePwStrength(val){
+  const bars=document.querySelectorAll('#pwStrength i');
+  const label=document.getElementById('pwStrengthLabel');
+  if(!bars.length) return;
+  if(!val){ bars.forEach(b=>b.style.background='var(--line)'); label.textContent=''; return; }
+  let score=0;
+  if(val.length>=8) score++;
+  if(/[0-9]/.test(val) && /[a-zA-Z]/.test(val)) score++;
+  if(val.length>=12 || (/[A-Z]/.test(val) && /[a-z]/.test(val) && /[0-9]/.test(val))) score++;
+  const colors=['var(--line)','var(--copper-soft)','var(--copper)','var(--olive-2)'];
+  const labels=['','ضعيفة — أضف أرقامًا أو أحرفًا أكثر','متوسطة','قوية'];
+  bars.forEach((b,i)=> b.style.background = i < score ? colors[score] : 'var(--line)');
+  label.textContent = labels[score];
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  if(typeof API_READY==='undefined' || !API_READY){
+    document.getElementById('setupNote').style.display='block';
+    document.querySelectorAll('.auth-btn').forEach(b=>{b.disabled=true;});
+    msg('رابط الباك إند غير مضبوط على هذه النسخة.','err');
+    return;
+  }
+
+  const params=new URLSearchParams(location.search);
+  const token=params.get('token');
+  const email=params.get('email');
+  if(token&&email) showResetForm(token,email);
+});
+
+window.addEventListener('ptc-auth-change',()=>{
+  if(PTCAuth.user&&!resetMode&&!authSubmitting){
+    msg('أنت مسجّل الدخول بالفعل. جارٍ تحويلك...','ok');
+    setTimeout(()=>location.replace('index.html'),150);
+  }
+});
+
+/* ── تسجيل الدخول عبر Google ──────────────────────────────────────────
+   authSubmitting تبقى true طول ما نافذة "بياناتك الدراسية" مفتوحة، حتى
+   لا يخطفنا مستمع ptc-auth-change فوق إلى الصفحة الرئيسية قبل ما يختار
+   الطالب سنته وفصله. */
+function initGoogleSignIn(){
+  if(typeof google==='undefined'||!google.accounts||!google.accounts.id) return;
+  google.accounts.id.initialize({
+    client_id:'1065926604389-ioevt968vm90np1osfmdir1h2r93g4pr.apps.googleusercontent.com',
+    callback:handleGoogleCredential
+  });
+  google.accounts.id.renderButton(
+    document.getElementById('googleSignInBtn'),
+    {theme:'filled_black',size:'large',text:'signin_with',shape:'pill',locale:'ar',width:280}
+  );
+}
+
+/*
+ * مكتبة Google تُحمَّل بلا ترتيب مضمون بالنسبة لباقي السكربتات — قد
+ * تصل وتنتهي قبل هذا الملف أو بعده. الفحص المتكرر هنا يعمل بغض النظر
+ * عن الترتيب، بعكس onload على وسم السكربت الذي فشل لهذا السبب بالضبط.
+ */
+(function waitForGoogle(attempt){
+  if(typeof google!=='undefined'&&google.accounts&&google.accounts.id){
+    initGoogleSignIn();
+    return;
+  }
+  if((attempt||0)>40) return;
+  setTimeout(()=>waitForGoogle((attempt||0)+1),250);
+})();
+
+async function handleGoogleCredential(response){
+  authSubmitting=true;
+  msg('');
+  try{
+    const result=await PTCAuth.signInWithGoogle(response.credential);
+    if(result.needs_onboarding){
+      document.getElementById('onboardModal').style.display='flex';
+    }else{
+      location.replace('index.html');
+    }
+  }catch(err){
+    authSubmitting=false;
+    msg(niceError(err));
+  }
+}
+
+function obMsg(text,kind){
+  const m=document.getElementById('obMsg');
+  if(!text){ m.classList.remove('show'); return; }
+  m.textContent=text; m.className='auth-msg show '+(kind||'err');
+}
+
+async function submitOnboarding(){
+  const year=document.getElementById('obYear').value;
+  const semester=document.getElementById('obSemester').value;
+  if(!year||!semester){
+    obMsg('اختر السنة والفصل حتى تكمل.');
+    return;
+  }
+  const btn=document.getElementById('obBtn');
+  btn.disabled=true; obMsg('');
+  try{
+    await PTCAuth.updateProfile({year:Number(year),semester:Number(semester)});
+    authSubmitting=false;
+    location.replace('index.html');
+  }catch(err){
+    obMsg(niceError(err));
+    btn.disabled=false;
+  }
+}
+</script>
+
+<!-- يُحمَّل هنا عمدًا، بعد الكتلة الرئيسية أعلاه: initGoogleSignIn لازم
+     تكون معرَّفة قبل ما يصل تحميل هذا الملف، وإلا onload يطلق قبل
+     وجودها (هذا بالضبط ما كان يصير لمّا كان السكربت أعلى الصفحة مع
+     async/defer، إذ ينفَّذ فور جهوزيته بلا انتظار لترتيب الصفحة). -->
+<script src="https://accounts.google.com/gsi/client"></script>
+</body>
+</html>

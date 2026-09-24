@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>حاسبة المعدل التراكمي — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="احسب معدلك التراكمي لكامل خطة تخصصك، جرّب علامات مستقبلية افتراضية، وشوف شو المعدل اللازم توصله لهدفك.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Tajawal:wght@400;500;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+/* ---------- حاسبة المعدل التراكمي ---------- */
+.gpa-wrap{max-width:1080px}
+
+/* شريط التحكم العلوي */
+.gpa-toolbar{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:14px 16px;margin-bottom:18px
+}
+.gpa-toolbar .spacer{flex:1}
+.gpa-toolbar-hint{
+  font-family:var(--font-ar);font-size:12px;color:var(--faint);margin:-10px 0 18px;line-height:1.6
+}
+.gpa-tbtn{
+  display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:11px;
+  font-family:var(--font-ar);font-weight:700;font-size:13.5px;cursor:pointer;
+  border:1px solid var(--line-2);background:var(--paper-2);color:var(--ink);transition:.18s
+}
+.gpa-tbtn:hover{border-color:var(--copper);color:var(--copper)}
+.gpa-tbtn.danger:hover{border-color:#c0392b;color:#c0392b}
+.gpa-tbtn.active{background:var(--olive);color:var(--paper);border-color:var(--olive)}
+.gpa-tbtn.active:hover{color:var(--paper)}
+.gpa-tbtn svg{width:16px;height:16px}
+
+/* بانر وضع المحاكاة */
+.gpa-sim-banner{
+  display:none;align-items:center;gap:10px;background:color-mix(in srgb,var(--copper) 14%,var(--card));
+  border:1px solid var(--copper);border-radius:14px;padding:12px 16px;margin-bottom:18px;
+  font-family:var(--font-ar);font-size:13px;color:var(--ink)
+}
+.gpa-sim-banner b{color:var(--copper)}
+
+/* بطاقات الملخص */
+.gpa-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}
+.gpa-stat-card{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;
+  display:flex;flex-direction:column;gap:6px;position:relative
+}
+.gpa-stat-main{border-width:2px}
+.gpa-stat-label{font-family:var(--font-ar);font-size:12.5px;color:var(--muted)}
+.gpa-stat-value{font-family:var(--font-display);font-size:30px;color:var(--olive)}
+.gpa-stat-card.gpa-good .gpa-stat-value{color:#3a7d44}
+.gpa-stat-card.gpa-warn .gpa-stat-value{color:var(--copper)}
+.gpa-stat-card.gpa-danger .gpa-stat-value{color:#c0392b}
+.gpa-badge{
+  display:inline-flex;align-self:flex-start;font-family:var(--font-ar);font-size:11.5px;font-weight:700;
+  padding:4px 10px;border-radius:20px
+}
+.gpa-badge-warn{background:color-mix(in srgb,#c0392b 15%,transparent);color:#c0392b}
+.gpa-progress{height:7px;border-radius:6px;background:var(--paper-2);overflow:hidden;margin-top:4px}
+.gpa-progress-bar{height:100%;background:var(--olive);border-radius:6px;transition:width .25s}
+
+/* بطاقة الهدف */
+.gpa-target-card{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px
+}
+.gpa-target-card h3{font-family:var(--font-display);font-size:17px;color:var(--olive);margin-bottom:4px}
+.gpa-target-card > p.gpa-target-sub{font-family:var(--font-ar);font-size:12px;color:var(--faint);margin-bottom:14px}
+.gpa-target-field{display:flex;flex-direction:column;gap:6px;max-width:280px;margin-bottom:10px}
+.gpa-target-field span{font-family:var(--font-ar);font-size:12.5px;font-weight:700;color:var(--muted)}
+.gpa-target-field input{
+  padding:10px 12px;border:1px solid var(--line-2);border-radius:10px;background:var(--paper);
+  color:var(--ink);font-family:var(--font-mono);font-size:14px
+}
+.gpa-target-hint,.gpa-target-result{font-family:var(--font-ar);font-size:13px;color:var(--muted);line-height:1.7}
+.gpa-target-result{font-size:14px}
+.gpa-target-result.gpa-good{color:#3a7d44}
+.gpa-target-result.gpa-warn{color:var(--copper)}
+.gpa-target-result.gpa-danger{color:#c0392b}
+
+/* بطاقة الرسم البياني */
+.gpa-trend-card{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px
+}
+.gpa-trend-card h3{font-family:var(--font-display);font-size:17px;color:var(--olive);margin-bottom:12px}
+.gpa-trend-svg{width:100%;height:auto;max-height:220px}
+.gpa-trend-value{font-family:var(--font-mono);font-size:9px;fill:var(--ink)}
+.gpa-trend-label{font-family:var(--font-ar);font-size:8px;fill:var(--faint)}
+.gpa-trend-warnline{stroke:#c0392b;stroke-width:1;stroke-dasharray:4 3;opacity:.55}
+.gpa-empty-hint{font-family:var(--font-ar);font-size:13px;color:var(--faint);padding:10px 2px}
+
+/* بطاقات السنوات */
+.gpa-year-card{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;margin-bottom:14px;overflow:hidden
+}
+.gpa-year-card summary{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;
+  cursor:pointer;list-style:none
+}
+.gpa-year-card summary::-webkit-details-marker{display:none}
+.gpa-year-title{font-family:var(--font-display);font-size:17px;color:var(--olive)}
+.gpa-year-avg,.gpa-sem-avg{
+  font-family:var(--font-ar);font-size:12.5px;font-weight:700;color:var(--muted);
+  padding:4px 12px;border-radius:20px;background:var(--paper-2)
+}
+.gpa-year-avg.gpa-good,.gpa-sem-avg.gpa-good{color:#3a7d44;background:color-mix(in srgb,#3a7d44 12%,var(--paper-2))}
+.gpa-year-avg.gpa-warn,.gpa-sem-avg.gpa-warn{color:var(--copper);background:color-mix(in srgb,var(--copper) 15%,var(--paper-2))}
+.gpa-year-avg.gpa-danger,.gpa-sem-avg.gpa-danger{color:#c0392b;background:color-mix(in srgb,#c0392b 12%,var(--paper-2))}
+.gpa-year-body{padding:0 18px 16px}
+.gpa-sem-block{margin-bottom:14px}
+.gpa-sem-block:last-child{margin-bottom:0}
+.gpa-sem-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.gpa-sem-head > span:first-child{font-family:var(--font-ar);font-weight:700;font-size:13.5px;color:var(--ink)}
+
+/* جدول المساقات — عرض ثابت لكل عمود (table-layout:fixed) عشان
+   الأعمدة تنحاذي بالضبط فوق بعض بكل جداول الفصول/السنوات، بدل ما
+   يتحدد عرض كل عمود حسب محتوى جدوله هو بس (وهذا كان يخلي عمود
+   الساعات مثلًا يظهر بعرض مختلف من جدول لآخر ويبين "ملخبط"). */
+.gpa-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.gpa-table th{
+  text-align:center;font-family:var(--font-ar);font-size:11.5px;color:var(--faint);font-weight:700;
+  padding:6px 8px;border-bottom:1px solid var(--line)
+}
+.gpa-table th:first-child{text-align:start}
+.gpa-table td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle;text-align:center}
+.gpa-table tr:last-child td{border-bottom:none}
+.gpa-table th:nth-child(1),.gpa-table td:nth-child(1){width:46%}
+.gpa-table th:nth-child(2),.gpa-table td:nth-child(2){width:16%}
+.gpa-table th:nth-child(3),.gpa-table td:nth-child(3){width:20%}
+.gpa-table th:nth-child(4),.gpa-table td:nth-child(4){width:18%}
+.gpa-course-name{
+  font-family:var(--font-ar);font-size:13px;color:var(--ink);text-align:start;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.gpa-hours{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.gpa-points{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.gpa-grade-input{
+  width:100%;max-width:78px;box-sizing:border-box;padding:7px 8px;border:1px solid var(--line-2);border-radius:8px;
+  background:var(--paper);color:var(--ink);font-family:var(--font-mono);font-size:13px;text-align:center
+}
+.gpa-grade-input:focus{border-color:var(--olive);outline:none}
+.gpa-grade-input.gpa-saving{border-color:var(--copper);background:color-mix(in srgb,var(--copper) 8%,var(--paper))}
+.gpa-grade-input.gpa-invalid{
+  border-color:#c0392b;background:color-mix(in srgb,#c0392b 10%,var(--paper));
+  animation:gpaShake .3s
+}
+@keyframes gpaShake{
+  10%,90%{transform:translateX(-1px)}
+  20%,80%{transform:translateX(2px)}
+  30%,50%,70%{transform:translateX(-3px)}
+  40%,60%{transform:translateX(3px)}
+}
+.gpa-invalid-msg{display:none;font-family:var(--font-ar);font-size:10px;color:#c0392b;margin-top:3px}
+.gpa-grade-input.gpa-invalid + .gpa-invalid-msg{display:block}
+
+/* قسم المساقات الاختيارية */
+.gpa-elective-card{margin-top:4px}
+.gpa-elective-hint{
+  font-family:var(--font-ar);font-size:12.5px;color:var(--muted);line-height:1.8;
+  background:var(--paper-2);border-radius:10px;padding:10px 12px;margin-bottom:12px
+}
+.gpa-extra-badge{
+  display:inline-block;margin-inline-start:6px;font-family:var(--font-ar);font-size:10px;font-weight:700;
+  color:var(--copper);background:color-mix(in srgb,var(--copper) 15%,transparent);
+  padding:2px 8px;border-radius:20px;vertical-align:middle
+}
+
+/* ترويسة الطباعة فقط — مخفية على الشاشة، تظهر أعلى التقرير المطبوع
+   أو الـPDF بشعار الكلية واسم الطالب وتاريخ التقرير، عشان التقرير
+   يكون مستندًا كاملًا مستقلًا بذاته لا مجرد قصاصة من الصفحة. */
+.gpa-print-header{display:none}
+
+@media print{
+  /*
+   * هامش سفلي أكبر من العلوي عمدًا: أغلب المتصفحات (Chrome خصوصًا)
+   * تحط رقم الصفحة تلقائيًا بأسفل الورقة لو خانة "Headers and
+   * footers" بنافذة الطباعة مفعّلة — وبهامش ضيق (كان 8mm بكل
+   * الجهات) بيصير هذا الرقم يتراكب فوق آخر صف بجدول المساقات. زيادة
+   * الهامش السفلي هون بتفرغله مسافة كافية بلا ما يلمس محتوانا.
+   */
+  @page{margin:10mm 10mm 16mm}
+  /*
+   * .ai-fab-wrap/.ai-panel: زر وبانل مساعد الذكاء الاصطناعي العائم —
+   * عنصر ثابت (fixed) تابع للموقع كله لا لصفحة الحاسبة، فما إله أي
+   * داعي يظهر بتقرير مطبوع عن معدل الطالب.
+   * .gpa-target-card: حاسبة "شو لازم أحصل عليه؟" أداة تفاعلية
+   * (فيها خانة إدخال هدف) ما إلها معنى بورقة مطبوعة ثابتة — التقرير
+   * المطبوع مخصَّص لمعدل مساقات الطالب فعليًا، لا لأداة تفاعلية.
+   */
+  .nav,.college-bar,.foot,.gpa-toolbar,.gpa-toolbar-hint,.gpa-sim-banner,.page-head,.crumb,.skip-link,
+  .ai-fab-wrap,.ai-panel,.gpa-target-card{display:none!important}
+  body{background:#fff}
+  .wrap,.gpa-wrap{max-width:100%!important;width:100%!important;margin:0!important;padding:0!important}
+
+  /*
+   * ترويسة الطباعة: مخفية بالشاشة، تظهر فقط هون كأول شيء بالورقة.
+   * flex بعرض الصفحة كامل: شعار+اسم الكلية+عنوان التقرير بجهة
+   * البداية (يمين بالعربي)، واسم الطالب+التاريخ بجهة النهاية
+   * (يسار) — عشان الترويسة توزَّع على عرض الورقة كله بدل ما تتكدّس
+   * بزاوية وحدة ويضل نص الورقة فاضي.
+   */
+  .gpa-print-header{
+    display:flex!important;justify-content:space-between;align-items:flex-start;gap:20px;
+    width:100%;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #3c4a2f
+  }
+  .gpa-print-logo-row{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+  .gpa-print-logo-row img{width:38px;height:38px;object-fit:contain;flex-shrink:0}
+  .gpa-print-college{font-family:var(--font-ar);font-weight:700;font-size:13px;color:#3c4a2f}
+  .gpa-print-title{font-family:var(--font-display);font-size:19px;color:#3c4a2f;margin-top:1px}
+  .gpa-print-meta{
+    font-family:var(--font-ar);font-size:11.5px;color:#555;
+    padding-top:4px;text-align:end;max-width:220px;flex-shrink:0
+  }
+
+  /* details/summary لازم تُطبع مفتوحة دايمًا بغض النظر عن حالتها
+     بالشاشة (كلها مفتوحة افتراضيًا أصلًا، هذا فقط تأكيد إضافي). */
+  details{display:block!important}
+  details:not([open]) > *:not(summary){display:block!important}
+  .gpa-year-card summary{cursor:default}
+  .gpa-year-card{break-inside:avoid;border:1px solid #ccc;box-shadow:none}
+  details.gpa-year-card{overflow:visible}
+  .gpa-trend-card,.gpa-target-card,.gpa-summary{break-inside:avoid;box-shadow:none}
+  .gpa-stat-card{border:1px solid #ccc;box-shadow:none}
+
+  /* رؤوس الجداول تتكرر بأعلى كل صفحة لو انقسم الجدول بين صفحتين،
+     وكل صف يبقى كتلة واحدة بلا انقطاع بمنتصفه بين صفحتين. */
+  .gpa-table thead{display:table-header-group}
+  .gpa-table tr{break-inside:avoid;page-break-inside:avoid}
+  .gpa-grade-input{border:1px solid #999;background:#fff!important}
+}
+@media (max-width:768px){
+  .gpa-toolbar{padding:10px 12px;gap:8px}
+  .gpa-tbtn{padding:9px 12px;font-size:12.5px}
+  .gpa-stat-value{font-size:24px}
+  .gpa-year-card summary{padding:13px 14px}
+  .gpa-year-body{padding:0 14px 14px}
+  .gpa-table th,.gpa-table td{padding:6px 5px;font-size:11.5px}
+  .gpa-grade-input{width:60px;font-size:12px}
+}
+@media (max-width:480px){
+  .gpa-toolbar{flex-direction:column;align-items:stretch}
+  .gpa-toolbar .gpa-tbtn{justify-content:center}
+  .gpa-toolbar .spacer{display:none}
+  .gpa-sem-head{flex-direction:column;align-items:flex-start;gap:4px}
+}
+</style>
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<script id="ptc-fast-auth-guard">
+try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
+</script>
+</head>
+<body>
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب"><span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span><span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span></a>
+    <div class="nav-links" id="menu">
+      <a href="index.html" data-nav="home"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg></span>الرئيسية</a>
+      <div class="nav-drop" data-nav="curriculum">
+        <button class="nav-drop-btn" type="button"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>المناهج الدراسية <svg class="dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="nav-drop-menu">
+          <div class="dd-year">
+          <a href="year1.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الأولى</a>
+          <div class="dd-sems">
+            <a href="year1.html#sem0">الفصل الأول</a>
+            <a href="year1.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year2.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثانية</a>
+          <div class="dd-sems">
+            <a href="year2.html#sem0">الفصل الأول</a>
+            <a href="year2.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year3.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثالثة</a>
+          <div class="dd-sems">
+            <a href="year3.html#sem0">الفصل الأول</a>
+            <a href="year3.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year4.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الرابعة</a>
+          <div class="dd-sems">
+            <a href="year4.html#sem0">الفصل الأول</a>
+            <a href="year4.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <a href="electives.html" class="dd-elective"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>المساقات الاختيارية</a>
+        </div>
+      </div>
+      <a href="study-tools.html" data-nav="rihab"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/><path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M4 21h16"/><path d="M9 21v-3a3 3 0 0 1 6 0v3"/></svg></span>زاد الطالب</a>
+    </div>
+    <div class="auth-slot" id="authSlot">
+      <a class="auth-link" href="login.html" title="تسجيل الدخول"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg></span><span class="auth-label">دخول</span></a>
+    </div>
+    <div class="nav-actions">
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    <button class="burger" onclick="toggleNav()" aria-label="menu"><i data-icon="menu"></i></button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap gpa-wrap">
+    <div class="crumb"><a href="index.html"><i data-icon="home"></i> الرئيسية</a> / <a href="profile.html">حسابي</a> / حاسبة المعدل التراكمي</div>
+    <h1>حاسبة المعدل التراكمي <span class="em"><i data-icon="chart" data-size="24"></i></span></h1>
+    <p>أدخل علاماتك لكامل خطة تخصصك، وشوف معدلك التراكمي، وجرّب "ماذا لو؟" لعلامات مستقبلية، واعرف شو المعدل اللازم توصله لهدفك.</p>
+  </div>
+</header>
+
+<section class="wrap gpa-wrap" style="padding-bottom:60px">
+
+  <!-- ترويسة تظهر فقط عند الطباعة/تصدير PDF (مخفية بالشاشة) -->
+  <div class="gpa-print-header">
+    <div class="gpa-print-logo-row">
+      <img src="logo.png" alt="">
+      <div>
+        <div class="gpa-print-college">كلية فلسطين التقنية — هندسة أنظمة الحاسوب</div>
+        <div class="gpa-print-title">تقرير حاسبة المعدل التراكمي</div>
+      </div>
+    </div>
+    <div class="gpa-print-meta" id="gpaPrintMeta"></div>
+  </div>
+
+  <div class="gpa-toolbar">
+    <button class="gpa-tbtn" id="gpaSimBtn" onclick="Gpa.toggleSimulation()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+      وضع المحاكاة (ماذا لو؟)
+    </button>
+    <span class="spacer"></span>
+    <button class="gpa-tbtn" onclick="Gpa.printReport()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      طباعة التقرير
+    </button>
+    <button class="gpa-tbtn danger" onclick="Gpa.clearPlan()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      تفريغ الخطة
+    </button>
+  </div>
+
+  <p class="gpa-toolbar-hint"><i data-icon="bulb"></i> <b>وضع المحاكاة (ماذا لو؟)</b>: فعّله لتجرّب علامات مستقبلية افتراضية لمساقات لسا ما أخذتها — أي رقم تكتبه فيه تجريبي بحت وما بينحفظ عندك أبدًا، وبتقدر ترجع لعلاماتك الحقيقية بأي وقت بالضغط على نفس الزر.</p>
+
+  <div class="gpa-sim-banner" id="gpaSimBanner">
+    <span><i data-icon="flask"></i></span>
+    <span>أنت الآن بوضع <b>المحاكاة</b> — أي علامة تكتبها هون تجريبية ولن تُحفظ. بدّل الزر مرة ثانية للرجوع لعلاماتك الحقيقية.</span>
+  </div>
+
+  <div class="gpa-summary" id="gpaSummary"></div>
+
+  <div class="gpa-target-card" id="gpaTargetCard">
+    <h3>شو لازم أحصل عليه؟</h3>
+    <p class="gpa-target-sub">حاسبة عكسية: حدّد المعدل التراكمي اللي بدك توصله، ونحسبلك المعدل المطلوب بباقي ساعات خطتك.</p>
+    <div class="gpa-target-body"></div>
+  </div>
+
+  <div class="gpa-trend-card" id="gpaTrendCard"></div>
+
+  <div id="gpaPlan"></div>
+
+  <div id="gpaElectives"></div>
+
+</section>
+</main>
+
+<footer class="foot">
+    <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<script src="core.js" defer></script>
+<script src="site-dialog.js" defer></script>
+<script src="announcements.js" defer></script>
+<script src="gpa.js" defer></script>
+</body>
+</html>

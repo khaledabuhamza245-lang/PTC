@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>مكتبتي — هندسة أنظمة الحاسوب</title>
+<meta name="description" content="كل المحتوى الذي حفظته للمراجعة لاحقًا، في مكان واحد.">
+<meta name="theme-color" content="#3c4a2f">
+<link rel="icon" href="logo.png">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;600;700;800&family=Tajawal:wght@400;700&family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+.lib-empty{text-align:center;padding:70px 20px;color:var(--faint);font-family:var(--font-ar)}
+.lib-empty svg{width:52px;height:52px;margin-bottom:14px;opacity:.5}
+.lib-empty h3{color:var(--ink);font-family:var(--font-display);font-size:19px;margin-bottom:6px}
+.lib-group{margin-bottom:28px}
+.lib-group-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.lib-group-head h3{font-family:var(--font-display);font-size:17px;color:var(--olive);margin:0}
+.lib-group-head a{font-family:var(--font-ar);font-size:12px;color:var(--copper);text-decoration:none;margin-inline-start:auto}
+.lib-group-head a:hover{text-decoration:underline}
+.lib-items{display:grid;gap:10px}
+.lib-item{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:13px;background:var(--card);text-decoration:none;color:inherit;transition:.18s}
+.lib-item:hover{border-color:var(--copper);transform:translateX(-2px)}
+.lib-item-icon{width:38px;height:38px;border-radius:10px;background:var(--paper-2);display:grid;place-items:center;flex-shrink:0;font-size:17px}
+.lib-item-title{font:700 14px var(--font-ar);color:var(--ink)}
+.lib-remove{width:32px;height:32px;border-radius:9px;border:1px solid var(--line-2);background:var(--paper-2);color:var(--muted);cursor:pointer;flex-shrink:0;display:grid;place-items:center;transition:.15s}
+.lib-remove:hover{border-color:#c0392b;color:#c0392b}
+.lib-loading{text-align:center;padding:40px;color:var(--faint);font-family:var(--font-ar)}
+</style>
+<script>try{if(localStorage.getItem("ptc_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
+<script id="ptc-fast-auth-guard">
+try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
+</script>
+</head>
+<body>
+<a href="#main" class="skip-link">تخطَّ إلى المحتوى الرئيسي</a>
+
+<div class="college-bar">
+  <div class="inner">
+    <span>كلية فلسطين التقنية — هندسة أنظمة الحاسوب</span>
+    <span class="en">Palestine Technical College · Computer Systems Engineering</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand" aria-label="هندسة أنظمة الحاسوب"><span class="seal"><img src="logo.png" alt="شعار كلية فلسطين التقنية"></span><span class="txt"><b>هندسة أنظمة الحاسوب</b><small>Computer Systems Eng</small></span></a>
+    <div class="nav-links" id="menu">
+      <a href="index.html" data-nav="home"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg></span>الرئيسية</a>
+      <div class="nav-drop" data-nav="curriculum">
+        <button class="nav-drop-btn" type="button"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>المناهج الدراسية <svg class="dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="nav-drop-menu">
+          <div class="dd-year">
+          <a href="year1.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الأولى</a>
+          <div class="dd-sems">
+            <a href="year1.html#sem0">الفصل الأول</a>
+            <a href="year1.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year2.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثانية</a>
+          <div class="dd-sems">
+            <a href="year2.html#sem0">الفصل الأول</a>
+            <a href="year2.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year3.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الثالثة</a>
+          <div class="dd-sems">
+            <a href="year3.html#sem0">الفصل الأول</a>
+            <a href="year3.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <div class="dd-year">
+          <a href="year4.html" class="dd-year-link"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5V5"/></svg></span>السنة الرابعة</a>
+          <div class="dd-sems">
+            <a href="year4.html#sem0">الفصل الأول</a>
+            <a href="year4.html#sem1">الفصل الثاني</a>
+          </div>
+        </div>
+          <a href="electives.html" class="dd-elective"><span class="dd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>المساقات الاختيارية</a>
+        </div>
+      </div>
+      <a href="study-tools.html" data-nav="rihab"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c2 2 3.5 3.2 3.5 5 0 1.4-1.4 2.3-3.5 2.3S8.5 8.4 8.5 7c0-1.8 1.5-3 3.5-5z"/><path d="M4 21v-6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M4 21h16"/><path d="M9 21v-3a3 3 0 0 1 6 0v3"/></svg></span>زاد الطالب</a>
+    </div>
+    <div class="auth-slot" id="authSlot">
+      <a class="auth-link" href="login.html" title="تسجيل الدخول"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg></span><span class="auth-label">دخول</span></a>
+    </div>
+    <div class="nav-actions">
+    <button class="theme-btn" onclick="toggleTheme()" aria-label="تبديل الوضع" title="نهاري / ليلي">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    <button class="burger" onclick="toggleNav()" aria-label="menu"><i data-icon="menu"></i></button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="page-head">
+  <div class="wrap">
+    <div class="crumb"><a href="index.html"><i data-icon="home"></i> الرئيسية</a> / مكتبتي</div>
+    <h1>مكتبتي <span class="em"><i data-icon="star" data-size="24"></i></span></h1>
+    <p>كل محتوى حفظته للمراجعة لاحقًا، بمكان واحد — مرتّب حسب المادة.</p>
+  </div>
+</header>
+
+<section class="wrap" style="padding-bottom:60px">
+  <div id="libraryBody">
+    <div class="lib-loading">جارٍ تحميل مكتبتك...</div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+    <div class="wrap foot-inner">
+    <div class="foot-col foot-college"><b>كلية فلسطين التقنية</b> — هندسة أنظمة الحاسوب</div>
+    <div class="foot-col foot-quote">مِنْ طَلَبَةِ الكُلِّيَّةِ لِطَلَبَتِهَا</div>
+    <div class="foot-col foot-by">
+        <div class="foot-credit-line">بناء وتطوير المنصة: <i data-icon="userMale"></i> م. خالد هنية</div>
+        <div class="foot-credit-line">إثراء المحتوى والمصادر: <i data-icon="userFemale"></i> م. إسراء الشنتف &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. أفنان زقوت &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نور أبو الروس &nbsp;•&nbsp; <i data-icon="userFemale"></i> م. نورا سرور</div>
+      </div>
+  </div>
+</footer>
+
+<script src="core.js" defer></script>
+<script src="announcements.js" defer></script>
+
+<script>
+(function(){
+  const kindIcons={youtube:'<i data-icon="play"></i>',link:'<i data-icon="link"></i>',pdf:'<i data-icon="file"></i>',doc:'<i data-icon="file"></i>'};
+
+  async function load(){
+    const body=document.getElementById('libraryBody');
+
+    try{
+      await PTCAuth.requireAuth('login.html');
+      const items=await PTCAuth.getFavorites();
+
+      if(!items.length){
+        body.innerHTML=`
+          <div class="lib-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <h3>مكتبتك فاضية لسا</h3>
+            <p>افتح أي مساق، ودوس على أيقونة النجمة <i data-icon="star" data-size="13"></i> جنب أي محتوى تحب تحفظه هون.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const groups=new Map();
+      items.forEach(item=>{
+        const course=item.course||{};
+        const key=course.key||'other';
+        if(!groups.has(key)) groups.set(key,{course,items:[]});
+        groups.get(key).items.push(item);
+      });
+
+      body.innerHTML=[...groups.values()].map(group=>{
+        const course=group.course;
+        const courseName=PTCUtils.escapeHTML(course.name_ar||course.name_en||'مادة');
+        const courseKey=encodeURIComponent(course.key||'');
+
+        return `
+          <div class="lib-group">
+            <div class="lib-group-head">
+              <h3>${courseName}</h3>
+              <a href="course.html?course=${courseKey}">فتح المادة ←</a>
+            </div>
+            <div class="lib-items">
+              ${group.items.map(item=>`
+                <div class="lib-item-row" style="display:flex;gap:8px;align-items:center">
+                  <a class="lib-item" style="flex:1" href="course.html?course=${courseKey}&content=${Number(item.id)}">
+                    <span class="lib-item-icon">${kindIcons[item.kind]||'<i data-icon="paperclip"></i>'}</span>
+                    <span class="lib-item-title">${PTCUtils.escapeHTML(item.title||'محتوى')}</span>
+                  </a>
+                  <button type="button" class="lib-remove" data-remove-id="${Number(item.id)}" title="إزالة من المفضّلة" aria-label="إزالة">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      body.querySelectorAll('[data-remove-id]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          btn.disabled=true;
+          try{
+            await PTCAuth.removeFavorite(btn.dataset.removeId);
+            btn.closest('.lib-item-row')?.remove();
+          }catch(e){
+            btn.disabled=false;
+          }
+        });
+      });
+    }catch(error){
+      body.innerHTML='<div class="lib-empty"><h3>تعذّر تحميل مكتبتك</h3><p>حاول تحديث الصفحة.</p></div>';
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', load);
+})();
+</script>
+</body>
+</html>

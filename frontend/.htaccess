@@ -1,0 +1,159 @@
+DirectoryIndex index.html index.php
+
+# منع فهرسة المجلدات — خارج أي IfModule حتى لا تختفي الحماية لو الموديول غير محمّل
+Options -Indexes
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>
+
+# ==========================================================================
+# منع تحميل الملفات الحساسة
+# الأرشيفات والنسخ الاحتياطية وملفات البيئة والتوثيق الداخلي
+# ==========================================================================
+<FilesMatch "(?i)\.(zip|tar|gz|tgz|bz2|rar|7z|sql|sqlite|sqlite3|db|bak|old|orig|swp|log|md|ini|sh|yml|yaml|lock)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# ملفات النقطة (.env, .git*, .htaccess, .user.ini ...)
+# استثناء .well-known لأن Let's Encrypt يحتاجه لتجديد الشهادة
+<FilesMatch "(?i)^\.(?!well-known)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# composer.json / package.json / أي ملف إعداد في الجذر — مع إبقاء manifest.json للـ PWA
+<FilesMatch "(?i)^(composer|package|package-lock|phpunit|compose)\.(json|xml|yaml|yml)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # ==========================================================================
+    # فرض HTTPS — أول قاعدة، قبل أي إعادة كتابة أخرى
+    #
+    # بلا هذا: من يكتب النطاق بلا بادئة يصل على http، فتخرج كلمة السر في
+    # POST /auth/login نصًّا صريحًا، ويخرج توكن سانكتم في ترويسة كل طلب
+    # بعدها. وAutoSSL على cPanel يركّب الشهادة ولا يضيف التحويل.
+    #
+    # ⚠ لا تفعّل هذا قبل أن تتأكد أن الشهادة صدرت فعلًا (افتح الموقع على
+    #   https يدويًّا مرة). تفعيله قبلها يجعل الموقع غير قابل للفتح.
+    #
+    # X-Forwarded-Proto لأن بعض الاستضافات تُنهي TLS على وسيط، فيصل
+    # الطلب إلى أباتشي على http و%{HTTPS} تساوي off رغم أن الزائر على https
+    # — وبلا هذا الشرط تدور إعادة التوجيه على نفسها.
+    #
+    # واستثناء ‎.well-known لأن تحقق Let's Encrypt يجري على http، فتحويله
+    # يمنع إصدار الشهادة وتجديدها معًا.
+    # ==========================================================================
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+    # حجب أي مسار داخل .git أو مجلدات حساسة — FilesMatch لا يغطي المجلدات
+    RewriteRule (^|/)\.git(/|$)      - [F,L]
+    RewriteRule (^|/)vendor(/|$)     - [F,L]
+    RewriteRule (^|/)storage(/|$)    - [F,L]
+    RewriteRule (^|/)node_modules(/|$) - [F,L]
+
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{HTTP:X-XSRF-TOKEN} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-TOKEN}]
+
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # HSTS — يُغلق ثغرة الطلب الأول: تحويل 301 وحده يترك أول طلب على http،
+    # وهو الطلب الذي يستطيع مهاجم على الشبكة نفسها اعتراضه قبل أن يقع
+    # التحويل. بعد هذه الترويسة يذهب المتصفح إلى https مباشرة سنة كاملة.
+    #
+    # مشروط بـhttps لأن إرسالها على http بلا أثر — المواصفة توجب تجاهلها.
+    # وبلا includeSubDomains ولا preload عمدًا: كلاهما يصعب التراجع عنه،
+    # وpreload تحديدًا قرار لا رجعة فيه عمليًّا.
+    #
+    # ⚠ ما دامت هذه الترويسة تُرسَل، فانقطاع الشهادة يجعل الموقع غير قابل
+    #   للفتح على المتصفحات التي زارته — لا تحذف الشهادة، جدّدها.
+    Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == 'on'"
+
+    # ======================================================================
+    # التخزين المؤقت
+    #
+    # لا خطوة بناء في المشروع، فأسماء الملفات ثابتة ولا بصمة محتوى فيها:
+    # `app.js` يبقى `app.js` بعد أي إصلاح. فلو خزّنه المتصفح بمهلة طويلة،
+    # ظلّ الزائر على النسخة القديمة أيامًا بعد رفع الإصلاح — بلا خطأ ظاهر،
+    # ولا سبيل لدى العميل إلى إبطاله.
+    #
+    # no-cache لا تعني «لا تُخزَّن» بل «راجِعْني قبل الاستعمال»: يرسل
+    # المتصفح ETag ويردّ الخادم 304 بلا جسم إن لم يتغيّر شيء. فالكلفة
+    # طلبٌ فارغ لا تنزيلٌ كامل، والإصلاح يصل فور رفعه.
+    #
+    # والصور والخطوط أسبوع لا سنة: أسماؤها ثابتة كذلك، وشعارٌ يُستبدَل
+    # مرة كل سنوات لا يستحق أن يعلق سنة كاملة عند من زار الموقع مرة.
+    # ======================================================================
+    <FilesMatch "(?i)\.(html|js|css|json|webmanifest)$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    <FilesMatch "(?i)\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot)$">
+        Header always set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+</IfModule>
+
+# ==========================================================================
+# ضغط الاستجابة (gzip)
+#
+# لا علاقة له بإعدادات الكاش أعلاه ولا يتعارض معها: هاد يضغط حجم الملف
+# قبل إرساله بكل مرة (حتى لو no-cache)، وذاك يحدد متى يعيد المتصفح
+# السؤال عن الملف. أسماء الملفات وطريقة الرفع اليدوي عبر cPanel ما
+# بتتغيّر إطلاقًا — هذا التفعيل بلا أي أثر جانبي على الكود.
+#
+# الصور والخطوط المضغوطة أصلًا (png/jpg/woff2) عمدًا غير مشمولة: ضغطها
+# مرة ثانية يضيع وقت معالجة على السيرفر بلا أي فايدة حقيقية بالحجم.
+# ==========================================================================
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml
+    AddOutputFilterByType DEFLATE application/javascript text/javascript application/x-javascript
+    AddOutputFilterByType DEFLATE application/json application/xml application/rss+xml
+    AddOutputFilterByType DEFLATE application/manifest+json application/vnd.ms-fontobject
+    AddOutputFilterByType DEFLATE image/svg+xml font/ttf font/otf font/eot
+
+    # متصفحات قديمة جدًا كانت تفهم ترويسة النوع بشكل خاطئ مع الضغط —
+    # الشرط هون احتياطي بلا أي أثر على أي متصفح حديث
+    BrowserMatch ^Mozilla/4 gzip-only-text/html
+    BrowserMatch ^Mozilla/4\.0[678] no-gzip
+    BrowserMatch \bMSIE !no-gzip !gzip-only-text/html
+</IfModule>
+
+<IfModule mod_headers.c>
+    # يمنع أي كاش وسيط (CDN أو بروكسي بالشبكة) من تخزين النسخة المضغوطة
+    # وتقديمها لزائر متصفحه لا يدعم الضغط، والعكس
+    Header append Vary Accept-Encoding env=!dont-vary
+</IfModule>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <pattern id="mesh" width="20" height="20" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M0 10 H20 M10 0 V20" stroke="#3c4a2f" stroke-width="0.8" fill="none" opacity="0.5"/>
+      <circle cx="10" cy="10" r="1" fill="#3c4a2f" opacity="0.4"/>
+    </pattern>
+  </defs>
+  <!-- fishnet mesh block -->
+  <rect x="0" y="0" width="120" height="40" fill="url(#mesh)"/>
+  <!-- zigzag band (keffiyeh chevrons) -->
+  <g stroke="#b06a35" stroke-width="2" fill="none" opacity="0.55">
+    <path d="M0 58 L15 50 L30 58 L45 50 L60 58 L75 50 L90 58 L105 50 L120 58"/>
+    <path d="M0 64 L15 56 L30 64 L45 56 L60 64 L75 56 L90 64 L105 56 L120 64"/>
+  </g>
+  <!-- olive-leaf / wheat motif row -->
+  <g fill="#3c4a2f" opacity="0.5">
+    <g transform="translate(20 90)">
+      <path d="M0 0 Q4 -8 0 -16 Q-4 -8 0 0 Z"/>
+      <path d="M0 -4 Q7 -6 9 -12 M0 -4 Q-7 -6 -9 -12" stroke="#3c4a2f" stroke-width="1" fill="none"/>
+    </g>
+    <g transform="translate(60 90)">
+      <path d="M0 0 Q4 -8 0 -16 Q-4 -8 0 0 Z"/>
+      <path d="M0 -4 Q7 -6 9 -12 M0 -4 Q-7 -6 -9 -12" stroke="#3c4a2f" stroke-width="1" fill="none"/>
+    </g>
+    <g transform="translate(100 90)">
+      <path d="M0 0 Q4 -8 0 -16 Q-4 -8 0 0 Z"/>
+      <path d="M0 -4 Q7 -6 9 -12 M0 -4 Q-7 -6 -9 -12" stroke="#3c4a2f" stroke-width="1" fill="none"/>
+    </g>
+  </g>
+  <!-- lower mesh block -->
+  <rect x="0" y="104" width="120" height="16" fill="url(#mesh)"/>
+</svg>

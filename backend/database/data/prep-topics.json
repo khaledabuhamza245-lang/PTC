@@ -1,0 +1,2114 @@
+[
+  {
+    "course_key": "c_EEE44150",
+    "topic": "Variables & Data Types",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE44150",
+    "topic": "Operators & Expressions",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE44150",
+    "topic": "Conditionals (if/switch)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE44150",
+    "topic": "Loops (for/while)",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE44150",
+    "topic": "Basic I/O",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE44150",
+    "topic": "Problem-Solving & Flowcharts",
+    "link": null,
+    "sort_order": 6
+  },
+  {
+    "course_key": "c_EEE13259",
+    "topic": "Ohm's Law",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE13259",
+    "topic": "Basic Circuit Analysis",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE13259",
+    "topic": "Semiconductors Basics",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE13259",
+    "topic": "Diodes",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE13259",
+    "topic": "Voltage & Current fundamentals",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE13258",
+    "topic": "Ohm's Law",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE13258",
+    "topic": "Kirchhoff's Laws (KVL/KCL)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE13258",
+    "topic": "Series & Parallel Circuits",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE13258",
+    "topic": "Basic Algebra",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE13258",
+    "topic": "Complex Numbers basics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43354",
+    "topic": "C++/Java Syntax",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43354",
+    "topic": "Functions & Scope",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43354",
+    "topic": "Arrays & Strings",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43354",
+    "topic": "Classes & Objects intro",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43354",
+    "topic": "Basic memory model",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE13356",
+    "topic": "Number Systems (Binary/Hex/Octal)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE13356",
+    "topic": "Boolean Algebra",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE13356",
+    "topic": "Logic Gates (AND/OR/NOT)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE13356",
+    "topic": "Truth Tables",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE13356",
+    "topic": "Binary Arithmetic",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE33350",
+    "topic": "Calculus (derivatives/integrals)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE33350",
+    "topic": "Complex Numbers",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE33350",
+    "topic": "Trigonometric Functions",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE33350",
+    "topic": "Differential Equations basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE33350",
+    "topic": "Function transformations",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43253",
+    "topic": "OOP Principles",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43253",
+    "topic": "Data Types & Collections",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43253",
+    "topic": "Exception Handling",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43253",
+    "topic": "Functions & Recursion",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43253",
+    "topic": "Basic algorithms",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43254",
+    "topic": "Arrays",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43254",
+    "topic": "Linked Lists",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43254",
+    "topic": "Recursion",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43254",
+    "topic": "Big-O Notation",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43254",
+    "topic": "Pointers/References",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43254",
+    "topic": "Basic Sorting",
+    "link": null,
+    "sort_order": 6
+  },
+  {
+    "course_key": "c_ACD04264",
+    "topic": "Calculus I & II",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD04264",
+    "topic": "Integration Techniques",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD04264",
+    "topic": "Matrices basics",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD04264",
+    "topic": "Systems of Equations",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD04264",
+    "topic": "Vectors",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE33498",
+    "topic": "Signals & Systems",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE33498",
+    "topic": "Fourier basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE33498",
+    "topic": "Modulation concepts",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE33498",
+    "topic": "Probability basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE33498",
+    "topic": "Frequency domain",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43455",
+    "topic": "OOP Concepts",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43455",
+    "topic": "UML Diagrams basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43455",
+    "topic": "SDLC overview",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43455",
+    "topic": "Requirements thinking",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43455",
+    "topic": "Version Control (Git) basics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43595",
+    "topic": "HTML & CSS",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43595",
+    "topic": "JavaScript basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43595",
+    "topic": "Client-Server model",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43595",
+    "topic": "HTTP basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43595",
+    "topic": "Programming fundamentals",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43360",
+    "topic": "Data Structures basics",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43360",
+    "topic": "Set Theory basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43360",
+    "topic": "ER concepts",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43360",
+    "topic": "Relational model intro",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43360",
+    "topic": "Basic SQL SELECT",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43358",
+    "topic": "Digital Logic",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43358",
+    "topic": "Number Systems",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43358",
+    "topic": "Boolean Algebra",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43358",
+    "topic": "Registers & Memory basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43358",
+    "topic": "Assembly concepts",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43465",
+    "topic": "Digital Logic",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43465",
+    "topic": "Microprocessor basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43465",
+    "topic": "I/O ports concept",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43465",
+    "topic": "Binary & Hex",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43465",
+    "topic": "Basic electronics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43584",
+    "topic": "OOP (Java/Kotlin)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43584",
+    "topic": "UI/UX basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43584",
+    "topic": "Event-driven programming",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43584",
+    "topic": "Basic APIs",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43584",
+    "topic": "XML basics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43596",
+    "topic": "Web fundamentals (HTML/CSS/JS)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43596",
+    "topic": "DOM manipulation",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43596",
+    "topic": "REST APIs",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43596",
+    "topic": "Async/Promises",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43596",
+    "topic": "A frontend framework intro",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43356",
+    "topic": "Processes & Threads",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43356",
+    "topic": "CPU Scheduling",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43356",
+    "topic": "Memory Management Basics",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43356",
+    "topic": "Synchronization Concepts",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43356",
+    "topic": "Computer Architecture basics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43461",
+    "topic": "Relational model",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43461",
+    "topic": "SQL (joins/subqueries)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43461",
+    "topic": "Normalization",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43461",
+    "topic": "Indexing basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43461",
+    "topic": "Transactions intro",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43469",
+    "topic": "OSI Model",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43469",
+    "topic": "TCP/IP Basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43469",
+    "topic": "IP Addressing",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43469",
+    "topic": "Subnetting",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43469",
+    "topic": "Binary & Number Systems",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43491",
+    "topic": "Data Structures",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43491",
+    "topic": "Search Algorithms",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43491",
+    "topic": "Probability & Statistics",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43491",
+    "topic": "Linear Algebra basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43491",
+    "topic": "Python basics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE63585",
+    "topic": "Microprocessors",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE63585",
+    "topic": "Digital Logic",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE63585",
+    "topic": "C Programming",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE63585",
+    "topic": "Interfacing basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE63585",
+    "topic": "Number Systems",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43490",
+    "topic": "Networking basics",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43490",
+    "topic": "Embedded Systems intro",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43490",
+    "topic": "Sensors & Actuators",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43490",
+    "topic": "Basic programming",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43490",
+    "topic": "Protocols (MQTT/HTTP)",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43576",
+    "topic": "Computer Networks",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43576",
+    "topic": "OSI & TCP/IP",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43576",
+    "topic": "Cryptography basics",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43576",
+    "topic": "Number Theory basics",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43576",
+    "topic": "Common attack concepts",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE03555",
+    "topic": "Research Methods",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE03555",
+    "topic": "Project Management basics",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE03555",
+    "topic": "Documentation & Report writing",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE03555",
+    "topic": "Presentation skills",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE03555",
+    "topic": "Your project's technical stack",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_CMP03315",
+    "topic": "أساسيات الحاسوب",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_CMP03315",
+    "topic": "نظام التشغيل Windows",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_CMP03315",
+    "topic": "حزمة Office (Word/Excel/PowerPoint)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_CMP03315",
+    "topic": "أساسيات الإنترنت والبحث",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_CMP03315",
+    "topic": "السلامة الرقمية",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03158",
+    "topic": "قواعد النحو الأساسية",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03158",
+    "topic": "الإملاء والترقيم",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03158",
+    "topic": "التعبير الكتابي",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03158",
+    "topic": "الفهم والاستيعاب",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03158",
+    "topic": "أساسيات البلاغة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03150",
+    "topic": "الدوال وأنواعها",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03150",
+    "topic": "النهايات والاتصال",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03150",
+    "topic": "المشتقات وقواعدها",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03150",
+    "topic": "تطبيقات المشتقة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03150",
+    "topic": "أساسيات المثلثات والجبر",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03151",
+    "topic": "التكامل غير المحدود",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03151",
+    "topic": "طرق التكامل",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03151",
+    "topic": "التكامل المحدود وتطبيقاته",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03151",
+    "topic": "المتسلسلات",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03151",
+    "topic": "تفاضل وتكامل ١ (متطلب)",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD04159",
+    "topic": "وحدات القياس والتحويلات",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD04159",
+    "topic": "المتجهات",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD04159",
+    "topic": "الحركة والقوى (نيوتن)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD04159",
+    "topic": "الشغل والطاقة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD04159",
+    "topic": "الكهرباء الأساسية",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03159",
+    "topic": "Basic Grammar (tenses)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03159",
+    "topic": "Common Vocabulary",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03159",
+    "topic": "Reading Comprehension",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03159",
+    "topic": "Sentence Structure",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03159",
+    "topic": "Listening basics",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03157",
+    "topic": "English Language I",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03157",
+    "topic": "Advanced Tenses",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03157",
+    "topic": "Paragraph Writing",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03157",
+    "topic": "Technical Vocabulary",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03157",
+    "topic": "Reading & Summarizing",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE01151",
+    "topic": "تخصصات الهندسة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE01151",
+    "topic": "أخلاقيات المهنة",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE01151",
+    "topic": "التفكير الهندسي وحل المشكلات",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE01151",
+    "topic": "وحدات القياس",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE01151",
+    "topic": "مهارات أساسية بالحاسوب",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_MEE01151",
+    "topic": "قواعد السلامة في المشغل",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_MEE01151",
+    "topic": "الأدوات اليدوية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_MEE01151",
+    "topic": "القياس والمعايرة",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_MEE01151",
+    "topic": "قراءة الرسومات البسيطة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_MEE01151",
+    "topic": "أساسيات التصنيع",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03262",
+    "topic": "مصادر التشريع الإسلامي",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03262",
+    "topic": "العقيدة الإسلامية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03262",
+    "topic": "الأخلاق والمعاملات",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03262",
+    "topic": "الإسلام والحضارة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03262",
+    "topic": "القضايا المعاصرة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE11253",
+    "topic": "الدوائر الكهربائية (النظري)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE11253",
+    "topic": "استخدام الملتيميتر",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE11253",
+    "topic": "قوانين أوم وكيرشوف",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE11253",
+    "topic": "توصيل الدوائر عملياً",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE11253",
+    "topic": "قواعد السلامة الكهربائية",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE11255",
+    "topic": "الإلكترونيات (النظري)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE11255",
+    "topic": "الدايود والترانزستور",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE11255",
+    "topic": "بناء دوائر على Breadboard",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE11255",
+    "topic": "استخدام الأوسيلوسكوب",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE11255",
+    "topic": "تحليل النتائج",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE03352",
+    "topic": "أثر التكنولوجيا في المجتمع",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE03352",
+    "topic": "أخلاقيات التقنية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE03352",
+    "topic": "الخصوصية والأمن",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE03352",
+    "topic": "الفجوة الرقمية",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE03352",
+    "topic": "مهارات البحث والكتابة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE11151",
+    "topic": "أساسيات الإلكترونيات",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE11151",
+    "topic": "مكونات الدوائر",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE11151",
+    "topic": "برامج المحاكاة (Proteus/Multisim)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE11151",
+    "topic": "قراءة المخططات",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE11151",
+    "topic": "تصميم PCB مبسّط",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_BUS03451",
+    "topic": "وظائف الإدارة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_BUS03451",
+    "topic": "التخطيط والتنظيم",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_BUS03451",
+    "topic": "القيادة والتحفيز",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_BUS03451",
+    "topic": "اتخاذ القرار",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_BUS03451",
+    "topic": "إدارة الوقت والفريق",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03266",
+    "topic": "الإحصاء الوصفي",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03266",
+    "topic": "الاحتمالات الأساسية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03266",
+    "topic": "التوزيعات الاحتمالية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03266",
+    "topic": "المتغيرات العشوائية",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03266",
+    "topic": "تفاضل وتكامل (متطلب)",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03370",
+    "topic": "الجذور التاريخية للقضية",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03370",
+    "topic": "المحطات السياسية الرئيسية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03370",
+    "topic": "الجغرافيا السياسية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03370",
+    "topic": "القانون الدولي",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03370",
+    "topic": "القراءة والتحليل",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE11356",
+    "topic": "أساسيات المنطق الرقمي",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE11356",
+    "topic": "البوابات المنطقية عملياً",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE11356",
+    "topic": "جبر بول",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE11356",
+    "topic": "بناء الدوائر المنطقية",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE11356",
+    "topic": "استخدام رقائق IC",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_ACD03267",
+    "topic": "الخطأ والتقريب",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_ACD03267",
+    "topic": "حل المعادلات عددياً",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_ACD03267",
+    "topic": "الاستيفاء (Interpolation)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_ACD03267",
+    "topic": "التكامل العددي",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_ACD03267",
+    "topic": "برمجة أساسية",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE03200",
+    "topic": "خطوات البحث العلمي",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE03200",
+    "topic": "صياغة المشكلة والفرضيات",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE03200",
+    "topic": "جمع البيانات وتحليلها",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE03200",
+    "topic": "التوثيق والاقتباس",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE03200",
+    "topic": "كتابة التقرير البحثي",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE01554",
+    "topic": "أساليب البحث العلمي (متطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE01554",
+    "topic": "اختيار فكرة المشروع",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE01554",
+    "topic": "دراسة الجدوى",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE01554",
+    "topic": "التخطيط الزمني",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE01554",
+    "topic": "كتابة المقترح (Proposal)",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43471",
+    "topic": "HTML/CSS/JS المتقدمة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43471",
+    "topic": "إطار عمل واجهات (React/Vue)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43471",
+    "topic": "REST APIs",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43471",
+    "topic": "Node.js أساسيات",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43471",
+    "topic": "قواعد البيانات والمصادقة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE02580",
+    "topic": "أساسيات ريادة الأعمال",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE02580",
+    "topic": "دراسة السوق",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE02580",
+    "topic": "نموذج العمل التجاري (BMC)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE02580",
+    "topic": "منصات العمل الحر",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE02580",
+    "topic": "التسويق الذاتي والعقود",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43473",
+    "topic": "تطبيقات الهواتف (المتطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43473",
+    "topic": "إدارة الحالة (State Management)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43473",
+    "topic": "APIs وقواعد البيانات السحابية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43473",
+    "topic": "الإشعارات والاستشعار",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43473",
+    "topic": "النشر على المتاجر",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43583",
+    "topic": "نظرية لغات البرمجة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43583",
+    "topic": "أنماط اللغات (وظيفية/كائنية/منطقية)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43583",
+    "topic": "المترجمات والمفسرات",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43583",
+    "topic": "إدارة الذاكرة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43583",
+    "topic": "تحليل بناء الجملة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE23595",
+    "topic": "الإشارات والأنظمة (المتطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE23595",
+    "topic": "تحويل فورييه (FFT)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE23595",
+    "topic": "الترشيح الرقمي (FIR/IIR)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE23595",
+    "topic": "العينات ونظرية نايكويست",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE23595",
+    "topic": "الأعداد المركبة والجبر الخطي",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43582",
+    "topic": "هياكل البيانات الأساسية",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43582",
+    "topic": "تحليل التعقيد Big-O",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43582",
+    "topic": "الأشجار والرسوم البيانية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43582",
+    "topic": "البرمجة الديناميكية",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43582",
+    "topic": "الخوارزميات الجشعة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43594",
+    "topic": "أساسيات هندسة الحاسوب",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43594",
+    "topic": "القراءة البحثية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43594",
+    "topic": "التقنيات الحديثة في المجال",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43594",
+    "topic": "مهارات العرض والتوثيق",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43594",
+    "topic": "العمل على مشروع تطبيقي",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE63586",
+    "topic": "الإشارات والأنظمة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE63586",
+    "topic": "المعادلات التفاضلية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE63586",
+    "topic": "تحويل Z",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE63586",
+    "topic": "أنظمة التحكم بالتغذية الراجعة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE63586",
+    "topic": "المعالجات الدقيقة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE63576",
+    "topic": "الأنظمة المدمجة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE63576",
+    "topic": "المتحكمات الدقيقة",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE63576",
+    "topic": "الحساسات والمحركات",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE63576",
+    "topic": "الحركية (Kinematics)",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE63576",
+    "topic": "برمجة C/Python",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43574",
+    "topic": "تقنيات ربط الحاسوب (المتطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43574",
+    "topic": "بروتوكولات الاتصال (SPI/I2C/UART)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43574",
+    "topic": "المعالجات الدقيقة",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43574",
+    "topic": "برمجة المنافذ",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43574",
+    "topic": "الأنظمة المدمجة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE63589",
+    "topic": "أنظمة التحكم",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE63589",
+    "topic": "المتحكم المنطقي القابل للبرمجة (PLC)",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE63589",
+    "topic": "الحساسات الصناعية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE63589",
+    "topic": "SCADA",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE63589",
+    "topic": "السلامة الصناعية",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43599",
+    "topic": "الجبر الخطي والإحصاء",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43599",
+    "topic": "Python و NumPy/Pandas",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43599",
+    "topic": "التعلم المُوجّه وغير المُوجّه",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43599",
+    "topic": "الانحدار والتصنيف",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43599",
+    "topic": "تقييم النماذج",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE63588",
+    "topic": "تعلم الآلة (المتطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE63588",
+    "topic": "الجبر الخطي والتفاضل",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE63588",
+    "topic": "الإدراك متعدد الطبقات (MLP)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE63588",
+    "topic": "الانتشار العكسي",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE63588",
+    "topic": "أطر العمل (TensorFlow/PyTorch)",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE63587",
+    "topic": "المنطق الرقمي",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE63587",
+    "topic": "نظرية المجموعات",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE63587",
+    "topic": "المجموعات الضبابية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE63587",
+    "topic": "قواعد الاستدلال الضبابي",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE63587",
+    "topic": "تطبيقات التحكم",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE23596",
+    "topic": "الجبر الخطي والمصفوفات",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE23596",
+    "topic": "معالجة الإشارات الرقمية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE23596",
+    "topic": "تمثيل الصور والبكسل",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE23596",
+    "topic": "الترشيح والتحويلات",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE23596",
+    "topic": "OpenCV و Python",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43591",
+    "topic": "الجبر الخطي (المتجهات/المصفوفات)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43591",
+    "topic": "الهندسة ثلاثية الأبعاد",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43591",
+    "topic": "خوارزميات الرسم",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43591",
+    "topic": "OpenGL/WebGL",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43591",
+    "topic": "التحويلات والإسقاط",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE23580",
+    "topic": "الاحتمالات والإحصاء",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE23580",
+    "topic": "الجبر الخطي",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE23580",
+    "topic": "استخلاص السمات (Features)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE23580",
+    "topic": "التصنيف والتجميع",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE23580",
+    "topic": "تعلم الآلة الأساسي",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE33597",
+    "topic": "الاحتمالات",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE33597",
+    "topic": "الأنظمة العددية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE33597",
+    "topic": "الإنتروبيا وقياس المعلومة",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE33597",
+    "topic": "ترميز المصدر والقناة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE33597",
+    "topic": "كشف وتصحيح الأخطاء",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43577",
+    "topic": "شبكات الحاسوب",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43577",
+    "topic": "نظرية الأعداد الأساسية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43577",
+    "topic": "التشفير المتماثل وغير المتماثل",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43577",
+    "topic": "الدوال الهاشية",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43577",
+    "topic": "بروتوكولات الأمان",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43593",
+    "topic": "شبكات الحاسوب (المتطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43593",
+    "topic": "نموذج OSI و TCP/IP",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43593",
+    "topic": "التوجيه المتقدم",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43593",
+    "topic": "جودة الخدمة (QoS)",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43593",
+    "topic": "الشبكات المعرّفة برمجياً (SDN)",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43579",
+    "topic": "شبكات الحاسوب",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43579",
+    "topic": "نظم التشغيل",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43579",
+    "topic": "التزامن والتوازي",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43579",
+    "topic": "بروتوكولات التوافق",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43579",
+    "topic": "النسخ والتحمل للأعطال",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43586",
+    "topic": "شبكات الحاسوب",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43586",
+    "topic": "نظم التشغيل والمحاكاة الافتراضية",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43586",
+    "topic": "نماذج الخدمات (IaaS/PaaS/SaaS)",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43586",
+    "topic": "الحاويات (Docker)",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43586",
+    "topic": "موازنة الأحمال",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43573",
+    "topic": "لغات البرمجة",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43573",
+    "topic": "هياكل البيانات",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43573",
+    "topic": "التحليل المعجمي والنحوي",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43573",
+    "topic": "الأتمتة المنتهية والقواعد",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43573",
+    "topic": "توليد الشيفرة",
+    "link": null,
+    "sort_order": 5
+  },
+  {
+    "course_key": "c_EEE43590",
+    "topic": "نظم التشغيل (المتطلب)",
+    "link": null,
+    "sort_order": 1
+  },
+  {
+    "course_key": "c_EEE43590",
+    "topic": "العمليات والخيوط",
+    "link": null,
+    "sort_order": 2
+  },
+  {
+    "course_key": "c_EEE43590",
+    "topic": "إدارة الذاكرة الافتراضية",
+    "link": null,
+    "sort_order": 3
+  },
+  {
+    "course_key": "c_EEE43590",
+    "topic": "التزامن والجدولة",
+    "link": null,
+    "sort_order": 4
+  },
+  {
+    "course_key": "c_EEE43590",
+    "topic": "الأنظمة الموزعة",
+    "link": null,
+    "sort_order": 5
+  }
+]
