@@ -44,9 +44,11 @@ use Illuminate\Http\Request;
  * المحاضرات" بالموقع) + تذكير تلقائي قبل كل محاضرة بربع ساعة عبر أمر
  * artisan منفصل (SendTelegramLectureReminders) يُستدعى من Cron خارجي
  * كل ٥ دقائق (لا queue/schedule:run حقيقي بدون SSH — راجع
- * telegram_bot_step_reminders_cpanel_cron_setup.txt). هاي أول جزء من
- * الميزة (عرض + تذكيرات) — الإضافة/التعديل/الحذف من داخل البوت رح
- * تُبنى بخطوة تالية منفصلة.
+ * telegram_bot_step_reminders_cpanel_cron_setup.txt).
+ *
+ * إضافة/تعديل/حذف محاضرة من داخل البوت نفسه (بدون فتح الموقع أبدًا)
+ * — محادثة متعددة الخطوات مخزَّنة بعمود telegram_links.pending_action
+ * (راجع الشرح المفصّل فوق startAddFlow()).
  */
 class TelegramWebhookController extends Controller
 {
@@ -103,7 +105,13 @@ class TelegramWebhookController extends Controller
 
         $callbackQuery = $request->input('callback_query');
         if (is_array($callbackQuery)) {
-            $this->handleMenuCallback($bot, $callbackQuery);
+            $callbackData = (string) ($callbackQuery['data'] ?? '');
+
+            if (str_starts_with($callbackData, 'sched:')) {
+                $this->handleScheduleCallback($bot, $callbackQuery);
+            } else {
+                $this->handleMenuCallback($bot, $callbackQuery);
+            }
 
             return response()->json(['ok' => true]);
         }
@@ -187,6 +195,25 @@ class TelegramWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        /*
+         * الطالب بمنتصف محادثة "إضافة/تعديل/حذف محاضرة" (خطوة بخطوة) —
+         * أي رسالة نصية بعدها تُعتبر جواب على السؤال الحالي بهاي
+         * العملية، مش سؤال حر ولا أمر جديد، بغض النظر عن الوضع المختار
+         * بالقائمة الذكية. صور/ملفات بمنتصف هاي العملية مش مدعومة —
+         * رسالة توضيحية بدل ما تروح غلط للتلخيص.
+         */
+        if ($link->isInScheduleFlow()) {
+            if ($hasMedia) {
+                $bot->sendMessage($chatId, 'أنت بمنتصف عملية جدول حاليًا 🙂 اكتب ردّك كنص، أو اكتب "إلغاء" لإيقافها.');
+
+                return response()->json(['ok' => true]);
+            }
+
+            $this->handleScheduleTextInput($bot, $link, $chatId, $text);
+
+            return response()->json(['ok' => true]);
+        }
+
         if ($hasMedia) {
             /*
              * بوضع "مصحّح أكواد" فقط، ملف بامتداد كود معروف (html/css/js/php...)
@@ -225,7 +252,8 @@ class TelegramWebhookController extends Controller
                 $chatId,
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
-                "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة.\n".
+                "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة (وفيها أزرار إضافة/تعديل/حذف).\n".
+                "➕ إضافة محاضرة / ✏️ تعديل محاضرة / 🗑️ حذف محاضرة — تديرها كلها من هون بدون فتح الموقع.\n".
                 "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
                 "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
@@ -257,6 +285,24 @@ class TelegramWebhookController extends Controller
         if (in_array($normalized, ['إيقاف التذكيرات', 'ايقاف التذكيرات'], true)) {
             $link->update(['reminders_enabled' => false]);
             $bot->sendMessage($chatId, '🔕 تم إيقاف تذكيرات المحاضرات. اكتب "تفعيل التذكيرات" لإرجاعها بأي وقت.');
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['إضافة محاضرة', 'اضافة محاضرة'], true)) {
+            $this->startAddFlow($bot, $link, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['تعديل محاضرة'], true)) {
+            $this->startEditFlow($bot, $link, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['حذف محاضرة'], true)) {
+            $this->startDeleteFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -554,7 +600,8 @@ class TelegramWebhookController extends Controller
         if ($lectures->isEmpty()) {
             $bot->sendMessage(
                 $chatId,
-                '📅 جدولك فاضي حاليًا. ضيف محاضراتك من صفحة "جدول المحاضرات" بالموقع، وبعدها اكتب "جدولي" هون لتشوفها.'
+                '📅 جدولك فاضي حاليًا. ضيف أول محاضرة من هون مباشرة، أو من صفحة "جدول المحاضرات" بالموقع.',
+                [[['text' => '➕ إضافة محاضرة', 'callback_data' => 'sched:add']]]
             );
 
             return;
@@ -601,7 +648,576 @@ class TelegramWebhookController extends Controller
             : '🔕 التذكيرات متوقفة (اكتب "تفعيل التذكيرات" لتشغيلها)';
         $lines[] = $remindersStatus;
 
-        $bot->sendMessage($chatId, implode("\n", $lines));
+        $keyboard = [[
+            ['text' => '➕ إضافة محاضرة', 'callback_data' => 'sched:add'],
+            ['text' => '✏️ تعديل', 'callback_data' => 'sched:edit'],
+            ['text' => '🗑️ حذف', 'callback_data' => 'sched:delete'],
+        ]];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    // تسميات حقول "تعديل محاضرة" — نفس أسماء أعمدة ScheduleLecture.
+    private const EDIT_FIELD_LABELS = [
+        'name' => 'الاسم', 'instructor' => 'الأستاذ', 'type' => 'النوع',
+        'days' => 'الأيام', 'start_time' => 'وقت البداية', 'end_time' => 'وقت النهاية',
+    ];
+
+    /*
+     * ثاني جزء من ميزة "الجدول" — إضافة/تعديل/حذف محاضرة من داخل
+     * المحادثة نفسها، خطوة بخطوة، بدون فتح الموقع أبدًا. الحالة
+     * (أي خطوة/أي بيانات جُمعت لحد الآن) تُخزَّن بعمود
+     * telegram_links.pending_action (JSON) — راجع
+     * TelegramLink::isInScheduleFlow() والتحقق منها بأول __invoke().
+     *
+     * تسلسل "إضافة": name → instructor (اختياري) → type (أزرار) →
+     * days (أزرار متعددة) → start_time → end_time → confirm (أزرار).
+     * تسلسل "تعديل": pick_lecture (أزرار) → pick_field (أزرار) → نفس
+     * منطق الحقل المفرد (نص أو أزرار حسب نوعه) → حفظ فوري بلا تأكيد
+     * إضافي. تسلسل "حذف": pick_lecture (أزرار) → confirm (أزرار).
+     */
+    private function startAddFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $link->update(['pending_action' => ['action' => 'add', 'step' => 'name', 'lecture_id' => null, 'data' => []]]);
+
+        $bot->sendMessage(
+            $chatId,
+            "📝 <b>إضافة محاضرة جديدة</b>\n\nاكتب اسم المادة/المحاضرة:\n\n(تقدر تكتب \"إلغاء\" بأي وقت لإيقاف العملية)"
+        );
+    }
+
+    private function startEditFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $lectures = ScheduleLecture::query()->where('user_id', $link->user_id)->orderBy('start_time')->get();
+
+        if ($lectures->isEmpty()) {
+            $bot->sendMessage($chatId, 'جدولك فاضي — ما في محاضرات لتعديلها. اكتب "إضافة محاضرة" لتضيف وحدة.');
+
+            return;
+        }
+
+        $link->update(['pending_action' => ['action' => 'edit', 'step' => 'pick_lecture', 'lecture_id' => null, 'data' => []]]);
+
+        $bot->sendMessage($chatId, '✏️ اختر المحاضرة يلي بدك تعدّلها:', $this->buildLecturePickerKeyboard($lectures, 'edit_pick'));
+    }
+
+    private function startDeleteFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $lectures = ScheduleLecture::query()->where('user_id', $link->user_id)->orderBy('start_time')->get();
+
+        if ($lectures->isEmpty()) {
+            $bot->sendMessage($chatId, 'جدولك فاضي — ما في محاضرات لحذفها.');
+
+            return;
+        }
+
+        $link->update(['pending_action' => ['action' => 'delete', 'step' => 'pick_lecture', 'lecture_id' => null, 'data' => []]]);
+
+        $bot->sendMessage($chatId, '🗑️ اختر المحاضرة يلي بدك تحذفها:', $this->buildLecturePickerKeyboard($lectures, 'delete_pick'));
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, ScheduleLecture> $lectures
+     */
+    private function buildLecturePickerKeyboard($lectures, string $callbackPrefix): array
+    {
+        $rows = [];
+
+        foreach ($lectures as $lecture) {
+            $label = mb_substr((string) $lecture->name, 0, 30) . ' (' . $lecture->start_time . ')';
+            $rows[] = [['text' => $label, 'callback_data' => "sched:{$callbackPrefix}:{$lecture->id}"]];
+        }
+
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'sched:cancel']];
+
+        return $rows;
+    }
+
+    /*
+     * أي نص عادي أثناء عملية جدول جارية — الخطوات النصية فقط (الأزرار
+     * تُعالج بـhandleScheduleCallback). "إلغاء" شغّال بأي خطوة.
+     */
+    private function handleScheduleTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $step = (string) ($pending['step'] ?? '');
+        $action = (string) ($pending['action'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        switch ($step) {
+            case 'name':
+                $name = trim($text);
+
+                if ($name === '' || mb_strlen($name) > 150) {
+                    $bot->sendMessage($chatId, 'اسم غير صالح (لازم يكون بين حرف و١٥٠ حرف). جرّب كتابة الاسم مرة ثانية:');
+
+                    return;
+                }
+
+                if ($action === 'edit_field') {
+                    $this->applyEditFieldAndFinish($bot, $link, $chatId, 'name', $name);
+
+                    return;
+                }
+
+                $data['name'] = $name;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'instructor', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, 'تمام 👍 اكتب اسم الدكتور/المدرّس (أو اكتب "تخطي" لو ما بدك تحدد):');
+
+                return;
+
+            case 'instructor':
+                $instructor = in_array(trim($text), ['تخطي', 'skip'], true) ? '' : trim($text);
+
+                if (mb_strlen($instructor) > 150) {
+                    $bot->sendMessage($chatId, 'الاسم طويل جدًا. جرّب اسم أقصر أو اكتب "تخطي":');
+
+                    return;
+                }
+
+                $data['instructor'] = $instructor;
+
+                if ($action === 'edit_field') {
+                    $this->applyEditFieldAndFinish($bot, $link, $chatId, 'instructor', $instructor);
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'type', 'lecture_id' => null, 'data' => $data]]);
+                $this->sendTypePicker($bot, $chatId);
+
+                return;
+
+            case 'start_time':
+                if (! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', trim($text))) {
+                    $bot->sendMessage($chatId, 'صيغة الوقت غير صحيحة 🙂 اكتبه هيك مثلًا: 10:00');
+
+                    return;
+                }
+
+                $startTime = trim($text);
+
+                if ($action === 'edit_field') {
+                    $lecture = ScheduleLecture::query()
+                        ->where('id', $pending['lecture_id'] ?? 0)
+                        ->where('user_id', $link->user_id)
+                        ->first();
+
+                    if ($lecture && $startTime >= (string) $lecture->end_time) {
+                        $bot->sendMessage($chatId, 'وقت البداية لازم يكون قبل وقت النهاية الحالي (' . $lecture->end_time . '). جرّب وقت تاني:');
+
+                        return;
+                    }
+
+                    $this->applyEditFieldAndFinish($bot, $link, $chatId, 'start_time', $startTime);
+
+                    return;
+                }
+
+                $data['start_time'] = $startTime;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'end_time', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, 'ومتى بتخلص؟ اكتب وقت النهاية (مثلًا: 11:30):');
+
+                return;
+
+            case 'end_time':
+                if (! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', trim($text))) {
+                    $bot->sendMessage($chatId, 'صيغة الوقت غير صحيحة 🙂 اكتبه هيك مثلًا: 11:30');
+
+                    return;
+                }
+
+                $endTime = trim($text);
+
+                if ($action === 'edit_field') {
+                    $lecture = ScheduleLecture::query()
+                        ->where('id', $pending['lecture_id'] ?? 0)
+                        ->where('user_id', $link->user_id)
+                        ->first();
+
+                    if ($lecture && $endTime <= (string) $lecture->start_time) {
+                        $bot->sendMessage($chatId, 'وقت النهاية لازم يكون بعد وقت البداية الحالي (' . $lecture->start_time . '). جرّب وقت تاني:');
+
+                        return;
+                    }
+
+                    $this->applyEditFieldAndFinish($bot, $link, $chatId, 'end_time', $endTime);
+
+                    return;
+                }
+
+                if ($endTime <= (string) ($data['start_time'] ?? '')) {
+                    $bot->sendMessage($chatId, 'وقت النهاية لازم يكون بعد وقت البداية (' . ($data['start_time'] ?? '') . '). جرّب وقت تاني:');
+
+                    return;
+                }
+
+                $data['end_time'] = $endTime;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+                $this->sendAddConfirmation($bot, $chatId, $data);
+
+                return;
+
+            default:
+                $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+        }
+    }
+
+    private function sendTypePicker(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $bot->sendMessage($chatId, 'شو نوع المحاضرة؟', [[
+            ['text' => '🏫 حضوري', 'callback_data' => 'sched:type:in_person'],
+            ['text' => '🌐 اونلاين', 'callback_data' => 'sched:type:online'],
+        ]]);
+    }
+
+    private function sendDayPicker(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $rows = [];
+        $rowKeys = array_keys(self::DAY_LABELS);
+
+        foreach (array_chunk($rowKeys, 2) as $pair) {
+            $rows[] = array_map(
+                fn ($dayKey) => ['text' => self::DAY_LABELS[$dayKey], 'callback_data' => "sched:day:{$dayKey}"],
+                $pair
+            );
+        }
+
+        $rows[] = [['text' => '✅ تم الاختيار', 'callback_data' => 'sched:days_done']];
+
+        $bot->sendMessage($chatId, 'شو أيام المحاضرة؟ اضغط كل يوم بدك ياه (فيك تختار أكثر من يوم)، وبعدين اضغط "تم الاختيار":', $rows);
+    }
+
+    private function sendAddConfirmation(TelegramBotApi $bot, int|string $chatId, array $data): void
+    {
+        $bot->sendMessage(
+            $chatId,
+            "راجع البيانات قبل الحفظ:\n\n" . $this->formatLectureDataSummary($data),
+            [[
+                ['text' => '✅ تأكيد وحفظ', 'callback_data' => 'sched:confirm_add'],
+                ['text' => '❌ إلغاء', 'callback_data' => 'sched:cancel'],
+            ]]
+        );
+    }
+
+    private function formatLectureDataSummary(array $data): string
+    {
+        $typeLabel = ($data['type'] ?? '') === 'online' ? '🌐 اونلاين' : '🏫 حضوري';
+        $daysLabel = collect($data['days'] ?? [])
+            ->map(fn ($d) => self::DAY_LABELS[$d] ?? $d)
+            ->implode('، ');
+        $instructor = trim((string) ($data['instructor'] ?? ''));
+
+        return '📚 ' . TelegramBotApi::escapeHtml((string) ($data['name'] ?? '')) . "\n" .
+            ($instructor !== '' ? '👤 ' . TelegramBotApi::escapeHtml($instructor) . "\n" : '') .
+            '🗓️ ' . $daysLabel . "\n" .
+            '🕐 ' . ($data['start_time'] ?? '') . '–' . ($data['end_time'] ?? '') . "\n" .
+            $typeLabel;
+    }
+
+    /*
+     * ضغطات أزرار عملية الجدول (add/edit/delete) — كل الأزرار يلي
+     * تبدأ بـ"sched:". لازم نتحقق من الحساب المربوط + ملكية المحاضرة
+     * (user_id) بكل خطوة، وليس الاعتماد على أي شيء بالـcallback_data
+     * نفسه غير المعرّفات الرقمية.
+     */
+    private function handleScheduleCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('sched:'));
+        [$key, $arg] = array_pad(explode(':', $action, 2), 2, null);
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+
+        switch ($key) {
+            case 'add':
+                $bot->answerCallbackQuery($callbackId);
+                $this->startAddFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'edit':
+                $bot->answerCallbackQuery($callbackId);
+                $this->startEditFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'delete':
+                $bot->answerCallbackQuery($callbackId);
+                $this->startDeleteFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'cancel':
+                $link->update(['pending_action' => null]);
+                $bot->answerCallbackQuery($callbackId, 'تم الإلغاء.');
+
+                return;
+
+            case 'type':
+                if (($pending['step'] ?? null) !== 'type' && ($pending['step'] ?? null) !== 'edit_type') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $typeValue = $arg === 'online' ? 'online' : 'in_person';
+                $typeLabel = $typeValue === 'online' ? '🌐 اونلاين' : '🏫 حضوري';
+
+                if (($pending['action'] ?? null) === 'edit_field') {
+                    $bot->answerCallbackQuery($callbackId, 'تم اختيار: ' . $typeLabel);
+                    $this->applyEditFieldAndFinish($bot, $link, $chatId, 'type', $typeValue);
+
+                    return;
+                }
+
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['type'] = $typeValue;
+                $link->update(['pending_action' => ['action' => $pending['action'], 'step' => 'days', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId, 'تم اختيار: ' . $typeLabel);
+                $this->sendDayPicker($bot, $chatId);
+
+                return;
+
+            case 'day':
+                if (($pending['step'] ?? null) !== 'days') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $dayKey = (int) $arg;
+                $newData = (array) ($pending['data'] ?? []);
+                $days = array_map('intval', (array) ($newData['days'] ?? []));
+
+                if (in_array($dayKey, $days, true)) {
+                    $days = array_values(array_diff($days, [$dayKey]));
+                } else {
+                    $days[] = $dayKey;
+                }
+
+                $newData['days'] = $days;
+                $link->update(['pending_action' => ['action' => $pending['action'], 'step' => 'days', 'lecture_id' => $pending['lecture_id'] ?? null, 'data' => $newData]]);
+
+                $selectedLabel = empty($days)
+                    ? 'ما في أيام مختارة'
+                    : collect($days)->map(fn ($d) => self::DAY_LABELS[$d] ?? $d)->implode('، ');
+                $bot->answerCallbackQuery($callbackId, 'الأيام المختارة: ' . $selectedLabel);
+
+                return;
+
+            case 'days_done':
+                $newData = (array) ($pending['data'] ?? []);
+                $days = (array) ($newData['days'] ?? []);
+
+                if (empty($days)) {
+                    $bot->answerCallbackQuery($callbackId, 'اختر يوم واحد على الأقل!');
+
+                    return;
+                }
+
+                if (($pending['action'] ?? null) === 'edit_field') {
+                    $bot->answerCallbackQuery($callbackId);
+                    $this->applyEditFieldAndFinish($bot, $link, $chatId, 'days', $days);
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => $pending['action'], 'step' => 'start_time', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId);
+                $bot->sendMessage($chatId, 'متى بتبدأ؟ اكتب وقت البداية (مثلًا: 10:00):');
+
+                return;
+
+            case 'confirm_add':
+                $bot->answerCallbackQuery($callbackId);
+                $this->saveNewLectureFromPending($bot, $link, $chatId);
+
+                return;
+
+            case 'edit_pick':
+                $lectureId = (int) $arg;
+                $lecture = ScheduleLecture::query()->where('id', $lectureId)->where('user_id', $link->user_id)->first();
+
+                if (! $lecture) {
+                    $bot->answerCallbackQuery($callbackId, 'هذه المحاضرة مش موجودة.');
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => 'edit', 'step' => 'pick_field', 'lecture_id' => $lectureId, 'data' => []]]);
+                $bot->answerCallbackQuery($callbackId);
+                $bot->sendMessage($chatId, 'شو بدك تعدّل بـ"' . TelegramBotApi::escapeHtml((string) $lecture->name) . '"؟', $this->buildFieldPickerKeyboard());
+
+                return;
+
+            case 'edit_field':
+                if (($pending['step'] ?? null) !== 'pick_field' || ! array_key_exists($arg, self::EDIT_FIELD_LABELS)) {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $bot->answerCallbackQuery($callbackId);
+                $this->startEditFieldStep($bot, $link, $chatId, (string) $pending['lecture_id'], $arg);
+
+                return;
+
+            case 'delete_pick':
+                $lectureId = (int) $arg;
+                $lecture = ScheduleLecture::query()->where('id', $lectureId)->where('user_id', $link->user_id)->first();
+
+                if (! $lecture) {
+                    $bot->answerCallbackQuery($callbackId, 'هذه المحاضرة مش موجودة.');
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => 'delete', 'step' => 'confirm', 'lecture_id' => $lectureId, 'data' => []]]);
+                $bot->answerCallbackQuery($callbackId);
+                $bot->sendMessage(
+                    $chatId,
+                    'متأكد بدك تحذف "' . TelegramBotApi::escapeHtml((string) $lecture->name) . '"؟',
+                    [[
+                        ['text' => '✅ نعم احذف', 'callback_data' => "sched:delete_confirm:{$lectureId}"],
+                        ['text' => '❌ إلغاء', 'callback_data' => 'sched:cancel'],
+                    ]]
+                );
+
+                return;
+
+            case 'delete_confirm':
+                $lectureId = (int) $arg;
+
+                if (($pending['lecture_id'] ?? null) != $lectureId) {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $lecture = ScheduleLecture::query()->where('id', $lectureId)->where('user_id', $link->user_id)->first();
+
+                if ($lecture) {
+                    $lecture->delete();
+                }
+
+                $link->update(['pending_action' => null]);
+                $bot->answerCallbackQuery($callbackId, 'تم الحذف.');
+                $bot->sendMessage($chatId, '🗑️ تم حذف المحاضرة بنجاح.');
+
+                return;
+
+            default:
+                $bot->answerCallbackQuery($callbackId);
+        }
+    }
+
+    private function buildFieldPickerKeyboard(): array
+    {
+        $rows = [];
+
+        foreach (self::EDIT_FIELD_LABELS as $field => $label) {
+            $rows[] = [['text' => $label, 'callback_data' => "sched:edit_field:{$field}"]];
+        }
+
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'sched:cancel']];
+
+        return $rows;
+    }
+
+    /*
+     * بدء خطوة تعديل حقل مفرد لمحاضرة موجودة — نفس منطق جمع القيمة
+     * المستخدَم بمسار "إضافة" (نص أو أزرار حسب الحقل)، لكن بـ
+     * action='edit_field' حتى handleScheduleTextInput/handleScheduleCallback
+     * يطبّقوا القيمة فورًا بدل ما يكملوا لسلسلة الإضافة الكاملة.
+     */
+    private function startEditFieldStep(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $lectureId, string $field): void
+    {
+        $link->update(['pending_action' => [
+            'action' => 'edit_field',
+            'step' => $field === 'type' ? 'edit_type' : $field,
+            'lecture_id' => (int) $lectureId,
+            'data' => [],
+        ]]);
+
+        match ($field) {
+            'name' => $bot->sendMessage($chatId, 'اكتب الاسم الجديد:'),
+            'instructor' => $bot->sendMessage($chatId, 'اكتب اسم الدكتور/المدرّس الجديد (أو "تخطي" لإزالته):'),
+            'type' => $this->sendTypePicker($bot, $chatId),
+            'days' => $this->sendDayPicker($bot, $chatId),
+            'start_time' => $bot->sendMessage($chatId, 'اكتب وقت البداية الجديد (مثلًا: 10:00):'),
+            'end_time' => $bot->sendMessage($chatId, 'اكتب وقت النهاية الجديد (مثلًا: 11:30):'),
+            default => null,
+        };
+    }
+
+    private function applyEditFieldAndFinish(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $field, mixed $value): void
+    {
+        $pending = $link->pending_action;
+        $lecture = ScheduleLecture::query()
+            ->where('id', $pending['lecture_id'] ?? 0)
+            ->where('user_id', $link->user_id)
+            ->first();
+
+        $link->update(['pending_action' => null]);
+
+        if (! $lecture) {
+            $bot->sendMessage($chatId, 'تعذّر إيجاد هذه المحاضرة (ممكن اتحذفت). جرّب من جديد.');
+
+            return;
+        }
+
+        $lecture->update([$field => $value]);
+
+        $bot->sendMessage($chatId, '✅ تم تحديث "' . self::EDIT_FIELD_LABELS[$field] . '" بنجاح.');
+    }
+
+    private function saveNewLectureFromPending(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $pending = $link->pending_action;
+        $data = (array) ($pending['data'] ?? []);
+        $link->update(['pending_action' => null]);
+
+        ScheduleLecture::create([
+            'user_id' => $link->user_id,
+            'course_key' => null,
+            'name' => (string) ($data['name'] ?? ''),
+            'instructor' => (string) ($data['instructor'] ?? ''),
+            'type' => ($data['type'] ?? '') === 'online' ? 'online' : 'in_person',
+            'days' => array_values(array_map('intval', (array) ($data['days'] ?? []))),
+            'start_time' => (string) ($data['start_time'] ?? ''),
+            'end_time' => (string) ($data['end_time'] ?? ''),
+        ]);
+
+        $bot->sendMessage($chatId, "✅ <b>تمت إضافة المحاضرة بنجاح!</b>\n\n" . $this->formatLectureDataSummary($data) . "\n\nاكتب \"جدولي\" لتشوف جدولك المحدَّث.");
     }
 
     /*

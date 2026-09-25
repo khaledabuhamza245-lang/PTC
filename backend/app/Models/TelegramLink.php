@@ -16,6 +16,7 @@ class TelegramLink extends Model
         'linked_at',
         'mode',
         'reminders_enabled',
+        'pending_action',
     ];
 
     protected function casts(): array
@@ -24,6 +25,7 @@ class TelegramLink extends Model
             'token_expires_at' => 'datetime',
             'linked_at' => 'datetime',
             'reminders_enabled' => 'boolean',
+            'pending_action' => 'array',
         ];
     }
 
@@ -47,5 +49,17 @@ class TelegramLink extends Model
         $mode = (string) ($this->mode ?? '');
 
         return in_array($mode, ['chat', 'debug', 'quiz', 'summarize'], true) ? $mode : 'chat';
+    }
+
+    /*
+     * "pending_action" — حالة محادثة متعددة الخطوات لإضافة/تعديل/حذف
+     * محاضرة من داخل البوت نفسه (راجع TelegramWebhookController).
+     * JSON بصيغة: {action, step, lecture_id, data:{...}}. null يعني
+     * الطالب مش بمنتصف أي عملية جدول حاليًا — بهاي الحالة أي نص بيروح
+     * لأداة الذكاء الاصطناعي المختارة (currentMode) كالمعتاد.
+     */
+    public function isInScheduleFlow(): bool
+    {
+        return is_array($this->pending_action) && ! empty($this->pending_action['action'] ?? null);
     }
 }
