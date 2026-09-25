@@ -34,6 +34,8 @@ use App\Http\Controllers\Api\V1\Staff\UploadController;
 use App\Http\Controllers\Api\V1\Staff\UserController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\TelegramUploadController;
+use App\Http\Controllers\Api\V1\TelegramLinkController;
+use App\Http\Controllers\Api\V1\TelegramWebhookController;
 use App\Http\Controllers\Api\V1\SearchController;
 use App\Http\Controllers\Api\V1\FavoriteController;
 use App\Http\Controllers\Api\V1\ScheduleLectureController;
@@ -49,6 +51,14 @@ Route::prefix('v1')->group(function () {
      * بالرابط نفسه، لا بجلسة تسجيل دخول، لأن المستدعي هنا آلي لا طالب.
      */
     Route::get('/ai/process-pending', [AiAssistantController::class, 'processPending']);
+
+    /*
+     * استقبال تحديثات بوت "المساعد الأكاديمي" (Webhook) — بوت تجريبي
+     * منفصل بالكامل عن telegram-upload، مرحلة أولى (ربط الحساب فقط).
+     * الحماية برمز سرّي بالترويسة (X-Telegram-Bot-Api-Secret-Token)
+     * لا بجلسة تسجيل دخول، لأن المستدعي هون سيرفرات تيليجرام نفسها.
+     */
+    Route::post('/telegram/webhook', TelegramWebhookController::class);
         Route::get('/ai/provider-usage', [AiAssistantController::class, 'providerUsage']);
     Route::middleware('throttle:auth')->prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
@@ -84,6 +94,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/me', [ProfileController::class, 'show']);
         Route::patch('/me', [ProfileController::class, 'update']);
+
+        Route::get('/me/telegram-link', [TelegramLinkController::class, 'show']);
+        Route::post('/me/telegram-link', [TelegramLinkController::class, 'store']);
+        Route::delete('/me/telegram-link', [TelegramLinkController::class, 'destroy']);
         Route::get(
     '/courses/{course}/telegram-upload',
     TelegramUploadController::class
