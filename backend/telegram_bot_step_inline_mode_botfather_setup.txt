@@ -22,8 +22,20 @@
    ابحث عن مادة أو أداة أو محتوى...
 
 5) بترجع رسالة تأكيد من BotFather إنه Inline Mode صار مفعّل.
-   هيك بس — ما في أي إعداد إضافي على جهة الخادم (الكود عندك جاهز
-   أصلًا لمعالجة inline_query عبر webhook الموجود).
+
+6) ⚠ خطوة إضافية ضرورية لو كان الـwebhook مسجَّل عندك من قبل (كحالتنا):
+   لازم تعيد تسجيله صراحة بقائمة أنواع تحديثات تشمل inline_query،
+   وإلا تيليجرام ما بيبعثها للخادم إطلاقًا حتى لو Inline Mode مفعّل
+   من BotFather (هذا بالضبط ما صار أول مرة جرّبناها — supports_inline_queries
+   كان true بـgetMe، لكن getWebhookInfo ما كان يوريها لأنها أصلًا
+   مش وصلت). افتح بالمتصفح (استبدل <التوكن> و<السرّ> بالقيم الحقيقية
+   من .env، بلا أقواس < >):
+
+   https://api.telegram.org/bot<التوكن>/setWebhook?url=https://ptchub.duckdns.org/index.php/api/v1/telegram/webhook&secret_token=<السرّ>&allowed_updates=%5B%22message%22%2C%22callback_query%22%2C%22inline_query%22%5D
+
+   والمفروض يرجع: {"ok":true,"result":true,"description":"Webhook was set"}
+   هاي العملية آمنة ومتكررة (idempotent) — نفس الرابط ونفس السرّ، بس
+   بقائمة أنواع أوسع، وما بتأثر على الرسائل/الأزرار الشغالة أصلًا.
 
 اختباره:
 - افتح أي محادثة بتيليجرام (حتى محادثة مع نفسك، أو مجموعة، أو حتى
