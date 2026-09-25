@@ -127,6 +127,10 @@ class TelegramWebhookController extends Controller
             $expectedSecret === ''
             || $request->header('X-Telegram-Bot-Api-Secret-Token') !== $expectedSecret
         ) {
+            // تشخيص مؤقت لمشكلة Inline Mode — راجع نفس الشرح بأعلى
+            // handleInlineQuery. يُحذف بعد التأكد.
+            \Illuminate\Support\Facades\Log::error('[TG webhook DEBUG] رُفض الطلب (سرّ غير مطابق). المفاتيح الواردة: '.implode(',', array_keys((array) $request->all())));
+
             return response()->json(['ok' => false], 403);
         }
 
@@ -1969,21 +1973,43 @@ class TelegramWebhookController extends Controller
 
     private function handleInlineQuery(TelegramBotApi $bot, array $inlineQuery): void
     {
-        $inlineQueryId = (string) ($inlineQuery['id'] ?? '');
+        /*
+         * تشخيص مؤقت (يُحذف بعد ما نتأكد إنه Inline Mode بيوصل فعليًا
+         * للخادم) — Log::error عمدًا لا Log::info، لأن LOG_LEVEL
+         * الحالي بالـ.env مضبوط "error" فحسب (راجع .env.example)، وأي
+         * سطر Log::info بينكتب بهدوء ولا يظهر بـstorage/logs/laravel.log
+         * إطلاقًا. لو ظهر هذا السطر بالسجل بعد تجربة استعلام Inline
+         * فعلي، فتيليجرام فعليًا بيوصل الطلب للخادم والمشكلة بمكان تاني
+         * (استثناء لاحق، رد answerInlineQuery غير مقبول...)؛ لو ما ظهر
+         * إطلاقًا، فالمشكلة قبل ما توصل هون (تسجيل الـwebhook نفسه، أو
+         * Inline Mode مش مفعّل فعليًا رغم تأكيد BotFather).
+         */
+        \Illuminate\Support\Facades\Log::error('[TG inline_query DEBUG] وصل الطلب: '.json_encode($inlineQuery, JSON_UNESCAPED_UNICODE));
 
-        if ($inlineQueryId === '') {
-            return;
+        try {
+            $inlineQueryId = (string) ($inlineQuery['id'] ?? '');
+
+            if ($inlineQueryId === '') {
+                return;
+            }
+
+            $term = trim((string) ($inlineQuery['query'] ?? ''));
+
+            if (mb_strlen($term) < self::INLINE_MIN_QUERY_LENGTH) {
+                $bot->answerInlineQuery($inlineQueryId, [], 30);
+
+                return;
+            }
+
+            $results = $this->buildInlineSearchResults($term);
+
+            \Illuminate\Support\Facades\Log::error('[TG inline_query DEBUG] عدد النتائج: '.count($results));
+
+            $bot->answerInlineQuery($inlineQueryId, $results, 60);
+        } catch (\Throwable $error) {
+            \Illuminate\Support\Facades\Log::error('[TG inline_query DEBUG] استثناء: '.$error->getMessage());
+            report($error);
         }
-
-        $term = trim((string) ($inlineQuery['query'] ?? ''));
-
-        if (mb_strlen($term) < self::INLINE_MIN_QUERY_LENGTH) {
-            $bot->answerInlineQuery($inlineQueryId, [], 30);
-
-            return;
-        }
-
-        $bot->answerInlineQuery($inlineQueryId, $this->buildInlineSearchResults($term), 60);
     }
 
     /*
