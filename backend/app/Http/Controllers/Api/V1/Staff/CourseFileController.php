@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CourseFile;
 use App\Models\CourseSection;
 use App\Models\CourseUnit;
+use App\Services\TelegramContentNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -45,6 +46,19 @@ class CourseFileController extends Controller
         $data['sort_order'] ??= $this->nextSortOrder($data);
 
         $file = CourseFile::create($data);
+
+        /*
+         * تنبيه تيليجرام للطلاب المسجّلين — معزول عمدًا بـtry/catch: أي
+         * خلل بالبوت (توكن غير مضبوط، مشكلة اتصال بتيليجرام...) ما
+         * يجوز إطلاقًا يمنع الطاقم من حفظ المحتوى نفسه، وهو الفعل
+         * الأساسي هون. راجع توثيق TelegramContentNotifier للتفاصيل
+         * (تنفيذ متزامن مؤقت، بانتظار طابور حقيقي).
+         */
+        try {
+            app(TelegramContentNotifier::class)->notifyNewFile($file);
+        } catch (\Throwable $error) {
+            report($error);
+        }
 
         return response()->json([
             'message' => 'تم حفظ المحتوى.',
