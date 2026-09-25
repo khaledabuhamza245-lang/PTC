@@ -863,7 +863,7 @@ class TelegramWebhookController extends Controller
 
                 $data['end_time'] = $endTime;
                 $link->update(['pending_action' => ['action' => $action, 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
-                $this->sendAddConfirmation($bot, $chatId, $data);
+                $this->sendAddConfirmation($bot, $link, $chatId, $data);
 
                 return;
 
@@ -897,16 +897,74 @@ class TelegramWebhookController extends Controller
         $bot->sendMessage($chatId, 'شو أيام المحاضرة؟ اضغط كل يوم بدك ياه (فيك تختار أكثر من يوم)، وبعدين اضغط "تم الاختيار":', $rows);
     }
 
-    private function sendAddConfirmation(TelegramBotApi $bot, int|string $chatId, array $data): void
+    private function sendAddConfirmation(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $data): void
     {
+        $conflictWarning = $this->buildConflictWarning(
+            $link->user_id,
+            array_map('intval', (array) ($data['days'] ?? [])),
+            (string) ($data['start_time'] ?? ''),
+            (string) ($data['end_time'] ?? ''),
+            null
+        );
+
         $bot->sendMessage(
             $chatId,
-            "راجع البيانات قبل الحفظ:\n\n" . $this->formatLectureDataSummary($data),
+            $conflictWarning . "راجع البيانات قبل الحفظ:\n\n" . $this->formatLectureDataSummary($data),
             [[
                 ['text' => '✅ تأكيد وحفظ', 'callback_data' => 'sched:confirm_add'],
                 ['text' => '❌ إلغاء', 'callback_data' => 'sched:cancel'],
             ]]
         );
+    }
+
+    /*
+     * تنبيه تعارض بالوقت — طلب صريح من الطالب: لو محاضرة جديدة أو
+     * معدَّلة بتشارك يوم وتتقاطع وقتيًا مع محاضرة موجودة أصلًا بنفس
+     * جدوله، نحذّره بوضوح قبل/بعد الحفظ. ما بنمنع الحفظ (ممكن تكون
+     * محاضرة تعويضية أو تعارض مقصود)، بس نضمن الطالب يشوف التحذير.
+     */
+    private function findConflicts(int $userId, array $days, string $startTime, string $endTime, ?int $excludeLectureId): \Illuminate\Support\Collection
+    {
+        if ($days === [] || $startTime === '' || $endTime === '') {
+            return collect();
+        }
+
+        return ScheduleLecture::query()
+            ->where('user_id', $userId)
+            ->when($excludeLectureId, fn ($q) => $q->where('id', '!=', $excludeLectureId))
+            ->get()
+            ->filter(function (ScheduleLecture $lecture) use ($days, $startTime, $endTime) {
+                $lectureDays = is_array($lecture->days) ? $lecture->days : [];
+
+                if (array_intersect($lectureDays, $days) === []) {
+                    return false;
+                }
+
+                // تقاطع وقتين: بداية الأول قبل نهاية الثاني وبالعكس.
+                return $startTime < (string) $lecture->end_time && (string) $lecture->start_time < $endTime;
+            });
+    }
+
+    private function buildConflictWarning(int $userId, array $days, string $startTime, string $endTime, ?int $excludeLectureId): string
+    {
+        $conflicts = $this->findConflicts($userId, $days, $startTime, $endTime, $excludeLectureId);
+
+        if ($conflicts->isEmpty()) {
+            return '';
+        }
+
+        $lines = ["⚠️ <b>تنبيه: تعارض بالوقت مع:</b>"];
+
+        foreach ($conflicts as $conflict) {
+            $conflictDays = collect(is_array($conflict->days) ? $conflict->days : [])
+                ->map(fn ($d) => self::DAY_LABELS[$d] ?? $d)
+                ->implode('، ');
+
+            $lines[] = '• ' . TelegramBotApi::escapeHtml((string) $conflict->name) .
+                ' (' . $conflictDays . ' — ' . $conflict->start_time . '–' . $conflict->end_time . ')';
+        }
+
+        return implode("\n", $lines) . "\n\n";
     }
 
     private function formatLectureDataSummary(array $data): string
@@ -1198,6 +1256,22 @@ class TelegramWebhookController extends Controller
         $lecture->update([$field => $value]);
 
         $bot->sendMessage($chatId, '✅ تم تحديث "' . self::EDIT_FIELD_LABELS[$field] . '" بنجاح.');
+
+        // فقط الحقول يلي تأثّر على التوقيت/الأيام تستاهل فحص تعارض جديد.
+        if (in_array($field, ['days', 'start_time', 'end_time'], true)) {
+            $fresh = $lecture->fresh();
+            $warning = $this->buildConflictWarning(
+                $link->user_id,
+                is_array($fresh->days) ? $fresh->days : [],
+                (string) $fresh->start_time,
+                (string) $fresh->end_time,
+                $fresh->id
+            );
+
+            if ($warning !== '') {
+                $bot->sendMessage($chatId, $warning);
+            }
+        }
     }
 
     private function saveNewLectureFromPending(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
