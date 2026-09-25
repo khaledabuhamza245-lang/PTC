@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Course;
+use App\Models\GpaEntry;
 use App\Models\ScheduleLecture;
 use App\Models\TelegramLink;
 use App\Services\PlanCalculator;
@@ -29,10 +31,18 @@ use Illuminate\Http\Request;
  * أمر "معدلي" يستخدم TelegramGpaCalculator — خدمة جديدة معزولة (لا
  * علاقة لها بـGpaController) تعيد بناء منطق frontend/gpa.js
  * (computeStats) بلغة PHP، لأن ذاك الملف يعمل حصرًا بالمتصفح ولا طريقة
- * لاستدعائه من الخادم. العلامات نفسها مقروءة مباشرة من GpaEntry (نفس
- * الجدول الذي تحفظ فيه صفحة "حاسبة المعدل" بالموقع)، فأي تعديل هون أو
- * هناك ينعكس بالمكانين فورًا — لكن صيغة الحساب نفسها مكرَّرة بقصد بين
- * الطرفين (راجع تنبيه الصيانة أعلى TelegramGpaCalculator).
+ * لاستدعائه من الخادم. العلامات نفسها مقروءة/مكتوبة مباشرة من جدول
+ * gpa_entries (نفس الجدول الذي تقرأ/تكتب منه صفحة "حاسبة المعدل"
+ * بالموقع عبر GpaController)، فأي تعديل هون أو هناك ينعكس بالمكانين
+ * فورًا وبلا أي تأخير — لكن صيغة الحساب نفسها مكرَّرة بقصد بين الطرفين
+ * (راجع تنبيه الصيانة أعلى TelegramGpaCalculator).
+ *
+ * تسجيل/تعديل/حذف علامة أي مادة (إجباري بأي سنة/فصل، أو اختياري) من
+ * داخل البوت نفسه — بنفس فلسفة "إضافة/تعديل/حذف محاضرة" بالجدول
+ * تمامًا: محادثة متعددة الخطوات بأزرار inline، مخزَّنة بنفس عمود
+ * telegram_links.pending_action (action يبدأ بـ"gpa_" هون تمييزًا عن
+ * "add"/"edit"/"delete" الخاصة بالجدول — راجع دوال handleGpaCallback/
+ * handleGpaTextInput أسفل دوال الجدول).
  *
  * أي رسالة نصية ما اتعرفت كأمر (مش "خطتي"/"مساعدة"/"القائمة") تُعتبر
  * سؤال حر وتتحول تلقائيًا لأداة الذكاء الاصطناعي المختارة حاليًا من
@@ -115,6 +125,8 @@ class TelegramWebhookController extends Controller
 
             if (str_starts_with($callbackData, 'sched:')) {
                 $this->handleScheduleCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'gpa:')) {
+                $this->handleGpaCallback($bot, $gpaCalculator, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -210,12 +222,16 @@ class TelegramWebhookController extends Controller
          */
         if ($link->isInScheduleFlow()) {
             if ($hasMedia) {
-                $bot->sendMessage($chatId, 'أنت بمنتصف عملية جدول حاليًا 🙂 اكتب ردّك كنص، أو اكتب "إلغاء" لإيقافها.');
+                $bot->sendMessage($chatId, 'أنت بمنتصف عملية حاليًا 🙂 اكتب ردّك كنص، أو اكتب "إلغاء" لإيقافها.');
 
                 return response()->json(['ok' => true]);
             }
 
-            $this->handleScheduleTextInput($bot, $link, $chatId, $text);
+            if (str_starts_with((string) ($link->pending_action['action'] ?? ''), 'gpa')) {
+                $this->handleGpaTextInput($bot, $gpaCalculator, $link, $chatId, $text);
+            } else {
+                $this->handleScheduleTextInput($bot, $link, $chatId, $text);
+            }
 
             return response()->json(['ok' => true]);
         }
@@ -254,7 +270,7 @@ class TelegramWebhookController extends Controller
         }
 
         if (in_array($normalized, ['معدلي', 'المعدل', 'gpa'], true)) {
-            $bot->sendMessage($chatId, $gpaCalculator->formatForTelegram($link->user));
+            $this->replyWithGpaSummary($bot, $chatId, $link->user, $gpaCalculator);
 
             return response()->json(['ok' => true]);
         }
@@ -264,7 +280,7 @@ class TelegramWebhookController extends Controller
                 $chatId,
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
-                "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل)، من نفس علاماتك المسجَّلة بحاسبة المعدل بالموقع.\n".
+                "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل) + أزرار تسجيل/تعديل/حذف علامة أي مادة (إجباري أو اختياري) مباشرة من هون، بمزامنة فورية مع حاسبة المعدل بالموقع.\n".
                 "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة (وفيها أزرار إضافة/تعديل/حذف).\n".
                 "➕ إضافة محاضرة / ✏️ تعديل محاضرة / 🗑️ حذف محاضرة — تديرها كلها من هون بدون فتح الموقع.\n".
                 "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
@@ -1305,6 +1321,528 @@ class TelegramWebhookController extends Controller
         ]);
 
         $bot->sendMessage($chatId, "✅ <b>تمت إضافة المحاضرة بنجاح!</b>\n\n" . $this->formatLectureDataSummary($data) . "\n\nاكتب \"جدولي\" لتشوف جدولك المحدَّث.");
+    }
+
+    /*
+     * ═══════════════ "معدلي" — تسجيل/تعديل/حذف علامة ═══════════════
+     * نفس فلسفة إضافة/تعديل/حذف محاضرة تمامًا (pending_action + أزرار
+     * inline)، لكن الهدف هون صف بجدول gpa_entries (نفس جدول
+     * GpaController) لا ScheduleLecture. راجع الشرح المفصّل بأعلى
+     * الملف. GPA_PAGE_SIZE يتحكم بعدد الأزرار بكل صفحة لقوائم طويلة
+     * (المساقات الاختيارية ~24 مساق، والمساقات المعلَّمة عند الحذف).
+     */
+    private const GPA_PAGE_SIZE = 8;
+
+    private function gpaYearLabel(int $year): string
+    {
+        $labels = [1 => 'السنة الأولى', 2 => 'السنة الثانية', 3 => 'السنة الثالثة', 4 => 'السنة الرابعة'];
+
+        return $labels[$year] ?? "السنة {$year}";
+    }
+
+    private function gpaSemesterLabel(int $semester): string
+    {
+        return (($semester - 1) % 2 === 0) ? 'الفصل الأول' : 'الفصل الثاني';
+    }
+
+    private function gpaFmtGrade(float $grade): string
+    {
+        $formatted = rtrim(number_format($grade, 2, '.', ''), '0');
+
+        return rtrim($formatted, '.');
+    }
+
+    /**
+     * خريطة course_id => grade لكل علامات الطالب الحالية — لعرضها جنب
+     * كل مساق بالأزرار فقط (لا تدخل أي حساب هون).
+     */
+    private function gpaGradesByCourseId(int $userId): array
+    {
+        return GpaEntry::query()->where('user_id', $userId)->pluck('grade', 'course_id')->all();
+    }
+
+    private function replyWithGpaSummary(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user, TelegramGpaCalculator $gpaCalculator): void
+    {
+        $bot->sendMessage(
+            $chatId,
+            $gpaCalculator->formatForTelegram($user),
+            [[
+                ['text' => '➕ تسجيل/تعديل علامة', 'callback_data' => 'gpa:set'],
+                ['text' => '🗑️ حذف علامة', 'callback_data' => 'gpa:delete'],
+            ]]
+        );
+    }
+
+    private function startGpaSetFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'pick_kind', 'lecture_id' => null, 'data' => []]]);
+
+        $bot->sendMessage($chatId, '📚 أي نوع مادة بدك تسجّل/تعدّل علامتها؟', [
+            [
+                ['text' => '📘 إجباري', 'callback_data' => 'gpa:kind:required'],
+                ['text' => '📗 اختياري', 'callback_data' => 'gpa:kind:elective'],
+            ],
+            [['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel']],
+        ]);
+    }
+
+    private function startGpaDeleteFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $entries = GpaEntry::query()->where('user_id', $link->user_id)->with('course')->get()
+            ->filter(fn (GpaEntry $entry) => $entry->course !== null)
+            ->values();
+
+        if ($entries->isEmpty()) {
+            $bot->sendMessage($chatId, 'ما في أي علامة مسجَّلة لتحذفها. اكتب "معدلي" وبعدها "➕ تسجيل/تعديل علامة" لتضيف أول علامة.');
+
+            return;
+        }
+
+        $link->update(['pending_action' => ['action' => 'gpa_delete', 'step' => 'pick_course', 'lecture_id' => null, 'data' => ['page' => 0]]]);
+
+        $bot->sendMessage($chatId, '🗑️ اختر المادة يلي بدك تحذف علامتها:', $this->buildGpaDeletePickerKeyboard($entries, 0));
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, GpaEntry> $entries
+     */
+    private function buildGpaDeletePickerKeyboard($entries, int $page): array
+    {
+        $slice = $entries->slice($page * self::GPA_PAGE_SIZE, self::GPA_PAGE_SIZE);
+
+        $rows = [];
+        foreach ($slice as $entry) {
+            $course = $entry->course;
+            $label = mb_substr((string) ($course->name_ar ?: $course->name_en), 0, 26) . ' (' . $this->gpaFmtGrade((float) $entry->grade) . ')';
+            $rows[] = [['text' => $label, 'callback_data' => "gpa:delpick:{$course->id}"]];
+        }
+
+        $navRow = [];
+        if ($page > 0) {
+            $navRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'gpa:delpage:' . ($page - 1)];
+        }
+        if (($page + 1) * self::GPA_PAGE_SIZE < $entries->count()) {
+            $navRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'gpa:delpage:' . ($page + 1)];
+        }
+        if ($navRow !== []) {
+            $rows[] = $navRow;
+        }
+
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel']];
+
+        return $rows;
+    }
+
+    private function buildGpaYearPickerKeyboard(): array
+    {
+        $years = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'required')
+            ->distinct()
+            ->orderBy('year')
+            ->pluck('year')
+            ->all();
+
+        $rows = [];
+        foreach (array_chunk($years, 2) as $pair) {
+            $rows[] = array_map(
+                fn ($year) => ['text' => $this->gpaYearLabel((int) $year), 'callback_data' => "gpa:year:{$year}"],
+                $pair
+            );
+        }
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel']];
+
+        return $rows;
+    }
+
+    private function buildGpaSemesterPickerKeyboard(int $year): array
+    {
+        $semesters = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'required')
+            ->where('year', $year)
+            ->distinct()
+            ->orderBy('semester')
+            ->pluck('semester')
+            ->all();
+
+        $rows = [];
+        foreach (array_chunk($semesters, 2) as $pair) {
+            $rows[] = array_map(
+                fn ($semester) => ['text' => $this->gpaSemesterLabel((int) $semester), 'callback_data' => "gpa:semester:{$semester}"],
+                $pair
+            );
+        }
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel']];
+
+        return $rows;
+    }
+
+    private function buildGpaRequiredCoursePickerKeyboard(int $userId, int $year, int $semester): array
+    {
+        $courses = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'required')
+            ->where('year', $year)
+            ->where('semester', $semester)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        $grades = $this->gpaGradesByCourseId($userId);
+
+        $rows = [];
+        foreach ($courses as $course) {
+            $label = mb_substr((string) ($course->name_ar ?: $course->name_en), 0, 26);
+
+            if (array_key_exists($course->id, $grades)) {
+                $label .= ' (' . $this->gpaFmtGrade((float) $grades[$course->id]) . ')';
+            }
+
+            $rows[] = [['text' => $label, 'callback_data' => "gpa:course:{$course->id}"]];
+        }
+
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel']];
+
+        return $rows;
+    }
+
+    private function buildGpaElectiveCoursePickerKeyboard(int $userId, int $page): array
+    {
+        $courses = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'elective')
+            ->orderBy('name_ar')
+            ->get();
+
+        $grades = $this->gpaGradesByCourseId($userId);
+        $slice = $courses->slice($page * self::GPA_PAGE_SIZE, self::GPA_PAGE_SIZE);
+
+        $rows = [];
+        foreach ($slice as $course) {
+            $label = mb_substr((string) ($course->name_ar ?: $course->name_en), 0, 26);
+
+            if (array_key_exists($course->id, $grades)) {
+                $label .= ' (' . $this->gpaFmtGrade((float) $grades[$course->id]) . ')';
+            }
+
+            $rows[] = [['text' => $label, 'callback_data' => "gpa:course:{$course->id}"]];
+        }
+
+        $navRow = [];
+        if ($page > 0) {
+            $navRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'gpa:epage:' . ($page - 1)];
+        }
+        if (($page + 1) * self::GPA_PAGE_SIZE < $courses->count()) {
+            $navRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'gpa:epage:' . ($page + 1)];
+        }
+        if ($navRow !== []) {
+            $rows[] = $navRow;
+        }
+
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel']];
+
+        return $rows;
+    }
+
+    /*
+     * ضغطات أزرار "معدلي" (كل الأزرار يلي تبدأ بـ"gpa:") — نفس بنية
+     * handleScheduleCallback بالضبط، لكن لجدول gpa_entries. لازم نتحقق
+     * من الحساب المربوط + الخطوة الحالية (pending['step']) بكل زر، لا
+     * الاعتماد على أي شيء بالـcallback_data نفسه غير المعرّفات الرقمية.
+     */
+    private function handleGpaCallback(TelegramBotApi $bot, TelegramGpaCalculator $gpaCalculator, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('gpa:'));
+        [$key, $arg] = array_pad(explode(':', $action, 2), 2, null);
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+
+        switch ($key) {
+            case 'set':
+                $bot->answerCallbackQuery($callbackId);
+                $this->startGpaSetFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'delete':
+                $bot->answerCallbackQuery($callbackId);
+                $this->startGpaDeleteFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'cancel':
+                $link->update(['pending_action' => null]);
+                $bot->answerCallbackQuery($callbackId, 'تم الإلغاء.');
+
+                return;
+
+            case 'kind':
+                if (($pending['action'] ?? null) !== 'gpa_set' || ($pending['step'] ?? null) !== 'pick_kind') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $kind = $arg === 'elective' ? 'elective' : 'required';
+
+                if ($kind === 'required') {
+                    $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'pick_year', 'lecture_id' => null, 'data' => ['kind' => $kind]]]);
+                    $bot->answerCallbackQuery($callbackId, 'إجباري');
+                    $bot->sendMessage($chatId, '📘 اختر السنة:', $this->buildGpaYearPickerKeyboard());
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'pick_course', 'lecture_id' => null, 'data' => ['kind' => $kind, 'page' => 0]]]);
+                $bot->answerCallbackQuery($callbackId, 'اختياري');
+                $bot->sendMessage($chatId, '📗 اختر المادة الاختيارية:', $this->buildGpaElectiveCoursePickerKeyboard($link->user_id, 0));
+
+                return;
+
+            case 'year':
+                if (($pending['action'] ?? null) !== 'gpa_set' || ($pending['step'] ?? null) !== 'pick_year') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $year = (int) $arg;
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['year'] = $year;
+                $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'pick_semester', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId, $this->gpaYearLabel($year));
+                $bot->sendMessage($chatId, '📅 اختر الفصل:', $this->buildGpaSemesterPickerKeyboard($year));
+
+                return;
+
+            case 'semester':
+                if (($pending['action'] ?? null) !== 'gpa_set' || ($pending['step'] ?? null) !== 'pick_semester') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $semester = (int) $arg;
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['semester'] = $semester;
+                $year = (int) ($newData['year'] ?? 0);
+                $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'pick_course', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId, $this->gpaSemesterLabel($semester));
+                $bot->sendMessage($chatId, '📚 اختر المادة:', $this->buildGpaRequiredCoursePickerKeyboard($link->user_id, $year, $semester));
+
+                return;
+
+            case 'epage':
+                if (($pending['action'] ?? null) !== 'gpa_set' || ($pending['step'] ?? null) !== 'pick_course') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $page = max(0, (int) $arg);
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['page'] = $page;
+                $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'pick_course', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId);
+                $bot->sendMessage($chatId, '📗 اختر المادة الاختيارية:', $this->buildGpaElectiveCoursePickerKeyboard($link->user_id, $page));
+
+                return;
+
+            case 'course':
+                if (($pending['action'] ?? null) !== 'gpa_set' || ($pending['step'] ?? null) !== 'pick_course') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $courseId = (int) $arg;
+                $course = Course::query()->where('id', $courseId)->where('is_active', true)->first();
+
+                if (! $course) {
+                    $bot->answerCallbackQuery($callbackId, 'هذه المادة مش موجودة.');
+
+                    return;
+                }
+
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['course_id'] = $courseId;
+                $link->update(['pending_action' => ['action' => 'gpa_set', 'step' => 'enter_grade', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId);
+
+                $grades = $this->gpaGradesByCourseId($link->user_id);
+                $currentGrade = array_key_exists($courseId, $grades)
+                    ? "\n\nالعلامة الحالية: " . $this->gpaFmtGrade((float) $grades[$courseId])
+                    : '';
+
+                $bot->sendMessage(
+                    $chatId,
+                    '✍️ اكتب علامة مادة "' . TelegramBotApi::escapeHtml((string) $course->name_ar) . '" (رقم من ٠ إلى ١٠٠):' . $currentGrade
+                );
+
+                return;
+
+            case 'delpage':
+                if (($pending['action'] ?? null) !== 'gpa_delete' || ($pending['step'] ?? null) !== 'pick_course') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $page = max(0, (int) $arg);
+                $entries = GpaEntry::query()->where('user_id', $link->user_id)->with('course')->get()
+                    ->filter(fn (GpaEntry $entry) => $entry->course !== null)
+                    ->values();
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['page'] = $page;
+                $link->update(['pending_action' => ['action' => 'gpa_delete', 'step' => 'pick_course', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId);
+                $bot->sendMessage($chatId, '🗑️ اختر المادة يلي بدك تحذف علامتها:', $this->buildGpaDeletePickerKeyboard($entries, $page));
+
+                return;
+
+            case 'delpick':
+                if (($pending['action'] ?? null) !== 'gpa_delete' || ($pending['step'] ?? null) !== 'pick_course') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $courseId = (int) $arg;
+                $entry = GpaEntry::query()->where('user_id', $link->user_id)->where('course_id', $courseId)->with('course')->first();
+
+                if (! $entry || ! $entry->course) {
+                    $bot->answerCallbackQuery($callbackId, 'ما في علامة مسجَّلة لهذه المادة.');
+
+                    return;
+                }
+
+                $newData = (array) ($pending['data'] ?? []);
+                $newData['course_id'] = $courseId;
+                $link->update(['pending_action' => ['action' => 'gpa_delete', 'step' => 'confirm', 'lecture_id' => null, 'data' => $newData]]);
+                $bot->answerCallbackQuery($callbackId);
+                $bot->sendMessage(
+                    $chatId,
+                    'متأكد بدك تحذف علامة "' . TelegramBotApi::escapeHtml((string) $entry->course->name_ar) . '" (' . $this->gpaFmtGrade((float) $entry->grade) . ')؟',
+                    [[
+                        ['text' => '✅ نعم احذف', 'callback_data' => "gpa:delconfirm:{$courseId}"],
+                        ['text' => '❌ إلغاء', 'callback_data' => 'gpa:cancel'],
+                    ]]
+                );
+
+                return;
+
+            case 'delconfirm':
+                if (($pending['action'] ?? null) !== 'gpa_delete' || ($pending['step'] ?? null) !== 'confirm') {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                $courseId = (int) $arg;
+
+                if ((int) ($pending['data']['course_id'] ?? 0) !== $courseId) {
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+                }
+
+                GpaEntry::query()->where('user_id', $link->user_id)->where('course_id', $courseId)->delete();
+                $link->update(['pending_action' => null]);
+                $bot->answerCallbackQuery($callbackId, 'تم الحذف.');
+                $bot->sendMessage($chatId, '🗑️ تم حذف العلامة بنجاح.');
+                $this->replyWithGpaSummary($bot, $chatId, $link->user, $gpaCalculator);
+
+                return;
+
+            default:
+                $bot->answerCallbackQuery($callbackId);
+        }
+    }
+
+    /*
+     * نص عادي أثناء عملية "معدلي" جارية — الخطوة الوحيدة اللي تحتاج نص
+     * هي "enter_grade" (كل الخطوات التانية أزرار بالكامل عبر
+     * handleGpaCallback). "إلغاء" شغّال بأي خطوة، متل باقي المحادثات.
+     */
+    private function handleGpaTextInput(TelegramBotApi $bot, TelegramGpaCalculator $gpaCalculator, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $step = (string) ($pending['step'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        if ($step !== 'enter_grade') {
+            $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+
+            return;
+        }
+
+        $normalizedGrade = str_replace(',', '.', $normalized);
+
+        if (! preg_match('/^\d{1,3}(\.\d{1,2})?$/', $normalizedGrade)) {
+            $bot->sendMessage($chatId, 'علامة غير صالحة 🙂 اكتب رقم من ٠ إلى ١٠٠ (مثلًا: 85 أو 85.5):');
+
+            return;
+        }
+
+        $grade = round((float) $normalizedGrade, 2);
+
+        if ($grade < 0 || $grade > 100) {
+            $bot->sendMessage($chatId, 'العلامة لازم تكون بين ٠ و١٠٠. جرّب رقم صحيح:');
+
+            return;
+        }
+
+        $courseId = (int) ($data['course_id'] ?? 0);
+        $course = Course::query()->where('id', $courseId)->where('is_active', true)->first();
+
+        $link->update(['pending_action' => null]);
+
+        if (! $course) {
+            $bot->sendMessage($chatId, 'تعذّر إيجاد هذه المادة (ممكن تغيّرت). جرّب من جديد.');
+
+            return;
+        }
+
+        GpaEntry::updateOrCreate(
+            ['user_id' => $link->user_id, 'course_id' => $course->id],
+            ['grade' => $grade]
+        );
+
+        $bot->sendMessage(
+            $chatId,
+            '✅ تم حفظ علامة "' . TelegramBotApi::escapeHtml((string) $course->name_ar) . '": <b>' . $this->gpaFmtGrade($grade) . '</b>'
+        );
+        $this->replyWithGpaSummary($bot, $chatId, $link->user, $gpaCalculator);
     }
 
     /*
