@@ -40,7 +40,13 @@ use Illuminate\Support\Facades\RateLimiter;
  */
 class AiAssistantController extends Controller
 {
-    private const DAILY_LIMIT = 30;
+    /*
+     * public عمدًا (كانت private) — بوت تيليجرام (TelegramAiAssistant)
+     * يحتاج نفس الرقم بالضبط ليشارك نفس سقف الاستخدام اليومي مع مساعد
+     * الموقع، بدل ما يكرّر الرقم 30 بمكانين ممكن ينسى تحديث أحدهما.
+     * تغيير الرؤية فقط (visibility) — صفر تغيير بالسلوك.
+     */
+    public const DAILY_LIMIT = 30;
     private const BATCH_SIZE = 3;
     private const MAX_FILE_SIZE = 50 * 1024 * 1024;
     private const ALLOWED_MIME_TYPES = [
@@ -62,7 +68,9 @@ class AiAssistantController extends Controller
      */
     private const BATCH_FILE_TIMEOUT_SECONDS = 60;
 
-    private const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+    // public لنفس سبب DAILY_LIMIT أعلاه — TelegramAiAssistant يستخدم
+    // نفس النموذج بالضبط بدل ما يكرّر اسمه بمكان ثاني.
+    public const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
     /* رسالة صريحة وصادقة لملف يتجاوز فعليًا حد Gemini الأقصى (رموز/توكنز)
        — لا فائدة من إعادة المحاولة هنا مهما طال الانتظار أو تكررت

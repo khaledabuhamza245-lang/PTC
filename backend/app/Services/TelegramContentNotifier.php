@@ -111,6 +111,6 @@ class TelegramContentNotifier
 
     private function esc(string $text): string
     {
-        return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        return TelegramBotApi::escapeHtml($text);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\TelegramLink;
 use App\Services\PlanCalculator;
+use App\Services\TelegramAiAssistant;
 use App\Services\TelegramBotApi;
 use Illuminate\Http\Request;
 
@@ -29,8 +30,12 @@ use Illuminate\Http\Request;
  */
 class TelegramWebhookController extends Controller
 {
-    public function __invoke(Request $request, TelegramBotApi $bot, PlanCalculator $planCalculator)
-    {
+    public function __invoke(
+        Request $request,
+        TelegramBotApi $bot,
+        PlanCalculator $planCalculator,
+        TelegramAiAssistant $aiAssistant
+    ) {
         $expectedSecret = (string) config('services.telegram.webhook_secret', '');
 
         if (
@@ -45,9 +50,14 @@ class TelegramWebhookController extends Controller
         $text = trim((string) ($message['text'] ?? ''));
         $telegramFirstName = (string) ($message['from']['first_name'] ?? '');
 
-        // ردّ فارغ لأي تحديث ما فيه رسالة نصية (صور، ملصقات...) —
-        // 200 دايمًا حتى ما تعيد تيليجرام إرسال نفس التحديث.
-        if (! $chatId || $text === '') {
+        $photos = $message['photo'] ?? null;
+        $document = $message['document'] ?? null;
+        $hasMedia = is_array($photos) && $photos !== [] || is_array($document);
+
+        // ردّ فارغ لأي تحديث ما فيه رسالة نصية ولا صورة/ملف (ملصقات،
+        // تعديل رسالة قديمة...) — 200 دايمًا حتى ما تعيد تيليجرام
+        // إرسال نفس التحديث.
+        if (! $chatId || ($text === '' && ! $hasMedia)) {
             return response()->json(['ok' => true]);
         }
 
@@ -90,7 +100,7 @@ class TelegramWebhookController extends Controller
             $bot->sendMessage(
                 $chatId,
                 "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
-                "جرّب تكتب \"خطتي\" هلق تشوف تقدّمك نحو التخرّج، أو \"مساعدة\" تشوف كل الأوامر المتاحة."
+                "جرّب تكتب \"خطتي\"، أو ابعتلي صورة صفحة تلخصها، أو اكتب \"مساعدة\" تشوف كل الأوامر."
             );
 
             return response()->json(['ok' => true]);
@@ -114,6 +124,12 @@ class TelegramWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        if ($hasMedia) {
+            $this->replyWithFileSummary($bot, $aiAssistant, $chatId, $link->user, $photos, $document);
+
+            return response()->json(['ok' => true]);
+        }
+
         $normalized = trim($text, "/ \t\n");
 
         if (in_array($normalized, ['خطتي', 'plan'], true)) {
@@ -127,6 +143,7 @@ class TelegramWebhookController extends Controller
                 $chatId,
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
+                "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها.\n".
                 "❓ مساعدة — هاي القائمة."
             );
 
@@ -162,5 +179,77 @@ class TelegramWebhookController extends Controller
             "📚 متبقّي: {$remaining} ساعة\n".
             "🟢 مسجّل حاليًا: {$registered} مساق"
         );
+    }
+
+    /*
+     * صورة أو ملف (PDF/صورة كمستند) → تنزيل من تيليجرام → تلخيص عبر
+     * TelegramAiAssistant. رفع الحد الزمني هون تحديدًا (لا لباقي
+     * الأوامر) لأن استدعاء Gemini قد يأخذ عشرات الثواني، وإعدادات PHP
+     * الافتراضية بالاستضافة المشتركة أقصر من ذلك عادة.
+     */
+    private function replyWithFileSummary(
+        TelegramBotApi $bot,
+        TelegramAiAssistant $aiAssistant,
+        int|string $chatId,
+        \App\Models\User $user,
+        ?array $photos,
+        ?array $document
+    ): void {
+        @set_time_limit(60);
+
+        if (is_array($photos) && $photos !== []) {
+            $fileId = (string) end($photos)['file_id'];
+            $mimeType = 'image/jpeg';
+            $displayName = 'telegram-photo.jpg';
+        } elseif (is_array($document)) {
+            $mimeType = (string) ($document['mime_type'] ?? '');
+            $isSupported = str_starts_with($mimeType, 'image/') || $mimeType === 'application/pdf';
+
+            if (! $isSupported) {
+                $bot->sendMessage($chatId, 'هذا النوع من الملفات مش مدعوم حاليًا 🙂 جرّب صورة أو ملف PDF.');
+
+                return;
+            }
+
+            $fileId = (string) ($document['file_id'] ?? '');
+            $displayName = (string) ($document['file_name'] ?? 'telegram-document');
+        } else {
+            return;
+        }
+
+        if ($aiAssistant->remainingToday($user) <= 0) {
+            $bot->sendMessage(
+                $chatId,
+                'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+
+            return;
+        }
+
+        $bot->sendMessage($chatId, '🤖 جارٍ تحليل الملف... ثواني وبردّ عليك.');
+
+        $localPath = $bot->downloadFile($fileId);
+
+        if (! $localPath) {
+            $bot->sendMessage($chatId, 'تعذّر تحميل الملف من تيليجرام، جرّب تبعته مرة ثانية.');
+
+            return;
+        }
+
+        try {
+            $summary = $aiAssistant->summarizeFile($user, $localPath, $mimeType, $displayName);
+            $safeSummary = TelegramBotApi::escapeHtml($summary);
+            $bot->sendMessage($chatId, "📝 <b>ملخّص المحتوى</b>\n\n{$safeSummary}");
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException
+                ? $error->getMessage()
+                : 'صار خطأ غير متوقع أثناء تحليل الملف، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $bot->sendMessage($chatId, "⚠️ {$friendly}");
+        }
     }
 }
