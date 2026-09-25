@@ -50,13 +50,7 @@ class TelegramContentNotifier
             return;
         }
 
-        $courseName = $course->name_ar ?? $course->name_en ?? $course->code ?? 'المادة';
-
-        $link = rtrim((string) config('app.frontend_url'), '/')
-            . '/course.html?course=' . urlencode((string) $course->key)
-            . '&content=' . (int) $file->id;
-
-        $message = "🔔 محتوى جديد بمادة \"{$courseName}\"\n\n📄 {$file->title}\n\n{$link}";
+        $message = $this->buildMessage($course, $file);
 
         foreach ($chatIds as $chatId) {
             try {
@@ -65,5 +59,58 @@ class TelegramContentNotifier
                 report($error);
             }
         }
+    }
+
+    /*
+     * نفس تسميات الأنواع الموجودة أصلًا بالفرونت إند
+     * (admin.html::FILE_KIND_LABELS) — بنفس النص العربي بالضبط حتى ما
+     * يقرأ الطالب تسمية مختلفة هون عن يلي يشوفه بلوحة "بناء المادة".
+     */
+    private const KIND_LABELS = [
+        'youtube' => 'يوتيوب', 'vid' => 'فيديو', 'drive' => 'درايف',
+        'assignment' => 'تعيين', 'exercise' => 'تدريب', 'exam' => 'اختبار',
+        'book' => 'مرجع', 'software' => 'برنامج', 'github' => 'GitHub',
+        'pdf' => 'PDF', 'doc' => 'مستند', 'image' => 'صورة',
+        'link' => 'رابط', 'other' => 'أخرى',
+    ];
+
+    private function buildMessage(Course $course, CourseFile $file): string
+    {
+        $courseName = $this->esc($course->name_ar ?? $course->name_en ?? $course->code ?? 'المادة');
+        $title = $this->esc((string) $file->title);
+        $kindLabel = self::KIND_LABELS[$file->kind] ?? null;
+
+        $lines = ['🔔 محتوى جديد بمادة "' . $courseName . '"', ''];
+
+        $lines[] = '📄 <b>' . $title . '</b>' . ($kindLabel ? ' (' . $this->esc($kindLabel) . ')' : '');
+
+        // الوصف يظهر فقط لو الآدمن كتب واحد فعليًا وقت إضافة المحتوى —
+        // حقل description اختياري بنموذج "بناء المادة".
+        $description = trim((string) $file->description);
+        if ($description !== '') {
+            $lines[] = $this->esc($description);
+        }
+
+        $lines[] = '';
+
+        // الرابط المباشر للمحتوى نفسه (يوتيوب/درايف/أي رابط خارجي) —
+        // يظهر فقط لو المحتوى فعلًا من نوع فيه رابط خارجي محفوظ.
+        $externalUrl = trim((string) $file->external_url);
+        if ($externalUrl !== '') {
+            $lines[] = '🔗 الرابط المباشر: ' . $externalUrl;
+        }
+
+        $siteLink = rtrim((string) config('app.frontend_url'), '/')
+            . '/course.html?course=' . urlencode((string) $course->key)
+            . '&content=' . (int) $file->id;
+
+        $lines[] = '🌐 لمشاهدته من الموقع: ' . $siteLink;
+
+        return implode("\n", $lines);
+    }
+
+    private function esc(string $text): string
+    {
+        return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
     }
 }
