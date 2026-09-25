@@ -110,6 +110,25 @@
       </form>
     </div>
 
+    <!--
+      بطاقة ربط تيليجرام — مرحلة أولى تجريبية (بوت "المساعد الأكاديمي").
+      معزولة بالكامل: ملف JS خاص فيها (telegram-link-page.js)، ولا تلمس
+      نموذج كلمة السر فوقها بأي شكل.
+    -->
+    <div class="pf-card" id="tgLinkCard">
+      <h3>بوت تيليجرام (تجريبي)</h3>
+
+      <p class="ac-intro" id="tgLinkIntro">
+        اربط حسابك ببوت تيليجرام التجريبي لتجربة أول نسخة من "المساعد الأكاديمي".
+      </p>
+
+      <div id="tgLinkBody">
+        <button class="btn btn-primary" type="button" id="tgLinkBtn">اربط حسابي بتيليجرام</button>
+      </div>
+
+      <p class="pf-hint" id="tgLinkHint"></p>
+    </div>
+
     <p class="ac-foot-note">
       نسيت كلمة سرّك الحالية؟ <a href="login.html">سجّل خروجك ثم اضغط «نسيت كلمة السر»</a>
       ليصلك رابط على بريدك.
@@ -134,5 +153,6 @@
 <script src="contribute.js" defer></script>
 <script src="announcements.js" defer></script>
 <script src="account-page.js" defer></script>
+<script src="telegram-link-page.js" defer></script>
 </body>
 </html>
