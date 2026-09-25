@@ -25,6 +25,14 @@ use RuntimeException;
  *   طالب يستهلك من نفس الرصيد سواء استخدم الموقع أو البوت.
  * - ملف كبير جدًا أو معقّد لدرجة يحتاج تقسيم؟ يفشل برسالة واضحة
  *   ("جرّب صفحة أصغر") بدل محاولة بناء نفس منطق التقسيم المعقّد هون.
+ *
+ * "القائمة الذكية" (لاحقًا): أربع أدوات تشارك نفس السقف اليومي ونفس
+ * البنية (callGemini خاصة واحدة، تعليمة نظام مختلفة لكل أداة) —
+ * summarizeFile (تلخيص صورة/ملف)، askText (سؤال حر)، debugCode
+ * (مصحّح أكواد)، generateQuiz (مولّد أسئلة). الأداة المختارة حاليًا
+ * تُخزَّن بعمود telegram_links.mode ويقرأها الـwebhook فقط
+ * (TelegramWebhookController) — هاي الخدمة نفسها ما إلها علاقة
+ * بالتخزين، كل دالة هون مستقلة تمامًا عن "الوضع".
  */
 class TelegramAiAssistant
 {
@@ -113,6 +121,68 @@ class TelegramAiAssistant
         $text = $this->callGemini($systemInstruction, [
             ['text' => $question],
         ], tooLargeMessage: 'السؤال طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بجواب على هذا السؤال، جرّب صياغة مختلفة.');
+
+        $this->incrementDailyUsage($user->id);
+
+        return $text;
+    }
+
+    /*
+     * وضع "مصحّح أكواد" بالقائمة الذكية — الطالب يبعت كود كنص عادي،
+     * والمساعد يحدد الأخطاء (لو في) ويقترح تصحيحها. نفس السقف اليومي
+     * المشترك، ونفس أسلوب callGemini() المستخدم بباقي الأوضاع.
+     *
+     * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
+     */
+    public function debugCode(User $user, string $code): string
+    {
+        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
+            throw new RuntimeException(
+                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+        }
+
+        $systemInstruction =
+            'أنت مساعد برمجي لطلاب هندسة أنظمة الحاسوب. الطالب رح يبعتلك كود برمجي (بأي لغة). ' .
+            'حلّل الكود، حدد الأخطاء البرمجية أو المنطقية إن وجدت بوضوح ونقطة نقطة، ' .
+            'واقترح تصحيحًا للكود كاملًا أو للجزء المطلوب تعديله. لو الكود صحيح وما في أخطاء، ' .
+            'قول هيك بصراحة واقترح تحسينات بسيطة إن وجدت (تسمية متغيرات، كفاءة...). ' .
+            'جاوب بالعربية الفصحى البسيطة، واكتب أي كود داخل رسالتك كنص عادي بدون تنسيق Markdown ' .
+            '(لأن رسائل تيليجرام هون بصيغة HTML وليست Markdown).';
+
+        $text = $this->callGemini($systemInstruction, [
+            ['text' => "حلّل هذا الكود:\n\n" . $code],
+        ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يحلل هذا الكود، جرّب تبعته مرة ثانية.');
+
+        $this->incrementDailyUsage($user->id);
+
+        return $text;
+    }
+
+    /*
+     * وضع "مولّد أسئلة" بالقائمة الذكية — الطالب يبعت اسم موضوع أو
+     * مفهوم دراسي كنص، والمساعد يولّد له أسئلة اختيار من متعدد
+     * للمراجعة الذاتية. نفس السقف اليومي المشترك.
+     *
+     * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
+     */
+    public function generateQuiz(User $user, string $topic): string
+    {
+        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
+            throw new RuntimeException(
+                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+        }
+
+        $systemInstruction =
+            'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب. الطالب رح يبعتلك اسم موضوع أو مفهوم دراسي. ' .
+            'ولّد له بالضبط 5 أسئلة اختيار من متعدد (كل سؤال 4 خيارات (أ/ب/ج/د)) لمراجعة هذا الموضوع، ' .
+            'واكتب بنهاية الرسالة قسم منفصل بعنوان "الإجابات الصحيحة" فيه رقم كل سؤال وحرف إجابته الصحيحة فقط. ' .
+            'جاوب بالعربية الفصحى البسيطة، وبدون تنسيق Markdown (رسائل تيليجرام هون HTML لا Markdown).';
+
+        $text = $this->callGemini($systemInstruction, [
+            ['text' => 'ولّدلي أسئلة مراجعة عن: ' . $topic],
+        ], tooLargeMessage: 'اسم الموضوع طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يولّد أسئلة لهذا الموضوع، جرّب صياغة مختلفة.');
 
         $this->incrementDailyUsage($user->id);
 

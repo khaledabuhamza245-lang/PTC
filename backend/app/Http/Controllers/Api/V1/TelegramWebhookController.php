@@ -28,14 +28,32 @@ use Illuminate\Http\Request;
  * رقم جاهز نقرأه من قاعدة البيانات بأمان بدون ما نكرر نفس المنطق
  * هون — قرار مؤجَّل لمرحلة لاحقة يستاهل نقاشه لحاله.
  *
- * أي رسالة نصية ما اتعرفت كأمر (مش "خطتي"/"مساعدة") تُعتبر سؤال حر
- * وتتحول تلقائيًا لـTelegramAiAssistant::askText() — نفس فلسفة
- * الصور/الملفات (replyWithFileSummary) بالضبط، بنفس السقف اليومي
- * المشترك. هيك صار بالإمكان سؤال المساعد بالكتابة المباشرة لا بس
- * برفع صورة/ملف.
+ * أي رسالة نصية ما اتعرفت كأمر (مش "خطتي"/"مساعدة"/"القائمة") تُعتبر
+ * سؤال حر وتتحول تلقائيًا لأداة الذكاء الاصطناعي المختارة حاليًا من
+ * "القائمة الذكية" (chat/debug/quiz — عمود telegram_links.mode) —
+ * راجع routeFreeTextToAssistant() وTelegramLink::currentMode().
+ * الصور والملفات (replyWithFileSummary) دايمًا تروح للتلخيص بغض
+ * النظر عن الوضع الحالي، لأنها ميزة منفصلة عمليًا عن أوضاع النص.
+ *
+ * "القائمة الذكية": رسالة فيها أزرار inline (callback_query) — ضغطة
+ * زر بتوصل هون كتحديث منفصل (update.callback_query لا update.message)
+ * فلازم يُعالج قبل استخراج $message العادية بالأسفل.
  */
 class TelegramWebhookController extends Controller
 {
+    /*
+     * أدوات "القائمة الذكية" — كل وحدة مربوطة بدالة مختلفة بـ
+     * TelegramAiAssistant. "summarize" مش له دالة نص خاصة (التلخيص
+     * أصلًا شغّال بالصور/الملفات بغض النظر عن الوضع) — اختياره بس
+     * تذكير للطالب إنه يبعت صورة/ملف.
+     */
+    private const MODE_LABELS = [
+        'chat' => '💬 مساعد أسئلة عام',
+        'debug' => '🐛 مصحّح أكواد',
+        'quiz' => '📝 مولّد أسئلة',
+        'summarize' => '📄 تلخيص ملفات',
+    ];
+
     public function __invoke(
         Request $request,
         TelegramBotApi $bot,
@@ -49,6 +67,13 @@ class TelegramWebhookController extends Controller
             || $request->header('X-Telegram-Bot-Api-Secret-Token') !== $expectedSecret
         ) {
             return response()->json(['ok' => false], 403);
+        }
+
+        $callbackQuery = $request->input('callback_query');
+        if (is_array($callbackQuery)) {
+            $this->handleMenuCallback($bot, $callbackQuery);
+
+            return response()->json(['ok' => true]);
         }
 
         $message = $request->input('message');
@@ -106,7 +131,7 @@ class TelegramWebhookController extends Controller
             $bot->sendMessage(
                 $chatId,
                 "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
-                "جرّب تكتب \"خطتي\"، أو ابعتلي صورة صفحة تلخصها، أو اسألني أي سؤال أكاديمي مباشرة، أو اكتب \"مساعدة\" تشوف كل الأوامر."
+                "جرّب تكتب \"خطتي\"، أو اكتب \"القائمة\" لتختار أداة الذكاء الاصطناعي (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات)، أو اكتب \"مساعدة\" تشوف كل الأوامر."
             );
 
             return response()->json(['ok' => true]);
@@ -149,38 +174,137 @@ class TelegramWebhookController extends Controller
                 $chatId,
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
-                "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها.\n".
-                "💬 اكتب أي سؤال أكاديمي عادي — رح يجاوبك المساعد الذكي مباشرة.\n".
+                "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
+                "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
+                "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
                 "❓ مساعدة — هاي القائمة."
             );
 
             return response()->json(['ok' => true]);
         }
 
+        if (in_array($normalized, ['القائمة', 'menu', 'قائمة'], true)) {
+            $this->sendMenu($bot, $chatId, $link->currentMode());
+
+            return response()->json(['ok' => true]);
+        }
+
         /*
-         * أي نص تاني (مش أمر معروف) نعتبره سؤال حر ونمرره للمساعد
-         * الذكي مباشرة — بدل رسالة "ما فهمت" الجامدة. هيك التلخيص
-         * (بالصور/الملفات) والأسئلة النصية صارت وجهين لنفس الميزة
-         * بعين الطالب، بنفس السقف اليومي المشترك بالضبط.
+         * أي نص تاني (مش أمر معروف) نعتبره سؤال حر ونمرره للأداة
+         * المختارة حاليًا من "القائمة الذكية" — بدل رسالة "ما فهمت"
+         * الجامدة، وبدل ما تكون أداة واحدة فقط ثابتة (askText).
          */
-        $this->replyWithTextAnswer($bot, $aiAssistant, $chatId, $link->user, $text);
+        $this->routeFreeTextToAssistant($bot, $aiAssistant, $chatId, $link, $text);
 
         return response()->json(['ok' => true]);
     }
 
     /*
-     * سؤال نصي حر → TelegramAiAssistant::askText(). نفس منطق التحقق
-     * من السقف اليومي والرسائل الودّية المستخدَم بتلخيص الملفات
-     * (replyWithFileSummary) — بس بلا تنزيل/تنظيف ملفات هون طبعًا.
+     * أزرار "القائمة الذكية" — كل زر بيبدّل عمود telegram_links.mode
+     * لهذا الحساب عبر callback_data بصيغة "mode:<key>" (راجع
+     * handleMenuCallback). ✅ بتظهر جنب الأداة المختارة حاليًا فقط.
      */
-    private function replyWithTextAnswer(
+    private function sendMenu(TelegramBotApi $bot, int|string $chatId, string $currentMode): void
+    {
+        $label = function (string $key) use ($currentMode) {
+            $text = self::MODE_LABELS[$key];
+
+            return $key === $currentMode ? $text . ' ✅' : $text;
+        };
+
+        $keyboard = [
+            [
+                ['text' => $label('chat'), 'callback_data' => 'mode:chat'],
+                ['text' => $label('debug'), 'callback_data' => 'mode:debug'],
+            ],
+            [
+                ['text' => $label('quiz'), 'callback_data' => 'mode:quiz'],
+                ['text' => $label('summarize'), 'callback_data' => 'mode:summarize'],
+            ],
+        ];
+
+        $bot->sendMessage(
+            $chatId,
+            "🧰 <b>القائمة الذكية</b>\n\nاختر الأداة يلي بدك تشتغل فيها — أي رسالة نصية بعدها بتروح لنفس الأداة تلقائيًا لحد ما تبدّلها من هون:",
+            $keyboard
+        );
+    }
+
+    /*
+     * ضغطة زر بـ"القائمة الذكية" (update.callback_query). لازم نتحقق
+     * من الحساب المربوط هون كمان بنفس طريقة باقي الأوامر (بحثًا
+     * بمعرّف المحادثة)، وليس بأي معطى يبعته العميل نفسه.
+     */
+    private function handleMenuCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+
+        if (! $chatId || ! str_starts_with($data, 'mode:')) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $mode = substr($data, strlen('mode:'));
+
+        if (! array_key_exists($mode, self::MODE_LABELS)) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $link->update(['mode' => $mode]);
+        $bot->answerCallbackQuery($callbackId, 'تم اختيار: ' . self::MODE_LABELS[$mode]);
+
+        $confirmations = [
+            'chat' => "💬 <b>مساعد أسئلة عام</b>\nاكتب أي سؤال أكاديمي وبردّ عليك مباشرة.",
+            'debug' => "🐛 <b>مصحّح أكواد</b>\nابعت الكود كنص عادي، وبقولّك وين المشكلة (إن وجدت) واقتراح التصحيح.",
+            'quiz' => "📝 <b>مولّد أسئلة</b>\nاكتب اسم موضوع أو مفهوم دراسي، وبولّدلك 5 أسئلة اختيار من متعدد للمراجعة.",
+            'summarize' => "📄 <b>تلخيص ملفات</b>\nابعتلي صورة صفحة أو ملف PDF وبلخصلك محتواها (هاي شغالة بأي وضع أصلًا).",
+        ];
+
+        $bot->sendMessage($chatId, $confirmations[$mode]);
+    }
+
+    /*
+     * توجيه أي نص حر لدالة TelegramAiAssistant المناسبة حسب
+     * $link->currentMode(). نفس منطق التحقق من السقف اليومي والرسائل
+     * الودّية بكل الأوضاع (مبني على replyWithFileSummary الأصلية).
+     */
+    private function routeFreeTextToAssistant(
         TelegramBotApi $bot,
         TelegramAiAssistant $aiAssistant,
         int|string $chatId,
-        \App\Models\User $user,
-        string $question
+        TelegramLink $link,
+        string $text
     ): void {
+        $mode = $link->currentMode();
+
+        if ($mode === 'summarize') {
+            $bot->sendMessage(
+                $chatId,
+                '📄 وضعك الحالي "تلخيص ملفات" — ابعتلي صورة صفحة أو ملف PDF مباشرة، أو اكتب "القائمة" لتبدّل الأداة.'
+            );
+
+            return;
+        }
+
         @set_time_limit(60);
+
+        $user = $link->user;
 
         if ($aiAssistant->remainingToday($user) <= 0) {
             $bot->sendMessage(
@@ -192,13 +316,18 @@ class TelegramWebhookController extends Controller
         }
 
         try {
-            $answer = $aiAssistant->askText($user, $question);
+            [$emoji, $answer] = match ($mode) {
+                'debug' => ['🐛', $aiAssistant->debugCode($user, $text)],
+                'quiz' => ['📝', $aiAssistant->generateQuiz($user, $text)],
+                default => ['💬', $aiAssistant->askText($user, $text)],
+            };
+
             $safeAnswer = TelegramBotApi::escapeHtml($answer);
-            $bot->sendMessage($chatId, "💬 {$safeAnswer}");
+            $bot->sendMessage($chatId, "{$emoji} {$safeAnswer}");
         } catch (\Throwable $error) {
             $friendly = $error instanceof \RuntimeException
                 ? $error->getMessage()
-                : 'صار خطأ غير متوقع أثناء معالجة سؤالك، جرّب مرة أخرى.';
+                : 'صار خطأ غير متوقع أثناء معالجة طلبك، جرّب مرة أخرى.';
 
             if (! $error instanceof \RuntimeException) {
                 report($error);

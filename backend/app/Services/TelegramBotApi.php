@@ -34,19 +34,51 @@ class TelegramBotApi
         return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
     }
 
-    public function sendMessage(int|string $chatId, string $text): void
+    /*
+     * $keyboard اختياري: مصفوفة أزرار inline بصيغة تيليجرام القياسية
+     * [[['text' => '...', 'callback_data' => '...'], ...], ...] —
+     * تُستخدم فقط لرسالة "القائمة الذكية" حاليًا (buildMenuKeyboard
+     * بالـwebhook)، وباقي الرسائل تتجاهلها (null افتراضيًا).
+     */
+    public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $payload = [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+        ];
+
+        if ($keyboard !== null) {
+            $payload['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
+        }
+
+        Http::timeout(10)->post(
+            "https://api.telegram.org/bot{$this->token}/sendMessage",
+            $payload
+        );
+    }
+
+    /*
+     * لازم تُستدعى لكل ضغطة زر inline (callback_query) حتى تختفي
+     * دوّامة التحميل عن الزر بواجهة تيليجرام — حتى لو ما بدنا نعرض
+     * أي "toast" فعلي للطالب ($text فاضي افتراضيًا مقبول).
+     */
+    public function answerCallbackQuery(string $callbackQueryId, string $text = ''): void
     {
         if (! $this->isConfigured()) {
             return;
         }
 
         Http::timeout(10)->post(
-            "https://api.telegram.org/bot{$this->token}/sendMessage",
-            [
-                'chat_id' => $chatId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-            ]
+            "https://api.telegram.org/bot{$this->token}/answerCallbackQuery",
+            array_filter([
+                'callback_query_id' => $callbackQueryId,
+                'text' => $text !== '' ? $text : null,
+            ], static fn ($v) => $v !== null)
         );
     }
 
