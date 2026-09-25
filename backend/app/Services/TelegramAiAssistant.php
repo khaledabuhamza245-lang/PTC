@@ -127,14 +127,22 @@ class TelegramAiAssistant
         return $text;
     }
 
+    // عام (لا private) حتى يقدر TelegramWebhookController يتحقق من حجم ملف الكود قبل ما يحمّله أصلًا.
+    public const MAX_CODE_FILE_SIZE = 300 * 1024; // 300KB — كافٍ لأي ملف كود طالب فعلي (html/css/js/php...).
+
     /*
-     * وضع "مصحّح أكواد" بالقائمة الذكية — الطالب يبعت كود كنص عادي،
-     * والمساعد يحدد الأخطاء (لو في) ويقترح تصحيحها. نفس السقف اليومي
-     * المشترك، ونفس أسلوب callGemini() المستخدم بباقي الأوضاع.
+     * وضع "مصحّح أكواد" بالقائمة الذكية — الطالب يبعت كود كنص عادي أو
+     * كملف (html/css/js/php...)، والمساعد يحدد الأخطاء (لو في) ويرجّع
+     * جوابين منفصلين: ملاحظات نصية قصيرة + الكود المعدَّل كاملًا.
+     * الفصل هون مقصود (JSON منظّم من Gemini نفسه عبر responseSchema،
+     * لا فصل يدوي بعلامات نص) حتى نقدر نبعت الملاحظات كرسالة والكود
+     * كملف منفصل (sendDocument) بدل نص طويل يعمل سكرول بالمحادثة —
+     * هذا بالضبط اللي طلبه الطالب.
      *
+     * @return array{notes: string, fixed_code: string}
      * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
      */
-    public function debugCode(User $user, string $code): string
+    public function debugCode(User $user, string $code): array
     {
         if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
             throw new RuntimeException(
@@ -143,20 +151,30 @@ class TelegramAiAssistant
         }
 
         $systemInstruction =
-            'أنت مساعد برمجي لطلاب هندسة أنظمة الحاسوب. الطالب رح يبعتلك كود برمجي (بأي لغة). ' .
-            'حلّل الكود، حدد الأخطاء البرمجية أو المنطقية إن وجدت بوضوح ونقطة نقطة، ' .
-            'واقترح تصحيحًا للكود كاملًا أو للجزء المطلوب تعديله. لو الكود صحيح وما في أخطاء، ' .
-            'قول هيك بصراحة واقترح تحسينات بسيطة إن وجدت (تسمية متغيرات، كفاءة...). ' .
-            'جاوب بالعربية الفصحى البسيطة، واكتب أي كود داخل رسالتك كنص عادي بدون تنسيق Markdown ' .
-            '(لأن رسائل تيليجرام هون بصيغة HTML وليست Markdown).';
+            'أنت مساعد برمجي لطلاب هندسة أنظمة الحاسوب. الطالب رح يبعتلك كود برمجي (بأي لغة، مثل ' .
+            'HTML/CSS/JavaScript/PHP/Python وغيرها). حلّل الكود وجاوب حصرًا بصيغة JSON فيها حقلين: ' .
+            '"notes" (نص قصير ومباشر بالعربية الفصحى البسيطة، بدون تنسيق Markdown، يشرح الأخطاء ' .
+            'البرمجية أو المنطقية إن وجدت نقطة نقطة، أو يقول بصراحة إنه الكود سليم مع اقتراح تحسينات ' .
+            'بسيطة إن وجدت)، و"fixed_code" (الكود كاملًا بعد التصحيح — لو الكود أصلًا سليم رجّعه كما هو ' .
+            'بهذا الحقل بدون أي تغيير).';
 
-        $text = $this->callGemini($systemInstruction, [
+        $result = $this->callGeminiJson($systemInstruction, [
             ['text' => "حلّل هذا الكود:\n\n" . $code],
+        ], [
+            'type' => 'OBJECT',
+            'properties' => [
+                'notes' => ['type' => 'STRING'],
+                'fixed_code' => ['type' => 'STRING'],
+            ],
+            'required' => ['notes', 'fixed_code'],
         ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يحلل هذا الكود، جرّب تبعته مرة ثانية.');
 
         $this->incrementDailyUsage($user->id);
 
-        return $text;
+        return [
+            'notes' => (string) ($result['notes'] ?? ''),
+            'fixed_code' => (string) ($result['fixed_code'] ?? ''),
+        ];
     }
 
     /*
@@ -233,6 +251,66 @@ class TelegramAiAssistant
         }
 
         return $text;
+    }
+
+    /*
+     * نفس callGemini() بالضبط، بس بطلب جواب JSON منظّم من Gemini نفسه
+     * (responseSchema) بدل نص حر — مستخدَمة حاليًا فقط بـdebugCode()
+     * لفصل الملاحظات عن الكود المعدَّل بشكل موثوق (لا اعتماد على
+     * علامات فصل نصية هشة قد يكسرها المودل بالغلط).
+     *
+     * @return array<string, mixed>
+     */
+    private function callGeminiJson(string $systemInstruction, array $parts, array $schema, string $tooLargeMessage, string $emptyMessage): array
+    {
+        $apiKey = config('services.gemini.key');
+
+        if (! $apiKey) {
+            throw new RuntimeException('المساعد الذكي غير مفعّل حاليًا على الخادم.');
+        }
+
+        $response = Http::timeout(45)
+            ->withHeaders(['x-goog-api-key' => $apiKey])
+            ->post(
+                'https://generativelanguage.googleapis.com/v1beta/models/'
+                    . AiAssistantController::GEMINI_MODEL . ':generateContent',
+                [
+                    'systemInstruction' => ['parts' => [['text' => $systemInstruction]]],
+                    'contents' => [[
+                        'role' => 'user',
+                        'parts' => $parts,
+                    ]],
+                    'generationConfig' => [
+                        'maxOutputTokens' => 3000,
+                        'temperature' => 0.4,
+                        'responseMimeType' => 'application/json',
+                        'responseSchema' => $schema,
+                    ],
+                ]
+            );
+
+        if ($response->status() === 429) {
+            throw new RuntimeException('المساعد الذكي مزدحم حاليًا، جرّب بعد شوي.');
+        }
+
+        if (! $response->successful()) {
+            report(new RuntimeException('Telegram AI Gemini JSON call failed: ' . $response->body()));
+
+            $tooLarge = $response->status() === 400
+                && str_contains($response->body(), 'exceeds the maximum number of tokens');
+
+            throw new RuntimeException($tooLarge ? $tooLargeMessage : 'تعذّر تحليل الطلب حاليًا، جرّب مرة أخرى بعد شوي.');
+        }
+
+        $responseParts = $response->json('candidates.0.content.parts') ?? [];
+        $rawJson = collect($responseParts)->pluck('text')->filter()->implode('');
+        $decoded = $rawJson !== '' ? json_decode($rawJson, true) : null;
+
+        if (! is_array($decoded)) {
+            throw new RuntimeException($emptyMessage);
+        }
+
+        return $decoded;
     }
 
     /*

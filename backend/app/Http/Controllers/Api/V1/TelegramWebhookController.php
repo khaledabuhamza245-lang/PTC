@@ -54,6 +54,19 @@ class TelegramWebhookController extends Controller
         'summarize' => '📄 تلخيص ملفات',
     ];
 
+    /*
+     * امتدادات ملفات الكود المقبولة بوضع "مصحّح أكواد" فقط — منفصلة
+     * تمامًا عن الصور/PDF المقبولة بالتلخيص (replyWithFileSummary).
+     * تيليجرام غالبًا يبعت mime_type غير دقيق لهذي الامتدادات (أو
+     * application/octet-stream)، فالتحقق هون بامتداد اسم الملف نفسه
+     * لا بـmime_type.
+     */
+    private const CODE_FILE_EXTENSIONS = [
+        'html', 'htm', 'css', 'js', 'jsx', 'ts', 'tsx', 'php', 'py', 'java',
+        'c', 'h', 'cpp', 'hpp', 'cs', 'json', 'sql', 'txt', 'md', 'xml',
+        'sh', 'rb', 'go', 'kt', 'swift', 'yml', 'yaml', 'vue', 'dart',
+    ];
+
     public function __invoke(
         Request $request,
         TelegramBotApi $bot,
@@ -156,6 +169,25 @@ class TelegramWebhookController extends Controller
         }
 
         if ($hasMedia) {
+            /*
+             * بوضع "مصحّح أكواد" فقط، ملف بامتداد كود معروف (html/css/js/php...)
+             * يروح لمسار التصحيح لا التلخيص — أي ملف/صورة تانية (بأي
+             * وضع) يفضل يروح للتلخيص العادي كما كان دايمًا.
+             */
+            $documentExtension = is_array($document)
+                ? strtolower((string) pathinfo((string) ($document['file_name'] ?? ''), PATHINFO_EXTENSION))
+                : '';
+
+            if (
+                $link->currentMode() === 'debug'
+                && is_array($document)
+                && in_array($documentExtension, self::CODE_FILE_EXTENSIONS, true)
+            ) {
+                $this->replyWithCodeFileDebug($bot, $aiAssistant, $chatId, $link->user, $document);
+
+                return response()->json(['ok' => true]);
+            }
+
             $this->replyWithFileSummary($bot, $aiAssistant, $chatId, $link->user, $photos, $document);
 
             return response()->json(['ok' => true]);
@@ -271,7 +303,7 @@ class TelegramWebhookController extends Controller
 
         $confirmations = [
             'chat' => "💬 <b>مساعد أسئلة عام</b>\nاكتب أي سؤال أكاديمي وبردّ عليك مباشرة.",
-            'debug' => "🐛 <b>مصحّح أكواد</b>\nابعت الكود كنص عادي، وبقولّك وين المشكلة (إن وجدت) واقتراح التصحيح.",
+            'debug' => "🐛 <b>مصحّح أكواد</b>\nابعت الكود كنص عادي أو كملف (html/css/js/php...)، وبردّلك بملاحظات على الأخطاء + ملف فيه الكود بعد التصحيح.",
             'quiz' => "📝 <b>مولّد أسئلة</b>\nاكتب اسم موضوع أو مفهوم دراسي، وبولّدلك 5 أسئلة اختيار من متعدد للمراجعة.",
             'summarize' => "📄 <b>تلخيص ملفات</b>\nابعتلي صورة صفحة أو ملف PDF وبلخصلك محتواها (هاي شغالة بأي وضع أصلًا).",
         ];
@@ -316,12 +348,18 @@ class TelegramWebhookController extends Controller
         }
 
         try {
-            [$emoji, $answer] = match ($mode) {
-                'debug' => ['🐛', $aiAssistant->debugCode($user, $text)],
-                'quiz' => ['📝', $aiAssistant->generateQuiz($user, $text)],
-                default => ['💬', $aiAssistant->askText($user, $text)],
-            };
+            if ($mode === 'debug') {
+                $result = $aiAssistant->debugCode($user, $text);
+                $this->sendDebugResult($bot, $chatId, $result, 'fixed_code.txt');
 
+                return;
+            }
+
+            $answer = $mode === 'quiz'
+                ? $aiAssistant->generateQuiz($user, $text)
+                : $aiAssistant->askText($user, $text);
+
+            $emoji = $mode === 'quiz' ? '📝' : '💬';
             $safeAnswer = TelegramBotApi::escapeHtml($answer);
             $bot->sendMessage($chatId, "{$emoji} {$safeAnswer}");
         } catch (\Throwable $error) {
@@ -334,6 +372,105 @@ class TelegramWebhookController extends Controller
             }
 
             $bot->sendMessage($chatId, "⚠️ {$friendly}");
+        }
+    }
+
+    /*
+     * ملف كود (html/css/js/php...) بوضع "مصحّح أكواد" — يقرأ محتوى
+     * الملف كنص عادي (لا رفع لـGemini Files مثل التلخيص، الكود نص
+     * صرف أصلًا وحجمه صغير) ويمرّره لنفس TelegramAiAssistant::debugCode().
+     */
+    private function replyWithCodeFileDebug(
+        TelegramBotApi $bot,
+        TelegramAiAssistant $aiAssistant,
+        int|string $chatId,
+        \App\Models\User $user,
+        array $document
+    ): void {
+        @set_time_limit(60);
+
+        if ($aiAssistant->remainingToday($user) <= 0) {
+            $bot->sendMessage(
+                $chatId,
+                'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+
+            return;
+        }
+
+        $fileId = (string) ($document['file_id'] ?? '');
+        $originalName = (string) ($document['file_name'] ?? 'code.txt');
+
+        if ((int) ($document['file_size'] ?? 0) > TelegramAiAssistant::MAX_CODE_FILE_SIZE) {
+            $bot->sendMessage($chatId, 'الملف كبير جدًا للمصحّح حاليًا (الحد ٣٠٠ كيلوبايت) — جرّب جزء أصغر من الكود.');
+
+            return;
+        }
+
+        $bot->sendMessage($chatId, '🤖 جارٍ مراجعة الكود... ثواني وبردّ عليك.');
+
+        $localPath = $bot->downloadFile($fileId);
+
+        if (! $localPath) {
+            $bot->sendMessage($chatId, 'تعذّر تحميل الملف من تيليجرام، جرّب تبعته مرة ثانية.');
+
+            return;
+        }
+
+        try {
+            $size = filesize($localPath) ?: 0;
+
+            if ($size <= 0 || $size > TelegramAiAssistant::MAX_CODE_FILE_SIZE) {
+                $bot->sendMessage($chatId, 'الملف كبير جدًا للمصحّح حاليًا (الحد ٣٠٠ كيلوبايت) — جرّب جزء أصغر من الكود.');
+
+                return;
+            }
+
+            $code = (string) file_get_contents($localPath);
+            $result = $aiAssistant->debugCode($user, $code);
+            $this->sendDebugResult($bot, $chatId, $result, 'fixed_' . $originalName);
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException
+                ? $error->getMessage()
+                : 'صار خطأ غير متوقع أثناء مراجعة الكود، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $bot->sendMessage($chatId, "⚠️ {$friendly}");
+        } finally {
+            @unlink($localPath);
+        }
+    }
+
+    /*
+     * ملاحظات "مصحّح أكواد" كرسالة نصية قصيرة + الكود المعدَّل كملف
+     * منفصل (sendDocument) — بدل نص طويل يعمل سكرول بالمحادثة، بناءً
+     * على طلب صريح من الطالب. يُستدعى من مسار النص الحر ومسار رفع
+     * الملف كليهما.
+     *
+     * @param array{notes: string, fixed_code: string} $result
+     */
+    private function sendDebugResult(TelegramBotApi $bot, int|string $chatId, array $result, string $filename): void
+    {
+        $notes = trim($result['notes']);
+        $safeNotes = $notes !== '' ? TelegramBotApi::escapeHtml($notes) : 'ما في ملاحظات إضافية.';
+        $bot->sendMessage($chatId, "🐛 <b>ملاحظات المصحّح</b>\n\n{$safeNotes}");
+
+        $fixedCode = $result['fixed_code'];
+
+        if (trim($fixedCode) === '') {
+            return;
+        }
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'tgcode_');
+
+        try {
+            file_put_contents($tmpPath, $fixedCode);
+            $bot->sendDocument($chatId, $tmpPath, $filename, '📄 الكود بعد المراجعة');
+        } finally {
+            @unlink($tmpPath);
         }
     }
 

@@ -119,4 +119,31 @@ class TelegramBotApi
 
         return $localPath;
     }
+
+    /*
+     * إرسال ملف محلي كمستند (sendDocument) — يُستخدم لإرسال الكود
+     * المعدَّل من "مصحّح أكواد" كملف بدل نص طويل يعمل سكرول بالمحادثة
+     * (multipart upload حقيقي، لا رابط، لأنه الملف مولَّد لحظيًا ومش
+     * له رابط عام أصلًا).
+     */
+    public function sendDocument(int|string $chatId, string $localPath, string $filename, ?string $caption = null): void
+    {
+        if (! $this->isConfigured() || ! is_readable($localPath)) {
+            return;
+        }
+
+        $request = Http::timeout(20)->attach(
+            'document',
+            file_get_contents($localPath),
+            $filename
+        );
+
+        $request->post(
+            "https://api.telegram.org/bot{$this->token}/sendDocument",
+            array_filter([
+                'chat_id' => $chatId,
+                'caption' => $caption,
+            ], static fn ($v) => $v !== null)
+        );
+    }
 }
