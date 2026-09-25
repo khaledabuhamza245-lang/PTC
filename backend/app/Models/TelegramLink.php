@@ -15,6 +15,7 @@ class TelegramLink extends Model
         'telegram_first_name',
         'linked_at',
         'mode',
+        'reminders_enabled',
     ];
 
     protected function casts(): array
@@ -22,6 +23,7 @@ class TelegramLink extends Model
         return [
             'token_expires_at' => 'datetime',
             'linked_at' => 'datetime',
+            'reminders_enabled' => 'boolean',
         ];
     }
 

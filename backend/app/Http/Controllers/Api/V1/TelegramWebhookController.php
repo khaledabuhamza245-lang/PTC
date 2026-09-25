@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\ScheduleLecture;
 use App\Models\TelegramLink;
 use App\Services\PlanCalculator;
 use App\Services\TelegramAiAssistant;
@@ -38,6 +39,14 @@ use Illuminate\Http\Request;
  * "القائمة الذكية": رسالة فيها أزرار inline (callback_query) — ضغطة
  * زر بتوصل هون كتحديث منفصل (update.callback_query لا update.message)
  * فلازم يُعالج قبل استخراج $message العادية بالأسفل.
+ *
+ * "جدولي": عرض مباشر لجدول ScheduleLecture (نفس جدول صفحة "جدول
+ * المحاضرات" بالموقع) + تذكير تلقائي قبل كل محاضرة بربع ساعة عبر أمر
+ * artisan منفصل (SendTelegramLectureReminders) يُستدعى من Cron خارجي
+ * كل ٥ دقائق (لا queue/schedule:run حقيقي بدون SSH — راجع
+ * telegram_bot_step_reminders_cpanel_cron_setup.txt). هاي أول جزء من
+ * الميزة (عرض + تذكيرات) — الإضافة/التعديل/الحذف من داخل البوت رح
+ * تُبنى بخطوة تالية منفصلة.
  */
 class TelegramWebhookController extends Controller
 {
@@ -65,6 +74,16 @@ class TelegramWebhookController extends Controller
         'html', 'htm', 'css', 'js', 'jsx', 'ts', 'tsx', 'php', 'py', 'java',
         'c', 'h', 'cpp', 'hpp', 'cs', 'json', 'sql', 'txt', 'md', 'xml',
         'sh', 'rb', 'go', 'kt', 'swift', 'yml', 'yaml', 'vue', 'dart',
+    ];
+
+    /*
+     * ترتيب أيام "جدولي" — نفس ترتيب/ترميز عمود ScheduleLecture::days
+     * بالضبط (0=الأحد...6=السبت، مطابق لـCarbon::dayOfWeek ولصفحة
+     * "جدول المحاضرات" بالموقع schedule.js) — السبت أولًا كما بالموقع.
+     */
+    private const DAY_LABELS = [
+        6 => 'السبت', 0 => 'الأحد', 1 => 'الاثنين', 2 => 'الثلاثاء',
+        3 => 'الأربعاء', 4 => 'الخميس', 5 => 'الجمعة',
     ];
 
     public function __invoke(
@@ -144,7 +163,7 @@ class TelegramWebhookController extends Controller
             $bot->sendMessage(
                 $chatId,
                 "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
-                "جرّب تكتب \"خطتي\"، أو اكتب \"القائمة\" لتختار أداة الذكاء الاصطناعي (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات)، أو اكتب \"مساعدة\" تشوف كل الأوامر."
+                "جرّب تكتب \"خطتي\" أو \"جدولي\"، أو اكتب \"القائمة\" لتختار أداة الذكاء الاصطناعي (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات)، أو اكتب \"مساعدة\" تشوف كل الأوامر."
             );
 
             return response()->json(['ok' => true]);
@@ -206,6 +225,7 @@ class TelegramWebhookController extends Controller
                 $chatId,
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
+                "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة.\n".
                 "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
                 "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
@@ -217,6 +237,26 @@ class TelegramWebhookController extends Controller
 
         if (in_array($normalized, ['القائمة', 'menu', 'قائمة'], true)) {
             $this->sendMenu($bot, $chatId, $link->currentMode());
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['جدولي', 'جدول', 'الجدول', 'schedule'], true)) {
+            $this->replyWithScheduleSummary($bot, $chatId, $link);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['تفعيل التذكيرات', 'تشغيل التذكيرات'], true)) {
+            $link->update(['reminders_enabled' => true]);
+            $bot->sendMessage($chatId, '🔔 تم تفعيل تذكيرات المحاضرات — رح أذكّرك قبل كل محاضرة بربع ساعة.');
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['إيقاف التذكيرات', 'ايقاف التذكيرات'], true)) {
+            $link->update(['reminders_enabled' => false]);
+            $bot->sendMessage($chatId, '🔕 تم إيقاف تذكيرات المحاضرات. اكتب "تفعيل التذكيرات" لإرجاعها بأي وقت.');
 
             return response()->json(['ok' => true]);
         }
@@ -495,6 +535,73 @@ class TelegramWebhookController extends Controller
             "📚 متبقّي: {$remaining} ساعة\n".
             "🟢 مسجّل حاليًا: {$registered} مساق"
         );
+    }
+
+    /*
+     * "جدولي" — عرض للجدول الأسبوعي مباشرة من ScheduleLecture (نفس
+     * الجدول يلي يبنيه الطالب بصفحة "جدول المحاضرات" بالموقع)، بلا أي
+     * حساب أو تكرار منطق — تمامًا نفس فلسفة "خطتي" مع PlanCalculator.
+     * أول جزء من ميزة "الجدول + التذكيرات" (عرض فقط حاليًا) — الإضافة
+     * والتعديل والحذف من داخل البوت نفسه رح تُبنى بخطوة لاحقة منفصلة.
+     */
+    private function replyWithScheduleSummary(TelegramBotApi $bot, int|string $chatId, TelegramLink $link): void
+    {
+        $lectures = ScheduleLecture::query()
+            ->where('user_id', $link->user_id)
+            ->orderBy('start_time')
+            ->get();
+
+        if ($lectures->isEmpty()) {
+            $bot->sendMessage(
+                $chatId,
+                '📅 جدولك فاضي حاليًا. ضيف محاضراتك من صفحة "جدول المحاضرات" بالموقع، وبعدها اكتب "جدولي" هون لتشوفها.'
+            );
+
+            return;
+        }
+
+        $today = (int) now(config('app.timezone'))->dayOfWeek;
+        $lines = ['📅 <b>جدولك الأسبوعي</b>', ''];
+
+        foreach (self::DAY_LABELS as $dayKey => $dayLabel) {
+            $dayLectures = $lectures->filter(
+                fn (ScheduleLecture $lecture) => in_array($dayKey, is_array($lecture->days) ? $lecture->days : [], true)
+            );
+
+            $isToday = $dayKey === $today;
+
+            if ($dayLectures->isEmpty() && ! $isToday) {
+                continue;
+            }
+
+            $lines[] = ($isToday ? '📌 ' : '') . '<b>' . $dayLabel . '</b>' . ($isToday ? ' (اليوم)' : '');
+
+            if ($dayLectures->isEmpty()) {
+                $lines[] = 'لا محاضرات.';
+            } else {
+                foreach ($dayLectures as $lecture) {
+                    $typeIcon = $lecture->type === 'online' ? '🌐' : '🏫';
+                    $instructor = trim((string) $lecture->instructor);
+                    $name = TelegramBotApi::escapeHtml((string) $lecture->name);
+                    $line = "🕐 {$lecture->start_time}–{$lecture->end_time} {$typeIcon} {$name}";
+
+                    if ($instructor !== '') {
+                        $line .= ' — ' . TelegramBotApi::escapeHtml($instructor);
+                    }
+
+                    $lines[] = $line;
+                }
+            }
+
+            $lines[] = '';
+        }
+
+        $remindersStatus = $link->reminders_enabled
+            ? '🔔 التذكيرات مفعّلة (اكتب "إيقاف التذكيرات" لإيقافها)'
+            : '🔕 التذكيرات متوقفة (اكتب "تفعيل التذكيرات" لتشغيلها)';
+        $lines[] = $remindersStatus;
+
+        $bot->sendMessage($chatId, implode("\n", $lines));
     }
 
     /*
