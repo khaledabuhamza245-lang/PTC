@@ -8,6 +8,7 @@ use App\Models\TelegramLink;
 use App\Services\PlanCalculator;
 use App\Services\TelegramAiAssistant;
 use App\Services\TelegramBotApi;
+use App\Services\TelegramGpaCalculator;
 use Illuminate\Http\Request;
 
 /*
@@ -23,11 +24,15 @@ use Illuminate\Http\Request;
  * أمر "خطتي" يستدعي PlanCalculator::summarize() مباشرة (نفس الخدمة
  * يلي تستخدمها صفحة "صفحتي الشخصية" بالضبط عبر PlanController) — عمدًا
  * بلا أي حساب جديد أو منفصل هون، حتى ما يصير عنا مصدرين مختلفين
- * لنفس الرقم يوم ما يتغيّر منطق الحساب بمكان ونُنسى الآخر. لهاد
- * السبب بالضبط ما بنينا أمر "معدلي" بعد — حاسبة المعدل التراكمي
- * بالموقع (gpa.html) حسابها بالكامل بالمتصفح (JS) لا بالخادم، فمافي
- * رقم جاهز نقرأه من قاعدة البيانات بأمان بدون ما نكرر نفس المنطق
- * هون — قرار مؤجَّل لمرحلة لاحقة يستاهل نقاشه لحاله.
+ * لنفس الرقم يوم ما يتغيّر منطق الحساب بمكان ونُنسى الآخر.
+ *
+ * أمر "معدلي" يستخدم TelegramGpaCalculator — خدمة جديدة معزولة (لا
+ * علاقة لها بـGpaController) تعيد بناء منطق frontend/gpa.js
+ * (computeStats) بلغة PHP، لأن ذاك الملف يعمل حصرًا بالمتصفح ولا طريقة
+ * لاستدعائه من الخادم. العلامات نفسها مقروءة مباشرة من GpaEntry (نفس
+ * الجدول الذي تحفظ فيه صفحة "حاسبة المعدل" بالموقع)، فأي تعديل هون أو
+ * هناك ينعكس بالمكانين فورًا — لكن صيغة الحساب نفسها مكرَّرة بقصد بين
+ * الطرفين (راجع تنبيه الصيانة أعلى TelegramGpaCalculator).
  *
  * أي رسالة نصية ما اتعرفت كأمر (مش "خطتي"/"مساعدة"/"القائمة") تُعتبر
  * سؤال حر وتتحول تلقائيًا لأداة الذكاء الاصطناعي المختارة حاليًا من
@@ -92,7 +97,8 @@ class TelegramWebhookController extends Controller
         Request $request,
         TelegramBotApi $bot,
         PlanCalculator $planCalculator,
-        TelegramAiAssistant $aiAssistant
+        TelegramAiAssistant $aiAssistant,
+        TelegramGpaCalculator $gpaCalculator
     ) {
         $expectedSecret = (string) config('services.telegram.webhook_secret', '');
 
@@ -171,7 +177,7 @@ class TelegramWebhookController extends Controller
             $bot->sendMessage(
                 $chatId,
                 "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
-                "جرّب تكتب \"خطتي\" أو \"جدولي\"، أو اكتب \"القائمة\" لتختار أداة الذكاء الاصطناعي (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات)، أو اكتب \"مساعدة\" تشوف كل الأوامر."
+                "جرّب تكتب \"خطتي\" أو \"معدلي\" أو \"جدولي\"، أو اكتب \"القائمة\" لتختار أداة الذكاء الاصطناعي (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات)، أو اكتب \"مساعدة\" تشوف كل الأوامر."
             );
 
             return response()->json(['ok' => true]);
@@ -247,11 +253,18 @@ class TelegramWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        if (in_array($normalized, ['معدلي', 'المعدل', 'gpa'], true)) {
+            $bot->sendMessage($chatId, $gpaCalculator->formatForTelegram($link->user));
+
+            return response()->json(['ok' => true]);
+        }
+
         if (in_array($normalized, ['مساعدة', 'help', 'أوامر'], true)) {
             $bot->sendMessage(
                 $chatId,
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
+                "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل)، من نفس علاماتك المسجَّلة بحاسبة المعدل بالموقع.\n".
                 "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة (وفيها أزرار إضافة/تعديل/حذف).\n".
                 "➕ إضافة محاضرة / ✏️ تعديل محاضرة / 🗑️ حذف محاضرة — تديرها كلها من هون بدون فتح الموقع.\n".
                 "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
