@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course;
+use App\Models\CourseFile;
 use App\Models\GpaEntry;
 use App\Models\ScheduleLecture;
 use App\Models\TelegramLink;
+use App\Models\Tool;
 use App\Services\PlanCalculator;
 use App\Services\TelegramAiAssistant;
 use App\Services\TelegramBotApi;
@@ -43,6 +45,15 @@ use Illuminate\Http\Request;
  * telegram_links.pending_action (action يبدأ بـ"gpa_" هون تمييزًا عن
  * "add"/"edit"/"delete" الخاصة بالجدول — راجع دوال handleGpaCallback/
  * handleGpaTextInput أسفل دوال الجدول).
+ *
+ * Inline Mode: طالب يكتب "@اسم_البوت بحث" بأي محادثة تيليجرام (حتى لو
+ * مجموعة دراسية ما فيها البوت مضاف أصلًا) فيظهرله بحث فوري بمواد
+ * وملفات وأدوات الموقع، يقدر يختار نتيجة منها فتُرسل كرسالة جاهزة
+ * (بعنوان + رابط مباشر للموقع) بهاي المحادثة — بلا فتح البوت نهائيًا.
+ * نفس منطق SearchController بالضبط (بحث عام، بلا حاجة لحساب مربوط،
+ * لأن كل ما يُرجعه أصلًا عام على الموقع) — راجع handleInlineQuery.
+ * يتطلب تفعيل يدوي لمرة واحدة من BotFather (/setinline) — راجع
+ * telegram_bot_step_inline_mode_botfather_setup.txt.
  *
  * أي رسالة نصية ما اتعرفت كأمر (مش "خطتي"/"مساعدة"/"القائمة") تُعتبر
  * سؤال حر وتتحول تلقائيًا لأداة الذكاء الاصطناعي المختارة حاليًا من
@@ -117,6 +128,20 @@ class TelegramWebhookController extends Controller
             || $request->header('X-Telegram-Bot-Api-Secret-Token') !== $expectedSecret
         ) {
             return response()->json(['ok' => false], 403);
+        }
+
+        /*
+         * inline_query: طالب كتب "@اسم_البوت بحث" بأي محادثة (حتى لو
+         * مجموعة ما فيها البوت أصلًا) — لازم يُعالج قبل أي شيء تاني،
+         * لأنه لا $message ولا $callback_query بهاي الحالة إطلاقًا.
+         * لا يحتاج حساب مربوط (نفس فلسفة SearchController العامة —
+         * بحث بمحتوى الموقع العام لا ببيانات شخصية).
+         */
+        $inlineQuery = $request->input('inline_query');
+        if (is_array($inlineQuery)) {
+            $this->handleInlineQuery($bot, $inlineQuery);
+
+            return response()->json(['ok' => true]);
         }
 
         $callbackQuery = $request->input('callback_query');
@@ -286,6 +311,7 @@ class TelegramWebhookController extends Controller
                 "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
                 "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
+                "🔎 بأي محادثة تيليجرام (حتى مجموعات الدراسة)، اكتب @".config('services.telegram.bot_username', 'اسم_البوت')." متبوعًا باسم مادة/أداة لتشاركها بضغطة وحدة، بدون فتح البوت.\n".
                 "❓ مساعدة — هاي القائمة."
             );
 
@@ -1915,5 +1941,155 @@ class TelegramWebhookController extends Controller
 
             $bot->sendMessage($chatId, "⚠️ {$friendly}");
         }
+    }
+
+    /*
+     * ═══════════════ Inline Mode — بحث بأي محادثة ═══════════════
+     * أقل حدّ مطلوب لتجربة بحث مفيدة: أقل من حرفين نرجّع نتائج فاضية
+     * (تيليجرام بيتجاهل is_personal/cache_time بهاي الحالة وما يعرض
+     * شي — أفضل من فرض زر "ابدأ بحثًا خاصًا" غير ضروري). نفس حدود
+     * SearchController تقريبًا بس أقل شوي (٥ بدل ٦-٨) لأن مجموع
+     * النتائج الثلاث لازم يبقى معقول بقائمة منسدلة واحدة.
+     */
+    private const INLINE_MIN_QUERY_LENGTH = 2;
+
+    private const INLINE_TOOL_TYPE_LABELS = [
+        'software' => 'برنامج', 'online' => 'أداة ويب', 'concept' => 'مفهوم', 'library' => 'مكتبة',
+    ];
+
+    // نفس تسميات أنواع المحتوى بالضبط (TelegramContentNotifier::KIND_LABELS
+    // وadmin.html) — مكرَّرة هون بقصد، كلاهما ثابت نادرًا ما يتغيّر.
+    private const INLINE_CONTENT_KIND_LABELS = [
+        'youtube' => 'يوتيوب', 'vid' => 'فيديو', 'drive' => 'درايف',
+        'assignment' => 'تعيين', 'exercise' => 'تدريب', 'exam' => 'اختبار',
+        'book' => 'مرجع', 'software' => 'برنامج', 'github' => 'GitHub',
+        'pdf' => 'PDF', 'doc' => 'مستند', 'image' => 'صورة',
+        'link' => 'رابط', 'other' => 'أخرى',
+    ];
+
+    private function handleInlineQuery(TelegramBotApi $bot, array $inlineQuery): void
+    {
+        $inlineQueryId = (string) ($inlineQuery['id'] ?? '');
+
+        if ($inlineQueryId === '') {
+            return;
+        }
+
+        $term = trim((string) ($inlineQuery['query'] ?? ''));
+
+        if (mb_strlen($term) < self::INLINE_MIN_QUERY_LENGTH) {
+            $bot->answerInlineQuery($inlineQueryId, [], 30);
+
+            return;
+        }
+
+        $bot->answerInlineQuery($inlineQueryId, $this->buildInlineSearchResults($term), 60);
+    }
+
+    /*
+     * نفس منطق SearchController::index() بالضبط (البحث بالاسم/الرمز/
+     * الكلمات المفتاحية لا الوصف الطويل، وترتيب حسب الصلة) — لكن مُعاد
+     * كتابته هون محليًا لأن شكل النتيجة مختلف كليًا (InlineQueryResult
+     * لتيليجرام لا JSON عادي لواجهة الموقع). أي تعديل مستقبلي على منطق
+     * البحث بـSearchController يستاهل مراجعة هون كمان يدويًا.
+     */
+    private function buildInlineSearchResults(string $term): array
+    {
+        $escaped = str_replace(['%', '_'], ['\%', '\_'], $term);
+        $contains = '%'.$escaped.'%';
+        $prefix = $escaped.'%';
+        $relevance = fn ($column) => "(CASE WHEN {$column} LIKE ? THEN 0 ELSE 1 END)";
+
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+
+        $courses = Course::query()
+            ->where('is_active', true)
+            ->where(function ($query) use ($contains) {
+                $query->where('name_ar', 'like', $contains)
+                    ->orWhere('name_en', 'like', $contains)
+                    ->orWhere('code', 'like', $contains)
+                    ->orWhere('keywords', 'like', $contains);
+            })
+            ->orderByRaw($relevance('name_ar'), [$prefix])
+            ->limit(5)
+            ->get(['id', 'key', 'code', 'name_ar', 'name_en']);
+
+        $content = CourseFile::query()
+            ->where('is_published', true)
+            ->where('title', 'like', $contains)
+            ->orderByRaw($relevance('title'), [$prefix])
+            ->with('course:id,key,code,name_ar,name_en')
+            ->limit(5)
+            ->get(['id', 'course_id', 'title', 'kind']);
+
+        $tools = Tool::query()
+            ->where('is_active', true)
+            ->where('name', 'like', $contains)
+            ->orderByRaw($relevance('name'), [$prefix])
+            ->limit(5)
+            ->get(['id', 'name', 'type', 'description']);
+
+        $results = [];
+
+        foreach ($courses as $course) {
+            $name = (string) ($course->name_ar ?: $course->name_en);
+            $code = (string) $course->code;
+            $link = $frontendUrl.'/course.html?course='.urlencode((string) $course->key);
+
+            $messageText = '📘 <b>'.TelegramBotApi::escapeHtml($name).'</b>'.
+                ($code !== '' ? ' ('.TelegramBotApi::escapeHtml($code).')' : '')."\n".
+                '🌐 '.$link;
+
+            $results[] = [
+                'type' => 'article',
+                'id' => 'course:'.$course->id,
+                'title' => '📘 '.$name,
+                'description' => $code !== '' ? $code : 'مادة',
+                'input_message_content' => ['message_text' => $messageText, 'parse_mode' => 'HTML'],
+            ];
+        }
+
+        foreach ($content as $file) {
+            $course = $file->course;
+
+            if (! $course) {
+                continue;
+            }
+
+            $courseName = (string) ($course->name_ar ?: $course->name_en);
+            $kindLabel = self::INLINE_CONTENT_KIND_LABELS[$file->kind] ?? null;
+            $link = $frontendUrl.'/course.html?course='.urlencode((string) $course->key).'&content='.(int) $file->id;
+
+            $messageText = '📄 <b>'.TelegramBotApi::escapeHtml((string) $file->title).'</b>'."\n".
+                '📘 '.TelegramBotApi::escapeHtml($courseName)."\n".
+                '🌐 '.$link;
+
+            $results[] = [
+                'type' => 'article',
+                'id' => 'content:'.$file->id,
+                'title' => '📄 '.(string) $file->title,
+                'description' => $courseName.($kindLabel ? ' — '.$kindLabel : ''),
+                'input_message_content' => ['message_text' => $messageText, 'parse_mode' => 'HTML'],
+            ];
+        }
+
+        foreach ($tools as $tool) {
+            $typeLabel = self::INLINE_TOOL_TYPE_LABELS[$tool->type] ?? '';
+            $description = trim((string) $tool->description);
+
+            $messageText = '🧰 <b>'.TelegramBotApi::escapeHtml((string) $tool->name).'</b>'.
+                ($description !== '' ? "\n".TelegramBotApi::escapeHtml($description) : '')."\n".
+                '🌐 '.$frontendUrl.'/tools.html';
+
+            $results[] = [
+                'type' => 'article',
+                'id' => 'tool:'.$tool->id,
+                'title' => '🧰 '.(string) $tool->name,
+                'description' => $typeLabel.($description !== '' ? ' — '.mb_substr($description, 0, 60) : ''),
+                'input_message_content' => ['message_text' => $messageText, 'parse_mode' => 'HTML'],
+            ];
+        }
+
+        return $results;
     }
 }

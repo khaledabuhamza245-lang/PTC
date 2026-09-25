@@ -83,6 +83,35 @@ class TelegramBotApi
     }
 
     /*
+     * الرد الإلزامي الوحيد على تحديث inline_query (طالب كتب
+     * "@PTCHubTestBot بحث" بأي محادثة تيليجرام — خاصة أو مجموعة —
+     * بدون فتح البوت نفسه). $results مصفوفة نتائج بصيغة تيليجرام
+     * القياسية (InlineQueryResult، غالبًا "article") — تُشفَّر JSON هون
+     * تمامًا متل reply_markup بـsendMessage، فالمستدعي يبنيها كمصفوفة
+     * PHP عادية بدون داعٍ لـjson_encode بنفسه.
+     *
+     * cache_time بالثواني: مدة تخزين تيليجرام لنفس نتائج نفس الاستعلام
+     * قبل ما يعيد سؤال الخادم من جديد — ٦٠ ثانية معقولة لمحتوى الموقع
+     * (مواد/محتوى/أدوات) يلي ما يتغيّر كل لحظة.
+     */
+    public function answerInlineQuery(string $inlineQueryId, array $results, int $cacheTime = 60): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        Http::timeout(10)->post(
+            "https://api.telegram.org/bot{$this->token}/answerInlineQuery",
+            [
+                'inline_query_id' => $inlineQueryId,
+                'results' => json_encode($results),
+                'cache_time' => $cacheTime,
+                'is_personal' => false,
+            ]
+        );
+    }
+
+    /*
      * تحميل ملف أرسله المستخدم للبوت (صورة/PDF) لملف محلي مؤقت.
      * خطوتين بالضبط كما توثّق Telegram نفسها: getFile يرجّع مسار
      * نسبي، وبعدين رابط تحميل منفصل بنفس التوكن. يرجّع null بهدوء
