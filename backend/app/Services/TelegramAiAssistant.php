@@ -78,16 +78,54 @@ class TelegramAiAssistant
 
     private function generate(string $fileUri, string $mimeType): string
     {
+        $systemInstruction =
+            'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب بكلية فلسطين التقنية. ' .
+            'لخّص محتوى الصورة أو الملف المرفق بشكل واضح ومركّز يفيد الطالب '.
+            'للمذاكرة، بالعربية الفصحى البسيطة، بدون مقدمات طويلة.';
+
+        return $this->callGemini($systemInstruction, [
+            ['text' => 'لخّصلي هذا المحتوى.'],
+            ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileUri]],
+        ], tooLargeMessage: 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.', emptyMessage: 'ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.');
+    }
+
+    /**
+     * سؤال نصي حر (بلا صورة/ملف) — يشارك نفس السقف اليومي ونفس نموذج
+     * Gemini المستخدَم للتلخيص، لكن بتعليمة نظام مختلفة تناسب أسئلة
+     * وأجوبة قصيرة بدل تلخيص ملف. عمدًا بلا أي سياق محادثة سابقة (لا
+     * حفظ بقاعدة بيانات) — كل سؤال مستقل بذاته، تمامًا كتلخيص الملف.
+     *
+     * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
+     */
+    public function askText(User $user, string $question): string
+    {
+        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
+            throw new RuntimeException(
+                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+        }
+
+        $systemInstruction =
+            'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب بكلية فلسطين التقنية. ' .
+            'جاوب على سؤال الطالب بشكل واضح ومختصر ومفيد، بالعربية الفصحى البسيطة. ' .
+            'لو السؤال غير أكاديمي أو خارج تخصصك، اعتذر بلطف وقول إنك مخصص للمساعدة الأكاديمية فقط.';
+
+        $text = $this->callGemini($systemInstruction, [
+            ['text' => $question],
+        ], tooLargeMessage: 'السؤال طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بجواب على هذا السؤال، جرّب صياغة مختلفة.');
+
+        $this->incrementDailyUsage($user->id);
+
+        return $text;
+    }
+
+    private function callGemini(string $systemInstruction, array $parts, string $tooLargeMessage, string $emptyMessage): string
+    {
         $apiKey = config('services.gemini.key');
 
         if (! $apiKey) {
             throw new RuntimeException('المساعد الذكي غير مفعّل حاليًا على الخادم.');
         }
-
-        $systemInstruction =
-            'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب بكلية فلسطين التقنية. ' .
-            'لخّص محتوى الصورة أو الملف المرفق بشكل واضح ومركّز يفيد الطالب '.
-            'للمذاكرة، بالعربية الفصحى البسيطة، بدون مقدمات طويلة.';
 
         $response = Http::timeout(45)
             ->withHeaders(['x-goog-api-key' => $apiKey])
@@ -98,10 +136,7 @@ class TelegramAiAssistant
                     'systemInstruction' => ['parts' => [['text' => $systemInstruction]]],
                     'contents' => [[
                         'role' => 'user',
-                        'parts' => [
-                            ['text' => 'لخّصلي هذا المحتوى.'],
-                            ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileUri]],
-                        ],
+                        'parts' => $parts,
                     ]],
                     'generationConfig' => ['maxOutputTokens' => 1500, 'temperature' => 0.6],
                 ]
@@ -117,18 +152,14 @@ class TelegramAiAssistant
             $tooLarge = $response->status() === 400
                 && str_contains($response->body(), 'exceeds the maximum number of tokens');
 
-            throw new RuntimeException(
-                $tooLarge
-                    ? 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.'
-                    : 'تعذّر تحليل الملف حاليًا، جرّب مرة أخرى بعد شوي.'
-            );
+            throw new RuntimeException($tooLarge ? $tooLargeMessage : 'تعذّر تحليل الطلب حاليًا، جرّب مرة أخرى بعد شوي.');
         }
 
-        $parts = $response->json('candidates.0.content.parts') ?? [];
-        $text = collect($parts)->pluck('text')->filter()->implode('');
+        $responseParts = $response->json('candidates.0.content.parts') ?? [];
+        $text = collect($responseParts)->pluck('text')->filter()->implode('');
 
         if (! $text) {
-            throw new RuntimeException('ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.');
+            throw new RuntimeException($emptyMessage);
         }
 
         return $text;

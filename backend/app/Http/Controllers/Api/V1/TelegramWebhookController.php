@@ -27,6 +27,12 @@ use Illuminate\Http\Request;
  * بالموقع (gpa.html) حسابها بالكامل بالمتصفح (JS) لا بالخادم، فمافي
  * رقم جاهز نقرأه من قاعدة البيانات بأمان بدون ما نكرر نفس المنطق
  * هون — قرار مؤجَّل لمرحلة لاحقة يستاهل نقاشه لحاله.
+ *
+ * أي رسالة نصية ما اتعرفت كأمر (مش "خطتي"/"مساعدة") تُعتبر سؤال حر
+ * وتتحول تلقائيًا لـTelegramAiAssistant::askText() — نفس فلسفة
+ * الصور/الملفات (replyWithFileSummary) بالضبط، بنفس السقف اليومي
+ * المشترك. هيك صار بالإمكان سؤال المساعد بالكتابة المباشرة لا بس
+ * برفع صورة/ملف.
  */
 class TelegramWebhookController extends Controller
 {
@@ -100,7 +106,7 @@ class TelegramWebhookController extends Controller
             $bot->sendMessage(
                 $chatId,
                 "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
-                "جرّب تكتب \"خطتي\"، أو ابعتلي صورة صفحة تلخصها، أو اكتب \"مساعدة\" تشوف كل الأوامر."
+                "جرّب تكتب \"خطتي\"، أو ابعتلي صورة صفحة تلخصها، أو اسألني أي سؤال أكاديمي مباشرة، أو اكتب \"مساعدة\" تشوف كل الأوامر."
             );
 
             return response()->json(['ok' => true]);
@@ -144,18 +150,62 @@ class TelegramWebhookController extends Controller
                 "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها.\n".
+                "💬 اكتب أي سؤال أكاديمي عادي — رح يجاوبك المساعد الذكي مباشرة.\n".
                 "❓ مساعدة — هاي القائمة."
             );
 
             return response()->json(['ok' => true]);
         }
 
-        $bot->sendMessage(
-            $chatId,
-            "ما فهمت هالأمر 🙂 اكتب \"مساعدة\" لتشوف الأوامر المتاحة حاليًا."
-        );
+        /*
+         * أي نص تاني (مش أمر معروف) نعتبره سؤال حر ونمرره للمساعد
+         * الذكي مباشرة — بدل رسالة "ما فهمت" الجامدة. هيك التلخيص
+         * (بالصور/الملفات) والأسئلة النصية صارت وجهين لنفس الميزة
+         * بعين الطالب، بنفس السقف اليومي المشترك بالضبط.
+         */
+        $this->replyWithTextAnswer($bot, $aiAssistant, $chatId, $link->user, $text);
 
         return response()->json(['ok' => true]);
+    }
+
+    /*
+     * سؤال نصي حر → TelegramAiAssistant::askText(). نفس منطق التحقق
+     * من السقف اليومي والرسائل الودّية المستخدَم بتلخيص الملفات
+     * (replyWithFileSummary) — بس بلا تنزيل/تنظيف ملفات هون طبعًا.
+     */
+    private function replyWithTextAnswer(
+        TelegramBotApi $bot,
+        TelegramAiAssistant $aiAssistant,
+        int|string $chatId,
+        \App\Models\User $user,
+        string $question
+    ): void {
+        @set_time_limit(60);
+
+        if ($aiAssistant->remainingToday($user) <= 0) {
+            $bot->sendMessage(
+                $chatId,
+                'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+
+            return;
+        }
+
+        try {
+            $answer = $aiAssistant->askText($user, $question);
+            $safeAnswer = TelegramBotApi::escapeHtml($answer);
+            $bot->sendMessage($chatId, "💬 {$safeAnswer}");
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException
+                ? $error->getMessage()
+                : 'صار خطأ غير متوقع أثناء معالجة سؤالك، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $bot->sendMessage($chatId, "⚠️ {$friendly}");
+        }
     }
 
     private function replyWithPlanSummary(
