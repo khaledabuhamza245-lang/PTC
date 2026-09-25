@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\TelegramLink;
+use App\Services\PlanCalculator;
 use App\Services\TelegramBotApi;
 use Illuminate\Http\Request;
 
 /*
- * نقطة الاستقبال الوحيدة من تيليجرام (Webhook) — المرحلة الأولى.
+ * نقطة الاستقبال الوحيدة من تيليجرام (Webhook) — المرحلة الأولى (ربط
+ * الحساب) + أول أمر حقيقي (خطتي).
  *
  * تيليجرام بيبعت POST لهاد الرابط لكل رسالة توصل للبوت. الحماية هون
  * بـ"سرّ" خاص (X-Telegram-Bot-Api-Secret-Token) نحدده إحنا وقت تفعيل
@@ -16,12 +18,18 @@ use Illuminate\Http\Request;
  * تيليجرام نفسها لا متصفح طالب (نفس فلسفة /ai/process-pending الحالية
  * بالموقع، حماية برمز سرّي بالرابط/الترويسة لا Sanctum).
  *
- * المرحلة الأولى تدعم أمر واحد بس: /start <token> لربط الحساب. أي
- * رسالة تانية بترجع ردّ بسيط لحد ما نبني المراحل الجاية.
+ * أمر "خطتي" يستدعي PlanCalculator::summarize() مباشرة (نفس الخدمة
+ * يلي تستخدمها صفحة "صفحتي الشخصية" بالضبط عبر PlanController) — عمدًا
+ * بلا أي حساب جديد أو منفصل هون، حتى ما يصير عنا مصدرين مختلفين
+ * لنفس الرقم يوم ما يتغيّر منطق الحساب بمكان ونُنسى الآخر. لهاد
+ * السبب بالضبط ما بنينا أمر "معدلي" بعد — حاسبة المعدل التراكمي
+ * بالموقع (gpa.html) حسابها بالكامل بالمتصفح (JS) لا بالخادم، فمافي
+ * رقم جاهز نقرأه من قاعدة البيانات بأمان بدون ما نكرر نفس المنطق
+ * هون — قرار مؤجَّل لمرحلة لاحقة يستاهل نقاشه لحاله.
  */
 class TelegramWebhookController extends Controller
 {
-    public function __invoke(Request $request, TelegramBotApi $bot)
+    public function __invoke(Request $request, TelegramBotApi $bot, PlanCalculator $planCalculator)
     {
         $expectedSecret = (string) config('services.telegram.webhook_secret', '');
 
@@ -81,7 +89,45 @@ class TelegramWebhookController extends Controller
 
             $bot->sendMessage(
                 $chatId,
-                "تم ربط حسابك بنجاح يا {$studentName} ✅\nهاد أول نسخة تجريبية من البوت — قريبًا رح تلاقي هون خطتك ومعدلك ومحتوى مساقاتك."
+                "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
+                "جرّب تكتب \"خطتي\" هلق تشوف تقدّمك نحو التخرّج، أو \"مساعدة\" تشوف كل الأوامر المتاحة."
+            );
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * أي أمر تاني يحتاج حساب مربوط فعليًا — نجيبه بحثًا بمعرّف
+         * المحادثة، لا الاعتماد على أي شيء أرسله المستخدم نفسه.
+         */
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link || ! $link->user) {
+            $bot->sendMessage(
+                $chatId,
+                'لسا ما ربطت حسابك 🙂 روح لصفحة "إعدادات الحساب" بالموقع واضغط "اربط حسابي بتيليجرام".'
+            );
+
+            return response()->json(['ok' => true]);
+        }
+
+        $normalized = trim($text, "/ \t\n");
+
+        if (in_array($normalized, ['خطتي', 'plan'], true)) {
+            $this->replyWithPlanSummary($bot, $chatId, $link->user, $planCalculator);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, ['مساعدة', 'help', 'أوامر'], true)) {
+            $bot->sendMessage(
+                $chatId,
+                "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
+                "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
+                "❓ مساعدة — هاي القائمة."
             );
 
             return response()->json(['ok' => true]);
@@ -89,9 +135,32 @@ class TelegramWebhookController extends Controller
 
         $bot->sendMessage(
             $chatId,
-            'وصلتني رسالتك 👋 — البوت لسا بمرحلته التجريبية الأولى، وبيدعم بس ربط الحساب حاليًا.'
+            "ما فهمت هالأمر 🙂 اكتب \"مساعدة\" لتشوف الأوامر المتاحة حاليًا."
         );
 
         return response()->json(['ok' => true]);
+    }
+
+    private function replyWithPlanSummary(
+        TelegramBotApi $bot,
+        int|string $chatId,
+        \App\Models\User $user,
+        PlanCalculator $planCalculator
+    ): void {
+        $summary = $planCalculator->summarize($user);
+
+        $completed = (int) $summary['completed_hours'];
+        $total = (int) $summary['total_credit_hours'];
+        $remaining = (int) $summary['remaining_hours'];
+        $percent = (int) $summary['percent'];
+        $registered = (int) ($summary['counts']['registered'] ?? 0);
+
+        $bot->sendMessage(
+            $chatId,
+            "📊 <b>تقدّمك نحو التخرّج</b>\n\n".
+            "✅ أنجزت {$completed} من {$total} ساعة معتمدة ({$percent}٪)\n".
+            "📚 متبقّي: {$remaining} ساعة\n".
+            "🟢 مسجّل حاليًا: {$registered} مساق"
+        );
     }
 }
