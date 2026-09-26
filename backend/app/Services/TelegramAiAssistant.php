@@ -38,6 +38,20 @@ class TelegramAiAssistant
 {
     private const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB — كافٍ لصورة/صفحة، وأصغر من حد الموقع عمدًا.
 
+    /*
+     * أي ملف بهذا الحجم أو أصغر يُرسَل لـGemini كبيانات inline ضمن نداء
+     * التلخيص نفسه (سطر واحد شبكيًا) بدل رفعه أولًا لواجهة Files API
+     * ثم انتظار "تجهيزه" (uploadFile()+getFile() بـGeminiFileService) —
+     * هذا هو التسريع الفعلي المطلوب، لا مجرد رفع سقف وقت التنفيذ: يلغي
+     * جولة شبكة كاملة (رفع + استطلاع كل نصف ثانية) من كل رد تقريبًا،
+     * لأنه أغلب الملفات الحقيقية (صور، PDF قصير) أصغر من هذا الحد.
+     * الحد نفسه محسوب عمدًا أقل بكثير من حد Gemini لحجم الطلب الواحد
+     * (~20 ميغا) حتى بعد إضافة ~33% من ترميز base64 (8 ميغا × 1.37 ≈
+     * 11 ميغا) — يبقى هامش أمان واسع. الملفات الأكبر (نادرة) تبقى تمر
+     * بواجهة Files API كما كانت، لأنها هي الأنسب لملف كبير فعلًا.
+     */
+    private const INLINE_UPLOAD_THRESHOLD = 8 * 1024 * 1024; // 8MB
+
     public function __construct(
         private readonly GeminiFileService $files,
     ) {
@@ -63,6 +77,23 @@ class TelegramAiAssistant
         if ($size <= 0 || $size > self::MAX_FILE_SIZE) {
             @unlink($localPath);
             throw new RuntimeException('الملف كبير جدًا للبوت حاليًا (الحد ١٥ ميغابايت) — جرّب صورة أوضح لصفحة وحدة، أو من الموقع مباشرة للملفات الكبيرة.');
+        }
+
+        if ($size <= self::INLINE_UPLOAD_THRESHOLD) {
+            try {
+                $bytes = file_get_contents($localPath);
+                if ($bytes === false) {
+                    throw new RuntimeException('تعذّرت قراءة الملف.');
+                }
+
+                $text = $this->generate(base64_encode($bytes), $mimeType, inline: true);
+
+                $this->incrementDailyUsage($user->id);
+
+                return $text;
+            } finally {
+                @unlink($localPath);
+            }
         }
 
         $geminiFile = null;
@@ -91,22 +122,34 @@ class TelegramAiAssistant
      * تعليق replyWithFileSummary بالـwebhook للصورة الكاملة: رفع الملف
      * لـGemini + انتظار جهوزيته يضيفان وقتًا فوق هذا النداء نفسه).
      */
-    private function generate(string $fileUri, string $mimeType): string
+    /*
+     * $fileData: إما file_uri (نتيجة رفع سابق لـFiles API، $inline=false)
+     * أو محتوى الملف نفسه مرمَّز base64 ($inline=true، المسار السريع).
+     * $inline=true يحتاج مهلة أطول قليلًا (120 بدل 90) لأنه بهذا المسار
+     * Gemini يستقبل الملف *ويقرأه* ضمن نفس النداء دفعة وحدة، بينما
+     * المسار الآخر كان قد "جهّز" الملف مسبقًا بنداء uploadFile/getFile
+     * منفصل قبل ما نوصل هون أصلًا.
+     */
+    private function generate(string $fileData, string $mimeType, bool $inline = false): string
     {
         $systemInstruction =
             'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب بكلية فلسطين التقنية. ' .
             'لخّص محتوى الصورة أو الملف المرفق بشكل واضح ومركّز يفيد الطالب '.
             'للمذاكرة، بالعربية الفصحى البسيطة، بدون مقدمات طويلة.';
 
+        $filePart = $inline
+            ? ['inline_data' => ['mime_type' => $mimeType, 'data' => $fileData]]
+            : ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileData]];
+
         return $this->callGemini(
             $systemInstruction,
             [
                 ['text' => 'لخّصلي هذا المحتوى.'],
-                ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileUri]],
+                $filePart,
             ],
             tooLargeMessage: 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.',
             emptyMessage: 'ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.',
-            timeoutSeconds: 90
+            timeoutSeconds: $inline ? 120 : 90
         );
     }
 
