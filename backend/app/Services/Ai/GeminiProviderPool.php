@@ -3,7 +3,7 @@
 namespace App\Services\Ai;
 
 /*
- * مجمّع مزوّدي الذكاء الاصطناعي (3 مفاتيح Gemini مجانية + OpenRouter
+ * مجمّع مزوّدي الذكاء الاصطناعي (4 مفاتيح Gemini مجانية + OpenRouter
  * كخط دفاع أخير) — نفس آلية providerPool()/rotatedProviders() الموجودة
  * أصلًا بـAiAssistantController (مساعد الموقع) بالضبط، مستخرَجة هون
  * كخدمة مستقلة قابلة لإعادة الاستخدام بدل تكرار نفس المنطق بمكانين.
@@ -23,8 +23,8 @@ class GeminiProviderPool
 {
     /**
      * كل المزوّدين المتاحين حاليًا (حسب المفاتيح المضبوطة بـ.env) —
-     * Gemini الأساسي + الثاني + الثالث (أي منها فارغ يُستبعَد تلقائيًا)،
-     * ثم OpenRouter أخيرًا لو مفتاحه مضبوط.
+     * Gemini الأساسي + الثاني + الثالث + الرابع (أي منها فارغ يُستبعَد
+     * تلقائيًا)، ثم OpenRouter أخيرًا لو مفتاحه مضبوط.
      *
      * @return array<int, array{type: string, key?: string}>
      */
@@ -36,6 +36,7 @@ class GeminiProviderPool
             config('services.gemini.key'),
             env('GEMINI_API_KEY_2'),
             env('GEMINI_API_KEY_3'),
+            env('GEMINI_API_KEY_4'),
         ]) as $key) {
             $providers[] = ['type' => 'gemini', 'key' => $key];
         }
