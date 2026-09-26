@@ -97,10 +97,18 @@ class TelegramWebhookController extends Controller
      */
     private const MODE_LABELS = [
         'chat' => '💬 مساعد أسئلة عام',
-        'debug' => '🐛 مصحّح أكواد',
+        'debug' => '🐛 ورشة الأكواد',
         'quiz' => '📝 مولّد أسئلة',
         'summarize' => '📄 تلخيص ملفات',
+        // تفريعات داخلية لورشة الأكواد (لا تظهر بالبوابة الرئيسية،
+        // بس جوّا بطاقة "ورشة الأكواد" نفسها — راجع sendDebugHubCard).
+        'debug_explain' => '📖 شارح المنطق',
+        'debug_optimize' => '⚡ محسّن الأداء',
     ];
+
+    // تسميات بطاقة "ورشة الأكواد" الفرعية بترتيب ظهورها كأزرار — نفس
+    // مفاتيح MODE_LABELS أعلاه (debug/debug_explain/debug_optimize).
+    private const DEBUG_ACTION_KEYS = ['debug', 'debug_explain', 'debug_optimize'];
 
     // مواضيع جاهزة بأزرار لمولّد الأسئلة — يبقى ممكن كمان كتابة أي
     // موضوع تاني حر كنص عادي (مرحلة ٠).
@@ -264,6 +272,8 @@ class TelegramWebhookController extends Controller
                 $this->handleContactCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'contribute:')) {
                 $this->handleContributeCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'toolsnav:')) {
+                $this->handleToolsNavCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -437,20 +447,21 @@ class TelegramWebhookController extends Controller
 
         if ($hasMedia) {
             /*
-             * بوضع "مصحّح أكواد" فقط، ملف بامتداد كود معروف (html/css/js/php...)
-             * يروح لمسار التصحيح لا التلخيص — أي ملف/صورة تانية (بأي
-             * وضع) يفضل يروح للتلخيص العادي كما كان دايمًا.
+             * بأي محطة من محطات "ورشة الأكواد" الثلاث (فحص/شرح/تحسين)،
+             * ملف بامتداد كود معروف (html/css/js/php...) يروح لمسار
+             * الورشة لا التلخيص — أي ملف/صورة تانية (بأي وضع) يفضل
+             * يروح للتلخيص العادي كما كان دايمًا.
              */
             $documentExtension = is_array($document)
                 ? strtolower((string) pathinfo((string) ($document['file_name'] ?? ''), PATHINFO_EXTENSION))
                 : '';
 
             if (
-                $link->currentMode() === 'debug'
+                in_array($link->currentMode(), self::DEBUG_ACTION_KEYS, true)
                 && is_array($document)
                 && in_array($documentExtension, self::CODE_FILE_EXTENSIONS, true)
             ) {
-                $this->replyWithCodeFileDebug($bot, $aiAssistant, $chatId, $link->user, $document);
+                $this->replyWithCodeFileDebug($bot, $aiAssistant, $chatId, $link->user, $document, $link->currentMode());
 
                 return response()->json(['ok' => true]);
             }
@@ -496,7 +507,7 @@ class TelegramWebhookController extends Controller
                 "⭐ مفضلاتي — كل الملفات يلي حفظتها من أي مادة، بروابطها المباشرة، بمكان وحد.\n".
                 "📤 شارك ملف/مصدر — عندك ملف أو مصدر مفيد لمادة معيّنة؟ اختر المادة (أو ادخل من داخل تفاصيلها مباشرة) وبنوصلك برابط جاهز لبوت رفع الملفات ببياناتك ومادتك معبّاة تلقائيًا.\n".
                 "🔍 بحث — دور بكلمة وحدة عن مادة أو محتوى أو أداة بنفس الوقت.\n".
-                "🧰 القائمة الذكية — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات).\n".
+                "🧪 القائمة الذكية — معمل فيه أربع محطات ذكاء اصطناعي: مساعد أسئلة، ورشة أكواد (فحص/شرح/تحسين)، مولّد أسئلة، وتلخيص ملفات — بدّل بينها وقت ما بدك.\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
                 "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
                 "🔎 بأي محادثة تيليجرام (حتى مجموعات الدراسة)، اكتب @".config('services.telegram.bot_username', 'اسم_البوت')." متبوعًا باسم مادة/أداة لتشاركها بضغطة وحدة، بدون فتح البوت.\n".
@@ -670,10 +681,15 @@ class TelegramWebhookController extends Controller
      */
     private function sendMenu(TelegramBotApi $bot, int|string $chatId, string $currentMode): void
     {
-        $label = function (string $key) use ($currentMode) {
-            $text = self::MODE_LABELS[$key];
+        // "ورشة الأكواد" فعليًا ثلاث أدوات (debug/debug_explain/debug_optimize)
+        // — أي وحدة منها فعّالة حاليًا تعتبر الزر الرئيسي "مفعّل".
+        $debugFamilyActive = in_array($currentMode, self::DEBUG_ACTION_KEYS, true);
 
-            return $key === $currentMode ? $text . ' ✅' : $text;
+        $label = function (string $key) use ($currentMode, $debugFamilyActive) {
+            $text = self::MODE_LABELS[$key];
+            $isActive = $key === 'debug' ? $debugFamilyActive : $key === $currentMode;
+
+            return $isActive ? $text . ' ✅' : $text;
         };
 
         $keyboard = [
@@ -689,7 +705,13 @@ class TelegramWebhookController extends Controller
 
         $bot->sendMessage(
             $chatId,
-            "🧰 <b>القائمة الذكية</b>\n\nاختر الأداة يلي بدك تشتغل فيها — أي رسالة نصية بعدها بتروح لنفس الأداة تلقائيًا لحد ما تبدّلها من هون:",
+            "🧪 <b>معمل الذكاء الاصطناعي</b>\n\n".
+            "أربع محطات جاهزة تشتغل عليها وقت ما بدك، كل وحدة بمهمتها:\n\n".
+            "💬 مساعد أسئلة عام — لأي استفسار أكاديمي بتخصصك.\n".
+            "🐛 ورشة الأكواد — تصحيح، شرح منطق، أو تحسين أداء أي كود.\n".
+            "📝 مولّد أسئلة — أسئلة مراجعة اختيار من متعدد بلحظات.\n".
+            "📄 تلخيص ملفات — صوّر صفحة أو ابعت PDF ويلخّصه لك.\n\n".
+            'دوس على المحطة يلي بدك تدخلها 👇',
             $keyboard
         );
     }
@@ -733,11 +755,26 @@ class TelegramWebhookController extends Controller
         $link->update(['mode' => $mode]);
         $bot->answerCallbackQuery($callbackId, 'تم اختيار: ' . self::MODE_LABELS[$mode]);
 
+        /*
+         * "ورشة الأكواد" بثلاث محطات فرعية (فحص/شرح/تحسين) — بطاقة
+         * مخصصة فيها الثلاثة كأزرار بدل رسالة تأكيد عادية، تظهر مهما
+         * كانت المحطة الفرعية المختارة، مع تمييز المفعّلة حاليًا.
+         */
+        if (in_array($mode, self::DEBUG_ACTION_KEYS, true)) {
+            $this->sendDebugHubCard($bot, $chatId, $mode);
+
+            return;
+        }
+
         $confirmations = [
-            'chat' => "💬 <b>مساعد أسئلة عام</b>\nاكتب أي سؤال أكاديمي وبردّ عليك مباشرة.",
-            'debug' => "🐛 <b>مصحّح أكواد</b>\nابعت الكود كنص عادي أو كملف (html/css/js/php...)، وبردّلك بملاحظات على الأخطاء + ملف فيه الكود بعد التصحيح.",
-            'quiz' => "📝 <b>مولّد أسئلة</b>\nاختر موضوع جاهز من الأزرار تحت، أو اكتب اسم أي موضوع/مفهوم دراسي حر، وبولّدلك 5 أسئلة اختيار من متعدد للمراجعة.",
-            'summarize' => "📄 <b>تلخيص ملفات</b>\nابعتلي صورة صفحة أو ملف PDF وبلخصلك محتواها (هاي شغالة بأي وضع أصلًا).",
+            'chat' => "💬 <b>غرفة الأسئلة الأكاديمية</b>\n\n".
+                "اسأل بأي مجال بتخصصك — من دارة منطقية لغاية بنية بيانات — وبوصلك جواب واضح ومباشر.\n\n".
+                '✍️ اكتب سؤالك الآن، أو ابعت صورة/PDF ورح يتلخّص لك مباشرة بغض النظر عن المحطة الحالية.',
+            'quiz' => "📝 <b>محطة المراجعة السريعة</b>\n\n".
+                "اختر موضوع جاهز من الأزرار تحت، أو اكتب أي عنوان دراسي تحب تراجعه، وبتوصلك ٥ أسئلة اختيار من متعدد فورًا (مع الإجابات بالنهاية).\n\n".
+                '🔁 خلصت جولة وبدك وحدة جديدة؟ اكتب موضوع تاني وبس.',
+            'summarize' => "📄 <b>ملخّص بضغطة</b>\n\n".
+                'ابعتلي صورة صفحة أو ملف PDF، وبرجّعلك خلاصة نقاطها الأساسية جاهزة للمذاكرة — هاي شغّالة دايمًا بغض النظر عن المحطة المختارة.',
         ];
 
         if ($mode === 'quiz') {
@@ -747,6 +784,87 @@ class TelegramWebhookController extends Controller
         }
 
         $bot->sendMessage($chatId, $confirmations[$mode]);
+    }
+
+    /*
+     * بطاقة "ورشة الأكواد" — محطة وحدة بواجهة البوابة، لكن جوّاها ثلاث
+     * أدوات فعلية منفصلة (كل وحدة نداء Gemini مختلف تمامًا — راجع
+     * TelegramAiAssistant::debugCode()/explainCode()/optimizeCode()):
+     * فحص وتصحيح الأخطاء، شرح منطق الكود، أو اقتراح تحسينات أداء.
+     * الزر المفعّل حاليًا (currentMode) يظهر بعلامة ✅، وأي كود يُبعث
+     * بعدها (نص أو ملف) بيروح تلقائيًا لنفس الأداة المختارة.
+     */
+    private function sendDebugHubCard(TelegramBotApi $bot, int|string $chatId, string $currentMode): void
+    {
+        $actionDetails = [
+            'debug' => ['title' => '🛠️ فحص وتصحيح الأخطاء', 'desc' => 'بيدلّك على الأخطاء البرمجية أو المنطقية سطر بسطر، وبيرجّعلك نسخة مصحَّحة كاملة كملف منفصل.'],
+            'debug_explain' => ['title' => '📖 شارح المنطق', 'desc' => 'بيشرحلك شو بيسوي الكود وليش مكتوب هيك، خطوة بخطوة — من غير لا تصحيح ولا تعديل.'],
+            'debug_optimize' => ['title' => '⚡ محسّن الأداء', 'desc' => 'الكود شغّال؟ بنراجعلك كفاءته وقراءته، وبنقترحلك نسخة أنظف وأسرع.'],
+        ];
+
+        $active = $actionDetails[$currentMode];
+        $lines = [
+            "🐛 <b>ورشة الأكواد</b>",
+            '',
+            "المحطة المفعّلة الآن: <b>{$active['title']}</b>",
+            $active['desc'],
+            '',
+            '💻 يدعم: C / C++ / OOP / هياكل بيانات، Java / Python / خوارزميات، Verilog / VHDL / دارات رقمية، Assembly، وويب وقواعد بيانات (HTML/CSS/JS/SQL...).',
+            '',
+            '📤 ابعت الكود كنص عادي أو كملف — وبيوصلك الرد بنفس المحطة المختارة تحت. غيّر المحطة بأي وقت من الأزرار:',
+        ];
+
+        $keyboard = [];
+
+        foreach (self::DEBUG_ACTION_KEYS as $key) {
+            $label = $actionDetails[$key]['title'];
+            $keyboard[] = [['text' => $key === $currentMode ? $label . ' ✅' : $label, 'callback_data' => 'mode:' . $key]];
+        }
+
+        $keyboard[] = [
+            ['text' => '🔙 رجوع للمعمل', 'callback_data' => 'toolsnav:back'],
+            ['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'toolsnav:home'],
+        ];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    /*
+     * أزرار التنقل بأسفل بطاقة "ورشة الأكواد" (وأي بطاقة مستقبلية
+     * مشابهة) — "رجوع للمعمل" يعيد بطاقة sendMenu نفسها (لا يغيّر
+     * الوضع الحالي إطلاقًا)، و"القائمة الرئيسية" مجرد تذكير بالأزرار
+     * الدائمة تحت مربع الكتابة (بلا أي تأثير على الوضع أو أي بيانات).
+     */
+    private function handleToolsNavCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('toolsnav:'));
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        if ($action === 'home') {
+            $bot->sendMessageWithMainMenu($chatId, 'الأزرار الدائمة تحت مربع الكتابة 👇', $this->buildMainMenuKeyboard($link->user));
+
+            return;
+        }
+
+        $this->sendMenu($bot, $chatId, $link->currentMode());
     }
 
     /*
@@ -861,9 +979,8 @@ class TelegramWebhookController extends Controller
         }
 
         try {
-            if ($mode === 'debug') {
-                $result = $aiAssistant->debugCode($user, $text);
-                $this->sendDebugResult($bot, $chatId, $result, 'fixed_code.txt');
+            if (in_array($mode, self::DEBUG_ACTION_KEYS, true)) {
+                $this->sendCodeToolResult($bot, $chatId, $aiAssistant, $user, $mode, $text, 'code.txt');
 
                 return;
             }
@@ -889,16 +1006,18 @@ class TelegramWebhookController extends Controller
     }
 
     /*
-     * ملف كود (html/css/js/php...) بوضع "مصحّح أكواد" — يقرأ محتوى
-     * الملف كنص عادي (لا رفع لـGemini Files مثل التلخيص، الكود نص
-     * صرف أصلًا وحجمه صغير) ويمرّره لنفس TelegramAiAssistant::debugCode().
+     * ملف كود (html/css/js/php...) بأي محطة من "ورشة الأكواد" — يقرأ
+     * محتوى الملف كنص عادي (لا رفع لـGemini Files مثل التلخيص، الكود
+     * نص صرف أصلًا وحجمه صغير) ويمرّره لنفس sendCodeToolResult() يلي
+     * يستخدمها مسار النص الحر كمان.
      */
     private function replyWithCodeFileDebug(
         TelegramBotApi $bot,
         TelegramAiAssistant $aiAssistant,
         int|string $chatId,
         \App\Models\User $user,
-        array $document
+        array $document,
+        string $mode = 'debug'
     ): void {
         @set_time_limit(60);
 
@@ -915,7 +1034,7 @@ class TelegramWebhookController extends Controller
         $originalName = (string) ($document['file_name'] ?? 'code.txt');
 
         if ((int) ($document['file_size'] ?? 0) > TelegramAiAssistant::MAX_CODE_FILE_SIZE) {
-            $bot->sendMessage($chatId, 'الملف كبير جدًا للمصحّح حاليًا (الحد ٣٠٠ كيلوبايت) — جرّب جزء أصغر من الكود.');
+            $bot->sendMessage($chatId, 'الملف كبير جدًا لورشة الأكواد حاليًا (الحد ٣٠٠ كيلوبايت) — جرّب جزء أصغر من الكود.');
 
             return;
         }
@@ -934,14 +1053,13 @@ class TelegramWebhookController extends Controller
             $size = filesize($localPath) ?: 0;
 
             if ($size <= 0 || $size > TelegramAiAssistant::MAX_CODE_FILE_SIZE) {
-                $bot->sendMessage($chatId, 'الملف كبير جدًا للمصحّح حاليًا (الحد ٣٠٠ كيلوبايت) — جرّب جزء أصغر من الكود.');
+                $bot->sendMessage($chatId, 'الملف كبير جدًا لورشة الأكواد حاليًا (الحد ٣٠٠ كيلوبايت) — جرّب جزء أصغر من الكود.');
 
                 return;
             }
 
             $code = (string) file_get_contents($localPath);
-            $result = $aiAssistant->debugCode($user, $code);
-            $this->sendDebugResult($bot, $chatId, $result, 'fixed_' . $originalName);
+            $this->sendCodeToolResult($bot, $chatId, $aiAssistant, $user, $mode, $code, $originalName);
         } catch (\Throwable $error) {
             $friendly = $error instanceof \RuntimeException
                 ? $error->getMessage()
@@ -958,18 +1076,25 @@ class TelegramWebhookController extends Controller
     }
 
     /*
-     * ملاحظات "مصحّح أكواد" كرسالة نصية قصيرة + الكود المعدَّل كملف
-     * منفصل (sendDocument) — بدل نص طويل يعمل سكرول بالمحادثة، بناءً
-     * على طلب صريح من الطالب. يُستدعى من مسار النص الحر ومسار رفع
-     * الملف كليهما.
+     * ملاحظات محطة كود (فحص/تحسين) كرسالة نصية قصيرة + نسخة الكود
+     * الناتجة كملف منفصل (sendDocument) — بدل نص طويل يعمل سكرول
+     * بالمحادثة، بناءً على طلب صريح من الطالب. يُستدعى من
+     * sendCodeToolResult() لمحطتي "فحص وتصحيح" و"تحسين الأداء" (شارح
+     * المنطق لا يمر من هون أصلًا — رد نصي فقط، بلا ملف).
      *
      * @param array{notes: string, fixed_code: string} $result
      */
-    private function sendDebugResult(TelegramBotApi $bot, int|string $chatId, array $result, string $filename): void
-    {
+    private function sendDebugResult(
+        TelegramBotApi $bot,
+        int|string $chatId,
+        array $result,
+        string $filename,
+        string $titleLine = '🛠️ <b>ملاحظات الفحص</b>',
+        string $fileCaption = '📄 الكود بعد المراجعة'
+    ): void {
         $notes = trim($result['notes']);
         $safeNotes = $notes !== '' ? TelegramBotApi::escapeHtml($notes) : 'ما في ملاحظات إضافية.';
-        $bot->sendMessage($chatId, "🐛 <b>ملاحظات المصحّح</b>\n\n{$safeNotes}");
+        $bot->sendMessage($chatId, "{$titleLine}\n\n{$safeNotes}");
 
         $fixedCode = $result['fixed_code'];
 
@@ -981,10 +1106,53 @@ class TelegramWebhookController extends Controller
 
         try {
             file_put_contents($tmpPath, $fixedCode);
-            $bot->sendDocument($chatId, $tmpPath, $filename, '📄 الكود بعد المراجعة');
+            $bot->sendDocument($chatId, $tmpPath, $filename, $fileCaption);
         } finally {
             @unlink($tmpPath);
         }
+    }
+
+    /*
+     * نقطة دخول موحّدة لثلاث محطات "ورشة الأكواد" — تستقبل الكود مرة
+     * وحدة وتوزّعه حسب المحطة المختارة حاليًا (mode) على الدالة
+     * المناسبة بـTelegramAiAssistant، وتُخرج الرد بالشكل المناسب لكل
+     * محطة (نص فقط لشارح المنطق، نص+ملف للفحص والتحسين). يُستدعى من
+     * مسار النص الحر (routeFreeTextToAssistant) ومسار رفع الملف
+     * (replyWithCodeFileDebug) كليهما.
+     */
+    private function sendCodeToolResult(
+        TelegramBotApi $bot,
+        int|string $chatId,
+        TelegramAiAssistant $aiAssistant,
+        \App\Models\User $user,
+        string $mode,
+        string $code,
+        string $baseFilename
+    ): void {
+        if ($mode === 'debug_explain') {
+            $explanation = trim($aiAssistant->explainCode($user, $code));
+            $safeExplanation = $explanation !== '' ? TelegramBotApi::escapeHtml($explanation) : 'ما قدر المساعد يطلع بشرح لهذا الكود.';
+            $bot->sendMessage($chatId, "📖 <b>شرح منطق الكود</b>\n\n{$safeExplanation}");
+
+            return;
+        }
+
+        if ($mode === 'debug_optimize') {
+            $result = $aiAssistant->optimizeCode($user, $code);
+            $this->sendDebugResult(
+                $bot,
+                $chatId,
+                ['notes' => $result['notes'], 'fixed_code' => $result['optimized_code']],
+                'optimized_' . $baseFilename,
+                '⚡ <b>ملاحظات تحسين الأداء</b>',
+                '📄 النسخة بعد التحسين'
+            );
+
+            return;
+        }
+
+        $result = $aiAssistant->debugCode($user, $code);
+        $this->sendDebugResult($bot, $chatId, $result, 'fixed_' . $baseFilename);
     }
 
     private function replyWithPlanSummary(

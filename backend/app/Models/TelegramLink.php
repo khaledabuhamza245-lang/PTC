@@ -40,15 +40,22 @@ class TelegramLink extends Model
     }
 
     /*
-     * "الوضع" الحالي المختار من القائمة الذكية (chat/debug/quiz/summarize)
-     * — عمود جديد يحدد أي أداة يروح لها النص الحر يلي يبعته الطالب.
-     * افتراضيًا "chat" (مساعد أسئلة عام) لأي حساب قديم قبل إضافة العمود.
+     * "الوضع" الحالي المختار من القائمة الذكية — عمود يحدد أي أداة
+     * يروح لها النص الحر يلي يبعته الطالب. افتراضيًا "chat" (مساعد
+     * أسئلة عام) لأي حساب قديم قبل إضافة العمود.
+     *
+     * "debug_explain" و"debug_optimize" تفريعان عن "debug" نفسه (نفس
+     * أداة "مصحّح أكواد" بالقائمة، لكن اختيار فرعي: شرح الكود أو
+     * تحسين أدائه بدل تصحيح أخطائه) — راجع TelegramAiAssistant::
+     * explainCode()/optimizeCode() وsendDebugHubCard() بالـwebhook.
      */
     public function currentMode(): string
     {
         $mode = (string) ($this->mode ?? '');
 
-        return in_array($mode, ['chat', 'debug', 'quiz', 'summarize'], true) ? $mode : 'chat';
+        return in_array($mode, ['chat', 'debug', 'debug_explain', 'debug_optimize', 'quiz', 'summarize'], true)
+            ? $mode
+            : 'chat';
     }
 
     /*
