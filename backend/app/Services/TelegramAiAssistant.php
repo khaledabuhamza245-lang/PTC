@@ -161,14 +161,15 @@ class TelegramAiAssistant
      *
      * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
      */
+    /*
+     * ⚠ عمدًا بلا حد يومي (بطلب صريح من المستخدم) — الحد اليومي المشترك
+     * صار مقتصرًا على "تلخيص ملفات" و"ورشة الأكواد" (فحص/تحسين/شرح) فقط،
+     * وهما الأثقل تكلفة فعليًا (رفع ملفات، نداءات Gemini متعددة لكل
+     * طلب). "مساعد أسئلة عام" و"مولّد أسئلة/مدار الأسئلة" (راجع
+     * generateQuizQuestion) صارا بلا حد إطلاقًا.
+     */
     public function askText(User $user, string $question): string
     {
-        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
-            throw new RuntimeException(
-                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
-            );
-        }
-
         $systemInstruction =
             'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب بكلية فلسطين التقنية. ' .
             'جاوب على سؤال الطالب بشكل واضح ومختصر ومفيد، بالعربية الفصحى البسيطة. ' .
@@ -177,13 +178,9 @@ class TelegramAiAssistant
             'شبكات الحاسوب، وأنظمة التشغيل — لا تعتذر عن هذي المواضيع، هي صميم تخصص الطالب. ' .
             'لو السؤال غير أكاديمي إطلاقًا (مثلًا شخصي أو ترفيهي بحت)، اعتذر بلطف وقول إنك مخصص للمساعدة الأكاديمية فقط.';
 
-        $text = $this->callGemini($systemInstruction, [
+        return $this->callGemini($systemInstruction, [
             ['text' => $question],
         ], tooLargeMessage: 'السؤال طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بجواب على هذا السؤال، جرّب صياغة مختلفة.');
-
-        $this->incrementDailyUsage($user->id);
-
-        return $text;
     }
 
     // عام (لا private) حتى يقدر TelegramWebhookController يتحقق من حجم ملف الكود قبل ما يحمّله أصلًا.
@@ -556,33 +553,29 @@ class TelegramAiAssistant
     }
 
     /*
-     * وضع "مولّد أسئلة" بالقائمة الذكية — الطالب يبعت اسم موضوع أو
-     * مفهوم دراسي كنص، والمساعد يولّد له أسئلة اختيار من متعدد
-     * للمراجعة الذاتية. نفس السقف اليومي المشترك.
+     * وضع "مولّد أسئلة" (نسخة قديمة، غير مستخدَمة من أي زر حاليًا —
+     * راجع تعليق QUIZ_SUBJECTS بالـwebhook، أُبقيت لأي مسار قديم متبقٍّ).
+     * الطالب يبعت اسم موضوع أو مفهوم دراسي كنص، والمساعد يولّد له أسئلة
+     * اختيار من متعدد للمراجعة الذاتية.
+     *
+     * ⚠ عمدًا بلا حد يومي (بطلب صريح من المستخدم) — لنفس سبب
+     * generateQuizQuestion() تمامًا: "مولّد أسئلة"/"مدار الأسئلة" كله
+     * مستثنى من الحد المشترك، المُقتصَر الآن على تلخيص الملفات وورشة
+     * الأكواد فقط.
      *
      * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
      */
     public function generateQuiz(User $user, string $topic): string
     {
-        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
-            throw new RuntimeException(
-                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
-            );
-        }
-
         $systemInstruction =
             'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب. الطالب رح يبعتلك اسم موضوع أو مفهوم دراسي. ' .
             'ولّد له بالضبط 5 أسئلة اختيار من متعدد (كل سؤال 4 خيارات (أ/ب/ج/د)) لمراجعة هذا الموضوع، ' .
             'واكتب بنهاية الرسالة قسم منفصل بعنوان "الإجابات الصحيحة" فيه رقم كل سؤال وحرف إجابته الصحيحة فقط. ' .
             'جاوب بالعربية الفصحى البسيطة، وبدون تنسيق Markdown (رسائل تيليجرام هون HTML لا Markdown).';
 
-        $text = $this->callGemini($systemInstruction, [
+        return $this->callGemini($systemInstruction, [
             ['text' => 'ولّدلي أسئلة مراجعة عن: ' . $topic],
         ], tooLargeMessage: 'اسم الموضوع طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يولّد أسئلة لهذا الموضوع، جرّب صياغة مختلفة.');
-
-        $this->incrementDailyUsage($user->id);
-
-        return $text;
     }
 
     /*

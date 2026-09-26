@@ -1267,15 +1267,7 @@ class TelegramWebhookController extends Controller
 
         $user = $link->user;
 
-        if ($aiAssistant->remainingToday($user) <= 0) {
-            $bot->sendMessage(
-                $chatId,
-                'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
-            );
-
-            return;
-        }
-
+        // ⚠ عمدًا بلا فحص remainingToday() هون — "مولّد أسئلة" مفتوح بلا حد يومي (راجع تعليق generateQuiz).
         try {
             $answer = $aiAssistant->generateQuiz($user, $subject);
             $safeAnswer = TelegramBotApi::escapeHtml($answer);
@@ -1330,17 +1322,25 @@ class TelegramWebhookController extends Controller
 
         $user = $link->user;
 
-        if ($aiAssistant->remainingToday($user) <= 0) {
-            $bot->sendMessage(
-                $chatId,
-                'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
-            );
-
-            return;
-        }
-
+        /*
+         * ⚠ الحد اليومي المشترك صار مقتصرًا على "ورشة الأكواد" فقط هون
+         * (تلخيص الملفات له فحصه المستقل بـreplyWithFileSummary) — لهيك
+         * الفحص تحت داخل فرع DEBUG_ACTION_KEYS حصرًا، لا قبل الـtry
+         * عمومًا كما كان سابقًا. "مساعد أسئلة عام" و"مولّد أسئلة" (مود
+         * quiz القديم) بلا حد يومي إطلاقًا (راجع تعليق askText/generateQuiz
+         * بـTelegramAiAssistant).
+         */
         try {
             if (in_array($mode, self::DEBUG_ACTION_KEYS, true)) {
+                if ($aiAssistant->remainingToday($user) <= 0) {
+                    $bot->sendMessage(
+                        $chatId,
+                        'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+                    );
+
+                    return;
+                }
+
                 // راجع تعليق fastcgi_finish_request المطابق بـreplyWithCodeFileDebug.
                 if (function_exists('fastcgi_finish_request')) {
                     if (! headers_sent()) {
