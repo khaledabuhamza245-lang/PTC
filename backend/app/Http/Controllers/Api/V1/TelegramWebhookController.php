@@ -133,13 +133,46 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_CONTACT = '📨 تواصل معنا';
     private const MAIN_MENU_CONTRIBUTE = '📤 شارك ملف/مصدر';
 
+    // ميزة جديدة (جلسة سادسة، جزء 6): "حاسبة الهندسة السريعة" — 7 أدوات
+    // حساب تفاعلية (مقاومات/مكثفات، 555 Timer، استهلاك طاقة، أنظمة عددية
+    // ومنطق، شبكات/IP، تعقيد زمني Big-O، أداء معالج) — منفصلة تمامًا عن
+    // "🧰 الأدوات الهندسية" (كتالوج برامج/أدوات المساقات الموجود مسبقًا)
+    // حتى ما يصير لبس بالاسمين. راجع calc: (سابقة الـcallback_data) و
+    // calc_* (سابقة pending_action.action) بالأسفل.
+    private const MAIN_MENU_CALC = '🧮 حاسبة الهندسة السريعة';
+
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
         [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
         [['text' => self::MAIN_MENU_CONTACT], ['text' => self::MAIN_MENU_CONTRIBUTE]],
-        [['text' => self::MAIN_MENU_HELP]],
+        [['text' => self::MAIN_MENU_HELP], ['text' => self::MAIN_MENU_CALC]],
+    ];
+
+    // جداول ثوابت "حاسبة المقاومات والمكثفات" (كود ألوان المقاومات
+    // القياسي) — key بالإنجليزي يُستخدم بـcallback_data، والتسمية
+    // العربية + إيموجي اللون بـRC_COLOR_LABELS للعرض فقط.
+    private const RC_DIGIT_COLORS = [
+        'black' => 0, 'brown' => 1, 'red' => 2, 'orange' => 3, 'yellow' => 4,
+        'green' => 5, 'blue' => 6, 'violet' => 7, 'gray' => 8, 'white' => 9,
+    ];
+
+    private const RC_MULTIPLIER_EXP = [
+        'black' => 0, 'brown' => 1, 'red' => 2, 'orange' => 3, 'yellow' => 4,
+        'green' => 5, 'blue' => 6, 'violet' => 7, 'gray' => 8, 'white' => 9,
+        'gold' => -1, 'silver' => -2,
+    ];
+
+    private const RC_TOLERANCE_PCT = [
+        'brown' => 1, 'red' => 2, 'green' => 0.5, 'blue' => 0.25,
+        'violet' => 0.1, 'gray' => 0.05, 'gold' => 5, 'silver' => 10,
+    ];
+
+    private const RC_COLOR_LABELS = [
+        'black' => '⚫ أسود', 'brown' => '🟤 بني', 'red' => '🔴 أحمر', 'orange' => '🟠 برتقالي',
+        'yellow' => '🟡 أصفر', 'green' => '🟢 أخضر', 'blue' => '🔵 أزرق', 'violet' => '🟣 بنفسجي',
+        'gray' => '⬛ رمادي', 'white' => '⬜ أبيض', 'gold' => '🥇 ذهبي', 'silver' => '🥈 فضي',
     ];
 
     // أزرار إضافية تظهر فقط لحسابات الإدارة (User::isStaff()) — راجع
@@ -341,6 +374,8 @@ class TelegramWebhookController extends Controller
                 $this->handleToolsNavCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'quizloop:')) {
                 $this->handleQuizLoopCallback($bot, $aiAssistant, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'calc:')) {
+                $this->handleCalcCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -495,6 +530,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
                 self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
                 self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT, self::MAIN_MENU_CONTRIBUTE,
+                self::MAIN_MENU_CALC,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -529,6 +565,8 @@ class TelegramWebhookController extends Controller
                 $this->handleContributeTextInput($bot, $link, $chatId, $text);
             } elseif ($pendingAction === 'quizloop') {
                 $this->handleQuizLoopTextInput($bot, $aiAssistant, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'calc_')) {
+                $this->handleCalcTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -611,6 +649,13 @@ class TelegramWebhookController extends Controller
 
         if (in_array($normalized, [self::MAIN_MENU_TOOLS, 'القائمة', 'menu', 'قائمة', 'tools'], true)) {
             $this->sendMenu($bot, $chatId, $link->currentMode());
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_CALC, 'حاسبة', 'حاسبة الهندسة', 'calc'], true)) {
+            $link->update(['pending_action' => null]);
+            $this->sendCalcMainMenu($bot, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -8004,5 +8049,1318 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
     }
     $bot->sendMessage($chatId, '📚 اختر المادة يلي بدك تشارك إلها ملف/مصدر:', $keyboard);
 }
+
+    /*
+     * =====================================================================
+     * 🧮 حاسبة الهندسة السريعة (Quick Eng Tools) — جلسة سادسة، جزء 6
+     * =====================================================================
+     * ميزة جديدة كاملة: 7 حاسبات هندسية تفاعلية موزّعة على 3 تصنيفات:
+     *   🔌 العتاد والدوائر: مقاومات/مكثفات (rc)، مؤقت 555 (555)، طاقة (power)
+     *   💻 الأنظمة الرقمية والشبكات: أنظمة عددية/منطق (base)، شبكات (subnet)
+     *   ⚙️ الخوارزميات والأداء: تعقيد زمني (bigo)، أداء معالج (cpu)
+     *
+     * تتّبع نفس نمط GPA بالضبط: pending_action.action بسابقة "calc_"
+     * (أو أزرار بسابقة callback_data="calc:") + دايمًا "❌ إلغاء" (زر
+     * وكمان كتابة "إلغاء" حرفيًا) لإيقاف أي عملية بمنتصفها. منفصلة كليًا
+     * عن "🧰 الأدوات الهندسية" (كتالوج أدوات المساقات) رغم تشابه الاسم.
+     */
+    private function sendCalcMainMenu(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $bot->sendMessage(
+            $chatId,
+            "🧮 <b>حاسبة الهندسة السريعة</b>\n\nمجموعة حاسبات جاهزة تساعدك بمذاكرة/تطبيق مساقات الهندسة — اختر التصنيف:",
+            [
+                [['text' => '🔌 العتاد والدوائر (Hardware)', 'callback_data' => 'calc:cat:hw']],
+                [['text' => '💻 الأنظمة الرقمية والشبكات (Digital)', 'callback_data' => 'calc:cat:dig']],
+                [['text' => '⚙️ الخوارزميات والأداء (Algorithms)', 'callback_data' => 'calc:cat:algo']],
+            ]
+        );
+    }
+
+    private function sendCalcCategoryMenu(TelegramBotApi $bot, int|string $chatId, string $cat): void
+    {
+        $titles = [
+            'hw' => '🔌 <b>العتاد والدوائر</b>',
+            'dig' => '💻 <b>الأنظمة الرقمية والشبكات</b>',
+            'algo' => '⚙️ <b>الخوارزميات والأداء</b>',
+        ];
+
+        $tools = match ($cat) {
+            'hw' => [
+                ['key' => 'rc', 'label' => '🎛️ المقاومات والمكثفات'],
+                ['key' => '555', 'label' => '⚡ مؤقت 555 ودارات RC'],
+                ['key' => 'power', 'label' => '🔋 استهلاك الطاقة'],
+            ],
+            'dig' => [
+                ['key' => 'base', 'label' => '🔄 الأنظمة العددية والمنطق'],
+                ['key' => 'subnet', 'label' => '🌐 الشبكات وعناوين IP'],
+            ],
+            'algo' => [
+                ['key' => 'bigo', 'label' => '📊 التعقيد الزمني (Big-O)'],
+                ['key' => 'cpu', 'label' => '⏱️ سرعة المعالج (CPU)'],
+            ],
+            default => [],
+        };
+
+        if ($tools === []) {
+            $this->sendCalcMainMenu($bot, $chatId);
+
+            return;
+        }
+
+        $rows = [];
+        foreach ($tools as $tool) {
+            $rows[] = [['text' => $tool['label'], 'callback_data' => 'calc:tool:'.$tool['key']]];
+        }
+        $rows[] = [['text' => '⬅️ رجوع', 'callback_data' => 'calc:menu']];
+
+        $bot->sendMessage($chatId, ($titles[$cat] ?? '🧮 حاسبة الهندسة').":\n\nاختر الأداة:", $rows);
+    }
+
+    private function handleCalcCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('calc:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        switch ($key) {
+            case 'menu':
+                $link->update(['pending_action' => null]);
+                $this->sendCalcMainMenu($bot, $chatId);
+
+                return;
+
+            case 'cat':
+                $link->update(['pending_action' => null]);
+                $this->sendCalcCategoryMenu($bot, $chatId, (string) ($parts[1] ?? ''));
+
+                return;
+
+            case 'cancel':
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+                return;
+
+            case 'tool':
+                $this->startCalcTool($bot, $link, $chatId, (string) ($parts[1] ?? ''));
+
+                return;
+
+            case 'rc':
+                $this->handleCalcRcCallback($bot, $link, $chatId, $parts);
+
+                return;
+
+            case '555':
+                $this->handleCalc555Callback($bot, $link, $chatId, $parts);
+
+                return;
+
+            case 'base':
+                $this->handleCalcBaseCallback($bot, $link, $chatId, $parts);
+
+                return;
+
+            case 'bigo':
+                $this->handleCalcBigoCallback($bot, $chatId, $parts);
+
+                return;
+
+            default:
+                return;
+        }
+    }
+
+    private function startCalcTool(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $tool): void
+    {
+        switch ($tool) {
+            case 'rc':
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, "🎛️ <b>حاسبة المقاومات والمكثفات</b>\n\nاختر العملية:", [
+                    [['text' => '🎨 كود الألوان ← القيمة', 'callback_data' => 'calc:rc:mode:c2v']],
+                    [['text' => '🔢 القيمة ← كود الألوان', 'callback_data' => 'calc:rc:mode:v2c']],
+                    [['text' => '➕ توالي/توازي (مقاومات أو مكثفات)', 'callback_data' => 'calc:rc:mode:combo']],
+                    [['text' => '⬅️ رجوع', 'callback_data' => 'calc:cat:hw']],
+                ]);
+
+                return;
+
+            case '555':
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, "⚡ <b>مؤقت 555 ودارات RC</b>\n\nاختر وضع الدارة:", [
+                    [['text' => '🔁 وضع التذبذب المستمر (Astable)', 'callback_data' => 'calc:555:mode:astable']],
+                    [['text' => '⏸️ نبضة واحدة (Monostable)', 'callback_data' => 'calc:555:mode:mono']],
+                    [['text' => '⬅️ رجوع', 'callback_data' => 'calc:cat:hw']],
+                ]);
+
+                return;
+
+            case 'power':
+                $link->update(['pending_action' => ['action' => 'calc_power', 'step' => 'current', 'data' => []]]);
+                $bot->sendMessage(
+                    $chatId,
+                    "🔋 <b>حاسبة استهلاك الطاقة</b>\n\nأدخل التيار المستهلك بوحدة mA (مللي أمبير)، مثلاً: 250\n\nاكتب \"إلغاء\" بأي وقت لإيقاف العملية."
+                );
+
+                return;
+
+            case 'base':
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, "🔄 <b>حاسبة الأنظمة العددية والمنطق</b>\n\nاختر العملية:", [
+                    [['text' => '🔁 تحويل بين الأنظمة العددية', 'callback_data' => 'calc:base:mode:conv']],
+                    [['text' => '🔣 عمليات منطقية (AND/OR/XOR...)', 'callback_data' => 'calc:base:mode:logic']],
+                    [['text' => '⬅️ رجوع', 'callback_data' => 'calc:cat:dig']],
+                ]);
+
+                return;
+
+            case 'subnet':
+                $link->update(['pending_action' => ['action' => 'calc_subnet', 'step' => 'input', 'data' => []]]);
+                $bot->sendMessage(
+                    $chatId,
+                    "🌐 <b>حاسبة الشبكات وعناوين IP</b>\n\nأدخل عنوان الـIP مع الـCIDR بهذا الشكل بالضبط:\n<code>192.168.1.10/24</code>\n\nاكتب \"إلغاء\" لإيقاف العملية."
+                );
+
+                return;
+
+            case 'bigo':
+                $this->sendCalcBigoMenu($bot, $chatId);
+
+                return;
+
+            case 'cpu':
+                $link->update(['pending_action' => ['action' => 'calc_cpu', 'step' => 'ic', 'data' => []]]);
+                $bot->sendMessage(
+                    $chatId,
+                    "⏱️ <b>حاسبة سرعة المعالج (CPU Performance)</b>\n\nأدخل عدد التعليمات (Instruction Count) — تقدر تستخدم اختصار مثل 5M بدل 5000000:\n\nاكتب \"إلغاء\" بأي وقت لإيقاف العملية."
+                );
+
+                return;
+
+            default:
+                $this->sendCalcMainMenu($bot, $chatId);
+
+                return;
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 🎛️ المقاومات والمكثفات (rc)
+    // ---------------------------------------------------------------
+
+    private function calcRcColorKeyboard(string $phase): array
+    {
+        $keys = match ($phase) {
+            'digit' => array_keys(self::RC_DIGIT_COLORS),
+            'mult' => array_keys(self::RC_MULTIPLIER_EXP),
+            'tol' => array_keys(self::RC_TOLERANCE_PCT),
+            default => [],
+        };
+
+        $rows = [];
+        foreach (array_chunk($keys, 3) as $chunk) {
+            $rows[] = array_map(
+                fn ($k) => ['text' => self::RC_COLOR_LABELS[$k], 'callback_data' => 'calc:rc:pick:'.$k],
+                $chunk
+            );
+        }
+        $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'calc:cancel']];
+
+        return $rows;
+    }
+
+    private function handleCalcRcCallback(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $parts): void
+    {
+        $sub = $parts[1] ?? '';
+
+        if ($sub === 'mode') {
+            $mode = $parts[2] ?? '';
+
+            if ($mode === 'c2v') {
+                $link->update(['pending_action' => ['action' => 'calc_rc_c2v', 'step' => 'bands', 'data' => []]]);
+                $bot->sendMessage($chatId, "🎨 <b>كود الألوان ← القيمة</b>\n\nكم عدد الأشرطة (bands)؟", [
+                    [
+                        ['text' => '4 أشرطة', 'callback_data' => 'calc:rc:bands:4'],
+                        ['text' => '5 أشرطة', 'callback_data' => 'calc:rc:bands:5'],
+                    ],
+                    [['text' => '❌ إلغاء', 'callback_data' => 'calc:cancel']],
+                ]);
+            } elseif ($mode === 'v2c') {
+                $link->update(['pending_action' => ['action' => 'calc_rc_v2c', 'step' => 'enter_value', 'data' => []]]);
+                $bot->sendMessage(
+                    $chatId,
+                    "🔢 <b>القيمة ← كود الألوان</b>\n\nأدخل قيمة المقاومة بوحدة الأوم (Ω) — تقدر تستخدم اختصارات مثل 4.7k أو 220 أو 1M:\n\nاكتب \"إلغاء\" لإيقاف العملية."
+                );
+            } elseif ($mode === 'combo') {
+                $link->update(['pending_action' => ['action' => 'calc_rc_combo', 'step' => 'pick_type', 'data' => []]]);
+                $bot->sendMessage($chatId, "➕ <b>حساب التوالي/التوازي</b>\n\nأي عنصر بدك تحسب؟", [
+                    [
+                        ['text' => '🔧 مقاومات (R)', 'callback_data' => 'calc:rc:ctype:r'],
+                        ['text' => '🔋 مكثفات (C)', 'callback_data' => 'calc:rc:ctype:c'],
+                    ],
+                    [['text' => '❌ إلغاء', 'callback_data' => 'calc:cancel']],
+                ]);
+            }
+
+            return;
+        }
+
+        if ($sub === 'bands') {
+            $pending = $link->pending_action;
+            if (! is_array($pending) || ($pending['action'] ?? null) !== 'calc_rc_c2v') {
+                return;
+            }
+
+            $bands = (int) ($parts[2] ?? 4);
+            $bands = in_array($bands, [4, 5], true) ? $bands : 4;
+            $link->update(['pending_action' => ['action' => 'calc_rc_c2v', 'step' => 'pick', 'data' => ['bands' => $bands, 'picks' => []]]]);
+            $bot->sendMessage($chatId, 'اختر لون الشريط رقم 1 (رقم أول):', $this->calcRcColorKeyboard('digit'));
+
+            return;
+        }
+
+        if ($sub === 'ctype') {
+            $pending = $link->pending_action;
+            if (! is_array($pending) || ($pending['action'] ?? null) !== 'calc_rc_combo') {
+                return;
+            }
+
+            $ctype = ($parts[2] ?? '') === 'c' ? 'c' : 'r';
+            $data = (array) ($pending['data'] ?? []);
+            $data['type'] = $ctype;
+            $link->update(['pending_action' => ['action' => 'calc_rc_combo', 'step' => 'pick_mode', 'data' => $data]]);
+
+            $unitLabel = $ctype === 'c' ? 'المكثفات' : 'المقاومات';
+            $bot->sendMessage($chatId, "توالي ولا توازي لـ{$unitLabel}؟", [
+                [
+                    ['text' => '🔗 توالي (Series)', 'callback_data' => 'calc:rc:cmode:series'],
+                    ['text' => '🔀 توازي (Parallel)', 'callback_data' => 'calc:rc:cmode:parallel'],
+                ],
+                [['text' => '❌ إلغاء', 'callback_data' => 'calc:cancel']],
+            ]);
+
+            return;
+        }
+
+        if ($sub === 'cmode') {
+            $pending = $link->pending_action;
+            if (! is_array($pending) || ($pending['action'] ?? null) !== 'calc_rc_combo') {
+                return;
+            }
+
+            $mode = ($parts[2] ?? '') === 'parallel' ? 'parallel' : 'series';
+            $data = (array) ($pending['data'] ?? []);
+            $data['mode'] = $mode;
+            $link->update(['pending_action' => ['action' => 'calc_rc_combo', 'step' => 'enter_values', 'data' => $data]]);
+
+            $unitHint = ($data['type'] ?? 'r') === 'c'
+                ? 'بالفاراد — تقدر تستخدم اختصارات مثل 100n أو 10u أو 1p'
+                : 'بالأوم — تقدر تستخدم اختصارات مثل 4.7k أو 1M';
+            $bot->sendMessage(
+                $chatId,
+                "أدخل القيم مفصولة بفاصلة (,) {$unitHint}.\nمثال: 100,220,470\n\nاكتب \"إلغاء\" لإيقاف العملية."
+            );
+
+            return;
+        }
+
+        if ($sub === 'pick') {
+            $pending = $link->pending_action;
+            if (! is_array($pending) || ($pending['action'] ?? null) !== 'calc_rc_c2v') {
+                return;
+            }
+
+            $color = (string) ($parts[2] ?? '');
+            $data = (array) ($pending['data'] ?? []);
+            $bands = (int) ($data['bands'] ?? 4);
+            $picks = (array) ($data['picks'] ?? []);
+            $picks[] = $color;
+            $digitsCount = $bands - 2;
+
+            if (count($picks) < $digitsCount) {
+                $data['picks'] = $picks;
+                $link->update(['pending_action' => ['action' => 'calc_rc_c2v', 'step' => 'pick', 'data' => $data]]);
+                $bot->sendMessage($chatId, 'اختر لون الشريط رقم '.(count($picks) + 1).':', $this->calcRcColorKeyboard('digit'));
+
+                return;
+            }
+
+            if (count($picks) === $digitsCount) {
+                $data['picks'] = $picks;
+                $link->update(['pending_action' => ['action' => 'calc_rc_c2v', 'step' => 'pick', 'data' => $data]]);
+                $bot->sendMessage($chatId, 'اختر لون شريط المضاعِف (Multiplier):', $this->calcRcColorKeyboard('mult'));
+
+                return;
+            }
+
+            if (count($picks) === $digitsCount + 1) {
+                $data['picks'] = $picks;
+                $link->update(['pending_action' => ['action' => 'calc_rc_c2v', 'step' => 'pick', 'data' => $data]]);
+                $bot->sendMessage($chatId, 'اختر لون شريط التفاوت (Tolerance):', $this->calcRcColorKeyboard('tol'));
+
+                return;
+            }
+
+            $link->update(['pending_action' => null]);
+            $this->replyRcColorToValueResult($bot, $chatId, $picks, $digitsCount);
+
+            return;
+        }
+    }
+
+    private function replyRcColorToValueResult(TelegramBotApi $bot, int|string $chatId, array $picks, int $digitsCount): void
+    {
+        $digitColors = array_slice($picks, 0, $digitsCount);
+        $multColor = $picks[$digitsCount] ?? 'black';
+        $tolColor = $picks[$digitsCount + 1] ?? null;
+
+        $numberStr = '';
+        foreach ($digitColors as $c) {
+            $numberStr .= (string) (self::RC_DIGIT_COLORS[$c] ?? 0);
+        }
+        $base = (float) $numberStr;
+        $exp = self::RC_MULTIPLIER_EXP[$multColor] ?? 0;
+        $ohms = $base * (10 ** $exp);
+        $tolerance = $tolColor !== null ? (self::RC_TOLERANCE_PCT[$tolColor] ?? null) : null;
+
+        $colorsLine = implode(' - ', array_map(fn ($c) => self::RC_COLOR_LABELS[$c] ?? $c, $picks));
+
+        $text = "✅ <b>نتيجة كود الألوان</b>\n\n".
+            "الألوان: {$colorsLine}\n".
+            'القيمة: <b>'.$this->calcFormatOhms($ohms)."</b>\n".
+            ($tolerance !== null ? "التفاوت: ±{$tolerance}%\n" : '').
+            "\nابدأ حسبة جديدة:";
+
+        $bot->sendMessage($chatId, $text, [
+            [['text' => '🎛️ حاسبة المقاومات', 'callback_data' => 'calc:tool:rc']],
+            [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+        ]);
+    }
+
+    private function handleCalcRcV2cText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $value = $this->calcParseEngNumber($text);
+
+        if ($value === null || $value <= 0) {
+            $bot->sendMessage($chatId, 'قيمة غير صالحة 🙂 اكتب رقم موجب، مثلاً: 4700 أو 4.7k');
+
+            return;
+        }
+
+        $exp = (int) floor(log10($value));
+        $mantissa = $value / (10 ** $exp);
+        $scaled = (int) round($mantissa * 10);
+
+        if ($scaled >= 100) {
+            $scaled = 10;
+            $exp++;
+        }
+        if ($scaled < 10) {
+            $scaled = 10;
+        }
+
+        $d1 = intdiv($scaled, 10);
+        $d2 = $scaled % 10;
+        $multExp = $exp - 1;
+        $approxOhms = $scaled * (10 ** $multExp);
+
+        $digit1Color = $this->calcColorForDigit($d1);
+        $digit2Color = $this->calcColorForDigit($d2);
+        $multColor = $this->calcColorForMultiplier($multExp);
+
+        $link->update(['pending_action' => null]);
+
+        $bot->sendMessage(
+            $chatId,
+            "🔢 <b>نتيجة القيمة ← كود الألوان</b>\n\n".
+            'القيمة المدخلة: '.$this->calcFormatOhms($value)."\n".
+            'أقرب قيمة قياسية (4 أشرطة): '.$this->calcFormatOhms($approxOhms)."\n\n".
+            "كود الألوان:\n".
+            '1) '.self::RC_COLOR_LABELS[$digit1Color]." (الرقم الأول)\n".
+            '2) '.self::RC_COLOR_LABELS[$digit2Color]." (الرقم الثاني)\n".
+            '3) '.self::RC_COLOR_LABELS[$multColor]." (المضاعِف)\n\n".
+            'ملاحظة: شريط التفاوت (الرابع) يعتمد على دقة المقاومة الفعلية المطلوبة (عادة 🥇 ذهبي ±5% أو 🟤 بني ±1%).',
+            [
+                [['text' => '🎛️ حاسبة المقاومات', 'callback_data' => 'calc:tool:rc']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+            ]
+        );
+    }
+
+    private function handleCalcRcComboText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $pending, string $text): void
+    {
+        $data = (array) ($pending['data'] ?? []);
+        $type = ($data['type'] ?? 'r') === 'c' ? 'c' : 'r';
+        $mode = ($data['mode'] ?? 'series') === 'parallel' ? 'parallel' : 'series';
+
+        $tokens = array_filter(array_map('trim', explode(',', $text)), fn ($t) => $t !== '');
+        $values = [];
+        foreach ($tokens as $token) {
+            $v = $this->calcParseEngNumber($token);
+            if ($v === null || $v <= 0) {
+                $bot->sendMessage($chatId, "قيمة غير صالحة: \"{$token}\" 🙂 اكتب القيم كلها أرقام موجبة مفصولة بفاصلة، مثلاً: 100,220,470");
+
+                return;
+            }
+            $values[] = $v;
+        }
+
+        if (count($values) < 2) {
+            $bot->sendMessage($chatId, 'أدخل قيمتين على الأقل مفصولتين بفاصلة، مثلاً: 100,220');
+
+            return;
+        }
+
+        if ($type === 'r') {
+            $eq = $mode === 'series'
+                ? array_sum($values)
+                : 1 / array_sum(array_map(fn ($v) => 1 / $v, $values));
+            $eqFormatted = $this->calcFormatOhms($eq);
+            $valuesFormatted = implode(', ', array_map(fn ($v) => $this->calcFormatOhms($v), $values));
+            $unitLabel = 'المقاومة المكافئة';
+        } else {
+            $eq = $mode === 'series'
+                ? 1 / array_sum(array_map(fn ($v) => 1 / $v, $values))
+                : array_sum($values);
+            $eqFormatted = $this->calcFormatFarads($eq);
+            $valuesFormatted = implode(', ', array_map(fn ($v) => $this->calcFormatFarads($v), $values));
+            $unitLabel = 'السعة المكافئة';
+        }
+
+        $modeLabel = $mode === 'series' ? 'توالي (Series)' : 'توازي (Parallel)';
+
+        $link->update(['pending_action' => null]);
+
+        $bot->sendMessage(
+            $chatId,
+            "✅ <b>نتيجة {$modeLabel}</b>\n\n".
+            "القيم: {$valuesFormatted}\n".
+            "{$unitLabel}: <b>{$eqFormatted}</b>",
+            [
+                [['text' => '🎛️ حاسبة المقاومات', 'callback_data' => 'calc:tool:rc']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+            ]
+        );
+    }
+
+    private function calcColorForDigit(int $d): string
+    {
+        $color = array_search($d, self::RC_DIGIT_COLORS, true);
+
+        return $color !== false ? $color : 'black';
+    }
+
+    private function calcColorForMultiplier(int $exp): string
+    {
+        $color = array_search($exp, self::RC_MULTIPLIER_EXP, true);
+
+        if ($color !== false) {
+            return $color;
+        }
+
+        return $exp > 9 ? 'white' : 'silver';
+    }
+
+    // ---------------------------------------------------------------
+    // ⚡ مؤقت 555 ودارات RC (555)
+    // ---------------------------------------------------------------
+
+    private function handleCalc555Callback(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $parts): void
+    {
+        $sub = $parts[1] ?? '';
+
+        if ($sub !== 'mode') {
+            return;
+        }
+
+        $mode = $parts[2] ?? '';
+
+        if ($mode === 'astable') {
+            $link->update(['pending_action' => ['action' => 'calc_555_astable', 'step' => 'r1', 'data' => []]]);
+            $bot->sendMessage(
+                $chatId,
+                "🔁 <b>وضع التذبذب المستمر (Astable)</b>\n\nأدخل قيمة R1 بوحدة الأوم (Ω) — تقدر تستخدم اختصارات مثل 10k أو 2.2M:\n\nاكتب \"إلغاء\" لإيقاف العملية."
+            );
+        } elseif ($mode === 'mono') {
+            $link->update(['pending_action' => ['action' => 'calc_555_mono', 'step' => 'r', 'data' => []]]);
+            $bot->sendMessage(
+                $chatId,
+                "⏸️ <b>وضع النبضة الواحدة (Monostable)</b>\n\nأدخل قيمة R بوحدة الأوم (Ω) — تقدر تستخدم اختصارات مثل 10k أو 2.2M:\n\nاكتب \"إلغاء\" لإيقاف العملية."
+            );
+        }
+    }
+
+    private function handleCalc555Text(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $pending, string $text): void
+    {
+        $action = (string) ($pending['action'] ?? '');
+        $step = (string) ($pending['step'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        $value = $this->calcParseEngNumber($text);
+        if ($value === null || $value <= 0) {
+            $bot->sendMessage($chatId, 'قيمة غير صالحة 🙂 اكتب رقم موجب، ممكن تستخدم اختصارات مثل 10k أو 100n.');
+
+            return;
+        }
+
+        if ($action === 'calc_555_astable') {
+            if ($step === 'r1') {
+                $data['r1'] = $value;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'r2', 'data' => $data]]);
+                $bot->sendMessage($chatId, 'أدخل قيمة R2 بوحدة الأوم (Ω):');
+
+                return;
+            }
+
+            if ($step === 'r2') {
+                $data['r2'] = $value;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'c', 'data' => $data]]);
+                $bot->sendMessage($chatId, "أدخل قيمة C بوحدة الفاراد (F) — تقدر تستخدم اختصارات مثل 100n أو 10u:");
+
+                return;
+            }
+
+            if ($step === 'c') {
+                $r1 = (float) ($data['r1'] ?? 0);
+                $r2 = (float) ($data['r2'] ?? 0);
+                $c = $value;
+
+                $thigh = 0.693 * ($r1 + $r2) * $c;
+                $tlow = 0.693 * $r2 * $c;
+                $t = $thigh + $tlow;
+                $f = $t > 0 ? 1 / $t : 0;
+                $duty = $t > 0 ? ($thigh / $t) * 100 : 0;
+
+                $link->update(['pending_action' => null]);
+
+                $bot->sendMessage(
+                    $chatId,
+                    "✅ <b>نتيجة دارة 555 (Astable)</b>\n\n".
+                    'R1: '.$this->calcFormatOhms($r1).' | R2: '.$this->calcFormatOhms($r2).' | C: '.$this->calcFormatFarads($c)."\n\n".
+                    'زمن الإشارة العالية (High): '.$this->calcFormatSeconds($thigh)."\n".
+                    'زمن الإشارة المنخفضة (Low): '.$this->calcFormatSeconds($tlow)."\n".
+                    'الدور الكامل (Period): '.$this->calcFormatSeconds($t)."\n".
+                    'التردد: <b>'.$this->calcFormatHz($f).'</b>'."\n".
+                    'نسبة العمل (Duty Cycle): <b>'.round($duty, 1).'%</b>',
+                    [
+                        [['text' => '⚡ حاسبة 555', 'callback_data' => 'calc:tool:555']],
+                        [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+                    ]
+                );
+
+                return;
+            }
+        }
+
+        if ($action === 'calc_555_mono') {
+            if ($step === 'r') {
+                $data['r'] = $value;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'c', 'data' => $data]]);
+                $bot->sendMessage($chatId, "أدخل قيمة C بوحدة الفاراد (F) — تقدر تستخدم اختصارات مثل 100n أو 10u:");
+
+                return;
+            }
+
+            if ($step === 'c') {
+                $r = (float) ($data['r'] ?? 0);
+                $c = $value;
+                $t = 1.1 * $r * $c;
+
+                $link->update(['pending_action' => null]);
+
+                $bot->sendMessage(
+                    $chatId,
+                    "✅ <b>نتيجة دارة 555 (Monostable)</b>\n\n".
+                    'R: '.$this->calcFormatOhms($r).' | C: '.$this->calcFormatFarads($c)."\n\n".
+                    'عرض النبضة (Pulse Width): <b>'.$this->calcFormatSeconds($t).'</b>',
+                    [
+                        [['text' => '⚡ حاسبة 555', 'callback_data' => 'calc:tool:555']],
+                        [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+                    ]
+                );
+
+                return;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 🔋 استهلاك الطاقة (power)
+    // ---------------------------------------------------------------
+
+    private function handleCalcPowerText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $pending, string $text): void
+    {
+        $step = (string) ($pending['step'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        $value = $this->calcParsePlainFloat($text);
+        if ($value === null || $value <= 0) {
+            $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم موجب، مثلاً: 250');
+
+            return;
+        }
+
+        if ($step === 'current') {
+            $data['current_ma'] = $value;
+            $link->update(['pending_action' => ['action' => 'calc_power', 'step' => 'voltage', 'data' => $data]]);
+            $bot->sendMessage($chatId, 'أدخل جهد التشغيل بوحدة الفولت (V)، مثلاً: 5');
+
+            return;
+        }
+
+        if ($step === 'voltage') {
+            $data['voltage_v'] = $value;
+            $link->update(['pending_action' => ['action' => 'calc_power', 'step' => 'capacity', 'data' => $data]]);
+            $bot->sendMessage($chatId, 'أدخل سعة البطارية بوحدة mAh (مللي أمبير-ساعة)، مثلاً: 2000');
+
+            return;
+        }
+
+        if ($step === 'capacity') {
+            $current = (float) ($data['current_ma'] ?? 0);
+            $voltage = (float) ($data['voltage_v'] ?? 0);
+            $capacity = $value;
+
+            $powerW = ($voltage * $current) / 1000;
+            $lifeHours = $current > 0 ? $capacity / $current : 0;
+            $lifeDays = $lifeHours / 24;
+
+            $link->update(['pending_action' => null]);
+
+            $bot->sendMessage(
+                $chatId,
+                "✅ <b>نتيجة استهلاك الطاقة</b>\n\n".
+                "التيار: {$current} mA | الجهد: {$voltage} V | سعة البطارية: {$capacity} mAh\n\n".
+                'الاستهلاك: <b>'.round($powerW, 3)." واط (W)</b>\n".
+                'العمر التقديري للبطارية: <b>'.round($lifeHours, 1).' ساعة</b> (≈ '.round($lifeDays, 2).' يوم)',
+                [
+                    [['text' => '🔋 حاسبة الطاقة', 'callback_data' => 'calc:tool:power']],
+                    [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+                ]
+            );
+
+            return;
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 🔄 الأنظمة العددية والمنطق (base)
+    // ---------------------------------------------------------------
+
+    private function handleCalcBaseCallback(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $parts): void
+    {
+        $sub = $parts[1] ?? '';
+
+        if ($sub === 'mode') {
+            $mode = $parts[2] ?? '';
+
+            if ($mode === 'conv') {
+                $bot->sendMessage($chatId, "🔁 <b>تحويل بين الأنظمة العددية</b>\n\nاختر النظام العددي يلي بدك تدخل الرقم فيه:", [
+                    [
+                        ['text' => '٢ ثنائي (Binary)', 'callback_data' => 'calc:base:convbase:bin'],
+                        ['text' => '٨ ثماني (Octal)', 'callback_data' => 'calc:base:convbase:oct'],
+                    ],
+                    [
+                        ['text' => '١٠ عشري (Decimal)', 'callback_data' => 'calc:base:convbase:dec'],
+                        ['text' => '١٦ ست عشري (Hex)', 'callback_data' => 'calc:base:convbase:hex'],
+                    ],
+                    [['text' => '⬅️ رجوع', 'callback_data' => 'calc:tool:base']],
+                ]);
+            } elseif ($mode === 'logic') {
+                $bot->sendMessage($chatId, "🔣 <b>العمليات المنطقية</b>\n\nاختر العملية:", [
+                    [
+                        ['text' => 'AND', 'callback_data' => 'calc:base:op:and'],
+                        ['text' => 'OR', 'callback_data' => 'calc:base:op:or'],
+                        ['text' => 'XOR', 'callback_data' => 'calc:base:op:xor'],
+                    ],
+                    [
+                        ['text' => 'NAND', 'callback_data' => 'calc:base:op:nand'],
+                        ['text' => 'NOT', 'callback_data' => 'calc:base:op:not'],
+                    ],
+                    [['text' => '⬅️ رجوع', 'callback_data' => 'calc:tool:base']],
+                ]);
+            }
+
+            return;
+        }
+
+        if ($sub === 'convbase') {
+            $base = in_array($parts[2] ?? '', ['bin', 'oct', 'dec', 'hex'], true) ? $parts[2] : 'dec';
+            $link->update(['pending_action' => ['action' => 'calc_base_conv', 'step' => 'enter_value', 'data' => ['base' => $base]]]);
+
+            $hints = [
+                'bin' => 'أرقام 0 و1 فقط، مثلاً: 10110',
+                'oct' => 'أرقام من 0 إلى 7، مثلاً: 572',
+                'dec' => 'رقم عشري عادي (يقبل السالب)، مثلاً: -42',
+                'hex' => 'أرقام 0-9 وحروف A-F، مثلاً: 1A3F',
+            ];
+            $bot->sendMessage($chatId, 'أدخل الرقم بالنظام المطلوب — '.($hints[$base] ?? '')."\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+            return;
+        }
+
+        if ($sub === 'op') {
+            $op = in_array($parts[2] ?? '', ['and', 'or', 'xor', 'nand', 'not'], true) ? $parts[2] : 'and';
+            $link->update(['pending_action' => ['action' => 'calc_base_logic', 'step' => 'operand1', 'data' => ['op' => $op]]]);
+            $bot->sendMessage($chatId, "أدخل الرقم الثنائي الأول (0 و1 فقط)، مثلاً: 1011\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+            return;
+        }
+    }
+
+    private function handleCalcBaseConvText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $pending, string $text): void
+    {
+        $base = (string) ($pending['data']['base'] ?? 'dec');
+        $normalized = trim($text);
+
+        $patterns = [
+            'bin' => '/^[01]+$/',
+            'oct' => '/^[0-7]+$/',
+            'dec' => '/^-?\d+$/',
+            'hex' => '/^[0-9a-fA-F]+$/',
+        ];
+
+        if (! preg_match($patterns[$base] ?? '/^$/', $normalized)) {
+            $bot->sendMessage($chatId, 'صيغة غير صالحة لهذا النظام العددي 🙂 جرّب مرة ثانية، أو اكتب "إلغاء".');
+
+            return;
+        }
+
+        $dec = match ($base) {
+            'bin' => bindec($normalized),
+            'oct' => octdec($normalized),
+            'hex' => hexdec($normalized),
+            default => (int) $normalized,
+        };
+        $dec = (int) $dec;
+
+        $unsigned = $dec < 0 ? ($dec & 0xFFFFFFFF) : $dec;
+        $binText = decbin($unsigned);
+        $octText = decoct($unsigned);
+        $hexText = strtoupper(dechex($unsigned));
+
+        $twosComplement = '';
+        if ($dec >= -128 && $dec <= 127) {
+            $twosComplement = str_pad(decbin($dec & 0xFF), 8, '0', STR_PAD_LEFT).' (متمم اثنين، 8-bit)';
+        } elseif ($dec >= -32768 && $dec <= 32767) {
+            $twosComplement = str_pad(decbin($dec & 0xFFFF), 16, '0', STR_PAD_LEFT).' (متمم اثنين، 16-bit)';
+        }
+
+        $link->update(['pending_action' => null]);
+
+        $bot->sendMessage(
+            $chatId,
+            "✅ <b>نتيجة التحويل</b>\n\n".
+            "ثنائي (Binary): <code>{$binText}</code>\n".
+            "ثماني (Octal): <code>{$octText}</code>\n".
+            "عشري (Decimal): <code>{$dec}</code>\n".
+            "ست عشري (Hex): <code>{$hexText}</code>".
+            ($twosComplement !== '' ? "\n\nمتمم الاثنين: <code>{$twosComplement}</code>" : ''),
+            [
+                [['text' => '🔄 حاسبة الأنظمة العددية', 'callback_data' => 'calc:tool:base']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+            ]
+        );
+    }
+
+    private function handleCalcBaseLogicText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $pending, string $text): void
+    {
+        $op = (string) ($pending['data']['op'] ?? 'and');
+        $step = (string) ($pending['step'] ?? 'operand1');
+        $data = (array) ($pending['data'] ?? []);
+        $normalized = trim($text);
+
+        if (! preg_match('/^[01]+$/', $normalized)) {
+            $bot->sendMessage($chatId, 'أدخل رقم ثنائي صالح (0 و1 فقط) 🙂 أو اكتب "إلغاء".');
+
+            return;
+        }
+
+        if ($op === 'not') {
+            $result = strtr($normalized, ['0' => '1', '1' => '0']);
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage(
+                $chatId,
+                "✅ <b>نتيجة NOT</b>\n\n".
+                "المدخل: <code>{$normalized}</code>\n".
+                "النتيجة: <code>{$result}</code> (عشري: ".bindec($result).')',
+                [
+                    [['text' => '🔣 حاسبة المنطق', 'callback_data' => 'calc:tool:base']],
+                    [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+                ]
+            );
+
+            return;
+        }
+
+        if ($step === 'operand1') {
+            $data['a'] = $normalized;
+            $link->update(['pending_action' => ['action' => 'calc_base_logic', 'step' => 'operand2', 'data' => $data]]);
+            $bot->sendMessage($chatId, 'أدخل الرقم الثنائي الثاني (0 و1 فقط):');
+
+            return;
+        }
+
+        // step === 'operand2'
+        $a = (string) ($data['a'] ?? '0');
+        $b = $normalized;
+        $len = max(strlen($a), strlen($b));
+        $a = str_pad($a, $len, '0', STR_PAD_LEFT);
+        $b = str_pad($b, $len, '0', STR_PAD_LEFT);
+        $ai = bindec($a);
+        $bi = bindec($b);
+        $mask = (1 << $len) - 1;
+
+        $result = match ($op) {
+            'and' => $ai & $bi,
+            'or' => $ai | $bi,
+            'xor' => $ai ^ $bi,
+            'nand' => (~($ai & $bi)) & $mask,
+            default => $ai & $bi,
+        };
+
+        $resultBin = str_pad(decbin($result), $len, '0', STR_PAD_LEFT);
+        $opLabel = strtoupper($op);
+
+        $link->update(['pending_action' => null]);
+
+        $bot->sendMessage(
+            $chatId,
+            "✅ <b>نتيجة {$opLabel}</b>\n\n".
+            "A: <code>{$a}</code>\n".
+            "B: <code>{$b}</code>\n".
+            "النتيجة: <code>{$resultBin}</code> (عشري: {$result})",
+            [
+                [['text' => '🔣 حاسبة المنطق', 'callback_data' => 'calc:tool:base']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+            ]
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // 🌐 الشبكات وعناوين IP (subnet)
+    // ---------------------------------------------------------------
+
+    private function handleCalcSubnetText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (! preg_match('/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/', $normalized, $m)) {
+            $bot->sendMessage($chatId, "صيغة غير صالحة 🙂 اكتب العنوان بالشكل: 192.168.1.10/24");
+
+            return;
+        }
+
+        $octets = [(int) $m[1], (int) $m[2], (int) $m[3], (int) $m[4]];
+        $cidr = (int) $m[5];
+
+        foreach ($octets as $octet) {
+            if ($octet < 0 || $octet > 255) {
+                $bot->sendMessage($chatId, 'كل جزء من الـIP لازم يكون بين 0 و255 🙂 جرّب مرة ثانية.');
+
+                return;
+            }
+        }
+
+        if ($cidr < 0 || $cidr > 32) {
+            $bot->sendMessage($chatId, 'الـCIDR لازم يكون رقم بين 0 و32 🙂 جرّب مرة ثانية.');
+
+            return;
+        }
+
+        $ip = implode('.', $octets);
+        $ipLong = ip2long($ip);
+
+        if ($ipLong === false) {
+            $bot->sendMessage($chatId, 'عنوان IP غير صالح 🙂 جرّب مرة ثانية.');
+
+            return;
+        }
+
+        $ipLong &= 0xFFFFFFFF;
+        $mask = $cidr === 0 ? 0 : ((0xFFFFFFFF << (32 - $cidr)) & 0xFFFFFFFF);
+        $network = $ipLong & $mask;
+        $broadcast = $network | (~$mask & 0xFFFFFFFF);
+        $hostBits = 32 - $cidr;
+
+        if ($hostBits === 0) {
+            $usableLine = 'مضيف وحيد (Host Route /32) — لا يوجد نطاق قابل للاستخدام.';
+            $hostCount = 1;
+        } elseif ($hostBits === 1) {
+            $usableLine = long2ip($network).' و '.long2ip($broadcast).' (شبكة نقطة-لنقطة /31، RFC 3021)';
+            $hostCount = 2;
+        } else {
+            $usableFirst = $network + 1;
+            $usableLast = $broadcast - 1;
+            $usableLine = long2ip($usableFirst).' — '.long2ip($usableLast);
+            $hostCount = (2 ** $hostBits) - 2;
+        }
+
+        $link->update(['pending_action' => null]);
+
+        $bot->sendMessage(
+            $chatId,
+            "✅ <b>نتيجة حاسبة الشبكات</b>\n\n".
+            "العنوان: {$ip}/{$cidr}\n".
+            'قناع الشبكة (Subnet Mask): <code>'.long2ip($mask)."</code>\n".
+            'معرّف الشبكة (Network ID): <code>'.long2ip($network)."</code>\n".
+            'عنوان البث (Broadcast): <code>'.long2ip($broadcast)."</code>\n".
+            "نطاق العناوين القابلة للاستخدام: <code>{$usableLine}</code>\n".
+            'عدد المضيفين الممكن: <b>'.number_format($hostCount).'</b>',
+            [
+                [['text' => '🌐 حاسبة الشبكات', 'callback_data' => 'calc:tool:subnet']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+            ]
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // 📊 التعقيد الزمني Big-O (bigo)
+    // ---------------------------------------------------------------
+
+    private function sendCalcBigoMenu(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $bot->sendMessage($chatId, "📊 <b>حاسبة التعقيد الزمني (Big-O)</b>\n\nاختر شكل الحلقات/الخوارزمية بالكود:", [
+            [['text' => 'ثابت — بدون حلقات O(1)', 'callback_data' => 'calc:bigo:pick:o1']],
+            [['text' => 'حلقة تنصيف (بحث ثنائي) O(log n)', 'callback_data' => 'calc:bigo:pick:ologn']],
+            [['text' => 'حلقة واحدة O(n)', 'callback_data' => 'calc:bigo:pick:on']],
+            [['text' => 'حلقة + تنصيف (فرز سريع/دمج) O(n log n)', 'callback_data' => 'calc:bigo:pick:onlogn']],
+            [['text' => 'حلقتان متداخلتان O(n²)', 'callback_data' => 'calc:bigo:pick:on2']],
+            [['text' => 'تفرّع تكراري مضاعف O(2^n)', 'callback_data' => 'calc:bigo:pick:o2n']],
+            [['text' => '⬅️ رجوع', 'callback_data' => 'calc:cat:algo']],
+        ]);
+    }
+
+    private function handleCalcBigoCallback(TelegramBotApi $bot, int|string $chatId, array $parts): void
+    {
+        $sub = $parts[1] ?? '';
+        if ($sub !== 'pick') {
+            return;
+        }
+
+        $key = $parts[2] ?? '';
+
+        $configs = [
+            'o1' => [
+                'label' => 'O(1) — زمن ثابت (لا يعتمد على حجم المدخلات)',
+                'ns' => [10, 100, 1000],
+                'fn' => fn ($n) => 1,
+            ],
+            'ologn' => [
+                'label' => 'O(log n) — حلقة تُنصّف حجم المشكلة بكل تكرار (مثل البحث الثنائي)',
+                'ns' => [10, 100, 1000],
+                'fn' => fn ($n) => max(1, (int) ceil(log($n, 2))),
+            ],
+            'on' => [
+                'label' => 'O(n) — حلقة واحدة تمر على كل عنصر مرة',
+                'ns' => [10, 100, 1000],
+                'fn' => fn ($n) => $n,
+            ],
+            'onlogn' => [
+                'label' => 'O(n log n) — حلقة مع تنصيف بداخلها (مثل الفرز السريع/فرز الدمج)',
+                'ns' => [10, 100, 1000],
+                'fn' => fn ($n) => (int) ceil($n * max(1, log($n, 2))),
+            ],
+            'on2' => [
+                'label' => 'O(n²) — حلقتان متداخلتان، كل عنصر يُقارَن بكل عنصر',
+                'ns' => [10, 100, 1000],
+                'fn' => fn ($n) => $n * $n,
+            ],
+            'o2n' => [
+                'label' => 'O(2^n) — كل عنصر إضافي يضاعف عدد الحالات (تفرّع تكراري)',
+                'ns' => [5, 10, 20],
+                'fn' => fn ($n) => 2 ** $n,
+            ],
+        ];
+
+        if (! isset($configs[$key])) {
+            return;
+        }
+
+        $cfg = $configs[$key];
+        $lines = [];
+        foreach ($cfg['ns'] as $n) {
+            $ops = ($cfg['fn'])($n);
+            $lines[] = "• عند n = {$n} → تقريبًا ".number_format((float) $ops, 0).' عملية';
+        }
+
+        $bot->sendMessage(
+            $chatId,
+            '📊 <b>'.$cfg['label'].'</b>'."\n\n".
+            implode("\n", $lines).
+            "\n\nهذا تقدير تقريبي لعدد العمليات، مش قياس فعلي — يفيدك لمقارنة كفاءة الخوارزميات مع تكبير حجم المدخلات.",
+            [
+                [['text' => '📊 رجوع لقائمة Big-O', 'callback_data' => 'calc:tool:bigo']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+            ]
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // ⏱️ سرعة المعالج CPU Performance (cpu)
+    // ---------------------------------------------------------------
+
+    private function handleCalcCpuText(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $pending, string $text): void
+    {
+        $step = (string) ($pending['step'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        if ($step === 'ic') {
+            $ic = $this->calcParseEngNumber($text);
+            if ($ic === null || $ic <= 0) {
+                $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم موجب، تقدر تستخدم اختصار مثل 5M.');
+
+                return;
+            }
+            $data['ic'] = round($ic);
+            $link->update(['pending_action' => ['action' => 'calc_cpu', 'step' => 'cpi', 'data' => $data]]);
+            $bot->sendMessage($chatId, 'أدخل معدّل الدورات لكل تعليمة (CPI)، مثلاً: 1.5');
+
+            return;
+        }
+
+        if ($step === 'cpi') {
+            $cpi = $this->calcParsePlainFloat($text);
+            if ($cpi === null || $cpi <= 0) {
+                $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم موجب، مثلاً: 1.5');
+
+                return;
+            }
+            $data['cpi'] = $cpi;
+            $link->update(['pending_action' => ['action' => 'calc_cpu', 'step' => 'freq', 'data' => $data]]);
+            $bot->sendMessage($chatId, 'أدخل تردد المعالج بوحدة الميجاهرتز (MHz)، مثلاً: 2000 (يعني 2 GHz)');
+
+            return;
+        }
+
+        if ($step === 'freq') {
+            $freqMhz = $this->calcParsePlainFloat($text);
+            if ($freqMhz === null || $freqMhz <= 0) {
+                $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم موجب، مثلاً: 2000');
+
+                return;
+            }
+
+            $ic = (float) ($data['ic'] ?? 0);
+            $cpi = (float) ($data['cpi'] ?? 0);
+            $freqHz = $freqMhz * 1e6;
+            $cycles = $ic * $cpi;
+            $timeSeconds = $freqHz > 0 ? $cycles / $freqHz : 0;
+            $mips = $cpi > 0 ? ($freqHz / $cpi) / 1e6 : 0;
+
+            $link->update(['pending_action' => null]);
+
+            $bot->sendMessage(
+                $chatId,
+                "✅ <b>نتيجة أداء المعالج</b>\n\n".
+                'عدد التعليمات: '.number_format($ic)." | CPI: {$cpi} | التردد: {$freqMhz} MHz\n\n".
+                'إجمالي الدورات: <b>'.number_format($cycles)."</b>\n".
+                'زمن التنفيذ: <b>'.$this->calcFormatSeconds($timeSeconds).'</b> (Execution Time = IC × CPI × Clock Cycle Time)'."\n".
+                'الأداء: <b>'.round($mips, 2).' MIPS</b> (مليون تعليمة/ثانية)',
+                [
+                    [['text' => '⏱️ حاسبة المعالج', 'callback_data' => 'calc:tool:cpu']],
+                    [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'calc:menu']],
+                ]
+            );
+
+            return;
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // موجّه النص الحر المشترك لكل حاسبات "calc_*" + أدوات تنسيق/تحليل عامة
+    // ---------------------------------------------------------------
+
+    private function handleCalcTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $action = (string) ($pending['action'] ?? '');
+
+        if ($action === 'calc_rc_v2c') {
+            $this->handleCalcRcV2cText($bot, $link, $chatId, $normalized);
+
+            return;
+        }
+
+        if ($action === 'calc_rc_combo') {
+            $this->handleCalcRcComboText($bot, $link, $chatId, $pending, $normalized);
+
+            return;
+        }
+
+        if (in_array($action, ['calc_555_astable', 'calc_555_mono'], true)) {
+            $this->handleCalc555Text($bot, $link, $chatId, $pending, $normalized);
+
+            return;
+        }
+
+        if ($action === 'calc_power') {
+            $this->handleCalcPowerText($bot, $link, $chatId, $pending, $normalized);
+
+            return;
+        }
+
+        if ($action === 'calc_base_conv') {
+            $this->handleCalcBaseConvText($bot, $link, $chatId, $pending, $normalized);
+
+            return;
+        }
+
+        if ($action === 'calc_base_logic') {
+            $this->handleCalcBaseLogicText($bot, $link, $chatId, $pending, $normalized);
+
+            return;
+        }
+
+        if ($action === 'calc_subnet') {
+            $this->handleCalcSubnetText($bot, $link, $chatId, $normalized);
+
+            return;
+        }
+
+        if ($action === 'calc_cpu') {
+            $this->handleCalcCpuText($bot, $link, $chatId, $pending, $normalized);
+
+            return;
+        }
+
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+    }
+
+    /*
+     * يقبل أرقام هندسية بصيغة SI مختصرة: k/K=×1e3، M=×1e6، m=×1e-3،
+     * u/U (أو µ/μ)=×1e-6، n/N=×1e-9، p/P=×1e-12، g/G=×1e9 — مستخدم بكل
+     * قيم المقاومات/المكثفات/دارات 555/عدد تعليمات المعالج. يفرّق بين
+     * "m" (ميللي) و"M" (ميغا) حسب حالة الأحرف (قاعدة هندسية معتادة).
+     */
+    private function calcParseEngNumber(string $text): ?float
+    {
+        $t = trim($text);
+        $t = str_replace(['µ', 'μ', ' '], ['u', 'u', ''], $t);
+        $t = str_replace(',', '.', $t);
+
+        if (! preg_match('/^(-?\d+(?:\.\d+)?)([kKmMuUnNpPgG])?$/', $t, $m)) {
+            return null;
+        }
+
+        $number = (float) $m[1];
+        $suffix = $m[2] ?? '';
+
+        $multipliers = [
+            'k' => 1e3, 'K' => 1e3,
+            'M' => 1e6, 'm' => 1e-3,
+            'u' => 1e-6, 'U' => 1e-6,
+            'n' => 1e-9, 'N' => 1e-9,
+            'p' => 1e-12, 'P' => 1e-12,
+            'g' => 1e9, 'G' => 1e9,
+        ];
+
+        return $number * ($multipliers[$suffix] ?? 1.0);
+    }
+
+    private function calcParsePlainFloat(string $text, bool $allowNegative = false): ?float
+    {
+        $t = str_replace(',', '.', trim($text));
+        $pattern = $allowNegative ? '/^-?\d+(\.\d+)?$/' : '/^\d+(\.\d+)?$/';
+
+        if (! preg_match($pattern, $t)) {
+            return null;
+        }
+
+        return (float) $t;
+    }
+
+    private function calcFormatOhms(float $ohms): string
+    {
+        $abs = abs($ohms);
+        if ($abs >= 1e6) {
+            return round($ohms / 1e6, 3).' MΩ';
+        }
+        if ($abs >= 1e3) {
+            return round($ohms / 1e3, 3).' kΩ';
+        }
+
+        return round($ohms, 3).' Ω';
+    }
+
+    private function calcFormatFarads(float $f): string
+    {
+        $abs = abs($f);
+        if ($abs >= 1) {
+            return round($f, 6).' F';
+        }
+        if ($abs >= 1e-3) {
+            return round($f * 1e3, 4).' mF';
+        }
+        if ($abs >= 1e-6) {
+            return round($f * 1e6, 4).' µF';
+        }
+        if ($abs >= 1e-9) {
+            return round($f * 1e9, 4).' nF';
+        }
+
+        return round($f * 1e12, 4).' pF';
+    }
+
+    private function calcFormatSeconds(float $s): string
+    {
+        $abs = abs($s);
+        if ($abs >= 1) {
+            return round($s, 4).' s';
+        }
+        if ($abs >= 1e-3) {
+            return round($s * 1e3, 4).' ms';
+        }
+        if ($abs >= 1e-6) {
+            return round($s * 1e6, 4).' µs';
+        }
+
+        return round($s * 1e9, 4).' ns';
+    }
+
+    private function calcFormatHz(float $hz): string
+    {
+        $abs = abs($hz);
+        if ($abs >= 1e6) {
+            return round($hz / 1e6, 4).' MHz';
+        }
+        if ($abs >= 1e3) {
+            return round($hz / 1e3, 4).' kHz';
+        }
+
+        return round($hz, 4).' Hz';
+    }
 
 }
