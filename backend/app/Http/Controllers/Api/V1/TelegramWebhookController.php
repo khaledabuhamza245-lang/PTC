@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\ContactMessageMail;
 use App\Models\Announcement;
 use App\Models\Course;
 use App\Models\CourseContentProgress;
@@ -20,6 +21,9 @@ use App\Services\TelegramBotApi;
 use App\Services\TelegramContentNotifier;
 use App\Services\TelegramGpaCalculator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mailer\Exception\TransportException;
 
 /*
  * نقطة الاستقبال الوحيدة من تيليجرام (Webhook) — المرحلة الأولى (ربط
@@ -116,12 +120,14 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_SEARCH = '🔍 بحث';
     private const MAIN_MENU_MY_COURSES = '📖 مساقاتي الحالية';
     private const MAIN_MENU_FAVORITES = '⭐ مفضلاتي';
+    private const MAIN_MENU_CONTACT = '📨 تواصل معنا';
 
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
         [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
+        [['text' => self::MAIN_MENU_CONTACT]],
         [['text' => self::MAIN_MENU_HELP]],
     ];
 
@@ -252,6 +258,8 @@ class TelegramWebhookController extends Controller
                 $this->handleMyCourseCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'content:')) {
                 $this->handleContentCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'contact:')) {
+                $this->handleContactCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -383,7 +391,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
                 self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
-                self::MAIN_MENU_FAVORITES,
+                self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -412,6 +420,8 @@ class TelegramWebhookController extends Controller
                 $this->handleAdminCourseTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'mycourse')) {
                 $this->handleMyCourseTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'contact')) {
+                $this->handleContactTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -526,6 +536,20 @@ class TelegramWebhookController extends Controller
          */
         if (in_array($normalized, [self::MAIN_MENU_FAVORITES, 'مفضلاتي', 'المفضلة'], true)) {
             $this->sendContentFavoritesList($bot, $chatId, $link->user, 1);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "📨 تواصل معنا" — نفس مسار الموقع بالضبط (ContactController +
+         * ContactMessageMail، بلا أي جدول جديد)، لكن بما إنه الحساب هون
+         * مربوط أصلًا نعبّي الاسم والإيميل تلقائيًا من حساب الطالب
+         * ونعرضهم بمعاينة قابلة للتعديل قبل الإرسال — أسرع من فورم
+         * الموقع، ومصمَّمة لتبقى شغّالة لو صار بالمستقبل دعم لطلاب غير
+         * مسجَّلين (بس تبدأ الحقول فاضية بدل مُعبَّأة).
+         */
+        if (in_array($normalized, [self::MAIN_MENU_CONTACT, 'تواصل معنا', 'تواصل'], true)) {
+            $this->startContactFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -6722,5 +6746,251 @@ class TelegramWebhookController extends Controller
     
             return;
         }
+    }
+
+    /*
+     * ============================================================
+     * "📨 تواصل معنا" — نفس مسار الموقع بالضبط: ContactController العام
+     * يستقبل (الاسم، الإيميل، الموضوع، الرسالة) ويرسلها بـContactMessageMail
+     * على نفس صندوق الموقع (mail.contact.inbox) — بلا أي جدول قاعدة بيانات
+     * جديد، تمامًا كما هو مصمَّم أصلًا (الجيميل نفسه هو "صندوق الوارد").
+     *
+     * الفرق هون: الحساب مربوط أصلًا، فنعبّي الاسم والإيميل تلقائيًا من
+     * حساب الطالب ونعرضهم بمعاينة قابلة للتعديل قبل الإرسال (بدل ما نطلب
+     * منه يكتبهم من الصفر متل فورم الموقع) — أسرع، وبلا حاجة لحقل الفخّ
+     * (honeypot) لأنه فقط حساب حقيقي مربوط يقدر يوصل لهاي الخطوة أصلًا.
+     * لو صار بالمستقبل دعم لطلاب غير مسجَّلين، نفس الخطوات هاي تشتغل
+     * وبس تبدأ الحقول فاضية بدل مُعبَّأة من الحساب.
+     * ============================================================
+     */
+    
+    private function startContactFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $user = $link->user;
+        $name = trim(implode(' ', array_filter([$user->first_name ?? null, $user->father_name ?? null, $user->last_name ?? null])));
+    
+        $link->update(['pending_action' => [
+            'action' => 'contact', 'step' => 'subject', 'lecture_id' => null,
+            'data' => ['name' => $name, 'email' => (string) ($user->email ?? '')],
+        ]]);
+    
+        $bot->sendMessage($chatId, "📨 <b>تواصل معنا</b>\n\nعندك استفسار أو اقتراح أو لاحظت خطأ بالموقع؟ اكتبلنا هون وبيوصلنا على بريدنا مباشرة.\n\n📝 اكتب موضوع رسالتك (٣ إلى ١٢٠ حرف)، أو اكتب \"إلغاء\":");
+    }
+    
+    private function sendContactConfirm(TelegramBotApi $bot, int|string $chatId, array $data): void
+    {
+        $preview = "📨 <b>معاينة رسالتك</b>\n\n".
+            '👤 '.TelegramBotApi::escapeHtml((string) $data['name'])."\n".
+            '✉️ '.TelegramBotApi::escapeHtml((string) $data['email'])."\n".
+            '📝 <b>'.TelegramBotApi::escapeHtml((string) $data['subject'])."</b>\n\n".
+            TelegramBotApi::escapeHtml((string) $data['message']);
+    
+        $bot->sendMessage($chatId, $preview, [
+            [
+                ['text' => '✏️ الاسم', 'callback_data' => 'contact:editname'],
+                ['text' => '✏️ الإيميل', 'callback_data' => 'contact:editemail'],
+            ],
+            [['text' => '✅ إرسال', 'callback_data' => 'contact:send']],
+            [['text' => '❌ إلغاء', 'callback_data' => 'contact:cancel']],
+        ]);
+    }
+    
+    private function handleContactCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $key = substr($data, strlen('contact:'));
+    
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+    
+            return;
+        }
+    
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+    
+        if (! $link || ! $link->user) {
+            $bot->answerCallbackQuery($callbackId, 'حسابك غير مربوط.');
+    
+            return;
+        }
+    
+        $pending = $link->pending_action;
+    
+        if (($pending['action'] ?? null) !== 'contact') {
+            $bot->answerCallbackQuery($callbackId);
+    
+            return;
+        }
+    
+        $bot->answerCallbackQuery($callbackId);
+        $pendingData = $pending['data'] ?? [];
+    
+        if ($key === 'cancel') {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+    
+            return;
+        }
+    
+        if ($key === 'editname') {
+            $link->update(['pending_action' => ['action' => 'contact', 'step' => 'edit_name', 'lecture_id' => null, 'data' => $pendingData]]);
+            $bot->sendMessage($chatId, '👤 اكتب الاسم الجديد:');
+    
+            return;
+        }
+    
+        if ($key === 'editemail') {
+            $link->update(['pending_action' => ['action' => 'contact', 'step' => 'edit_email', 'lecture_id' => null, 'data' => $pendingData]]);
+            $bot->sendMessage($chatId, '✉️ اكتب الإيميل الجديد:');
+    
+            return;
+        }
+    
+        if ($key === 'send') {
+            if (($pending['step'] ?? null) !== 'confirm') {
+                return;
+            }
+    
+            $name = trim((string) ($pendingData['name'] ?? ''));
+            $email = trim((string) ($pendingData['email'] ?? ''));
+            $subject = trim((string) ($pendingData['subject'] ?? ''));
+            $message = trim((string) ($pendingData['message'] ?? ''));
+    
+            if ($name === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL) || $subject === '' || $message === '') {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, '⚠️ في خطأ بالبيانات، ابدأ من جديد من "📨 تواصل معنا".');
+    
+                return;
+            }
+    
+            $mail = new ContactMessageMail(
+                senderName: $name,
+                senderEmail: $email,
+                subjectLine: $subject,
+                body: $message,
+            );
+    
+            try {
+                Mail::to(config('mail.contact.inbox') ?: config('mail.from.address'))->send($mail);
+            } catch (TransportException $error) {
+                Log::error('تعذّر إرسال رسالة تواصل من البوت.', ['error' => $error->getMessage()]);
+                $bot->sendMessage($chatId, '⚠️ تعذّر إرسال رسالتك الآن. حاول بعد قليل.');
+    
+                return;
+            }
+    
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ وصلتنا رسالتك، وبيوصلك الرد على بريدك مباشرة.');
+    
+            return;
+        }
+    }
+    
+    private function handleContactTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+    
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+    
+            return;
+        }
+    
+        $pending = $link->pending_action;
+        $step = $pending['step'] ?? null;
+        $data = $pending['data'] ?? [];
+    
+        if ($step === 'subject') {
+            if (mb_strlen($normalized) < 3 || mb_strlen($normalized) > 120) {
+                $bot->sendMessage($chatId, 'الموضوع لازم يكون بين ٣ و١٢٠ حرف 🙂 حاول كمان:');
+    
+                return;
+            }
+    
+            $data['subject'] = $normalized;
+            $link->update(['pending_action' => ['action' => 'contact', 'step' => 'message', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '📝 اكتب رسالتك بالتفصيل (١٠ إلى ٢٠٠٠ حرف):');
+    
+            return;
+        }
+    
+        if ($step === 'message') {
+            if (mb_strlen($normalized) < 10 || mb_strlen($normalized) > 2000) {
+                $bot->sendMessage($chatId, 'الرسالة لازم تكون بين ١٠ و٢٠٠٠ حرف 🙂 حاول كمان:');
+    
+                return;
+            }
+    
+            $data['message'] = $normalized;
+    
+            if (trim((string) ($data['name'] ?? '')) === '' || ! filter_var($data['email'] ?? '', FILTER_VALIDATE_EMAIL)) {
+                /*
+                 * حساب بلا اسم/إيميل صالح (أو مستقبلًا: طالب غير مربوط) —
+                 * نطلبهم صراحةً بدل ما نعرض معاينة بحقول فاضية.
+                 */
+                $link->update(['pending_action' => ['action' => 'contact', 'step' => 'edit_name', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '👤 اكتب اسمك:');
+    
+                return;
+            }
+    
+            $link->update(['pending_action' => ['action' => 'contact', 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+            $this->sendContactConfirm($bot, $chatId, $data);
+    
+            return;
+        }
+    
+        if ($step === 'edit_name') {
+            if (mb_strlen($normalized) < 2 || mb_strlen($normalized) > 80) {
+                $bot->sendMessage($chatId, 'اسم غير صالح 🙂 اكتب اسمًا بين حرفين و٨٠ حرف:');
+    
+                return;
+            }
+    
+            $data['name'] = $normalized;
+    
+            if (! filter_var($data['email'] ?? '', FILTER_VALIDATE_EMAIL)) {
+                $link->update(['pending_action' => ['action' => 'contact', 'step' => 'edit_email', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '✉️ اكتب إيميلك:');
+    
+                return;
+            }
+    
+            $nextStep = isset($data['subject'], $data['message']) ? 'confirm' : 'subject';
+            $link->update(['pending_action' => ['action' => 'contact', 'step' => $nextStep, 'lecture_id' => null, 'data' => $data]]);
+    
+            if ($nextStep === 'confirm') {
+                $this->sendContactConfirm($bot, $chatId, $data);
+            } else {
+                $bot->sendMessage($chatId, '📝 اكتب موضوع رسالتك (٣ إلى ١٢٠ حرف):');
+            }
+    
+            return;
+        }
+    
+        if ($step === 'edit_email') {
+            if (! filter_var($normalized, FILTER_VALIDATE_EMAIL) || mb_strlen($normalized) > 120) {
+                $bot->sendMessage($chatId, 'إيميل غير صالح 🙂 اكتب بريد إلكتروني صحيح:');
+    
+                return;
+            }
+    
+            $data['email'] = $normalized;
+            $nextStep = isset($data['subject'], $data['message']) ? 'confirm' : 'subject';
+            $link->update(['pending_action' => ['action' => 'contact', 'step' => $nextStep, 'lecture_id' => null, 'data' => $data]]);
+    
+            if ($nextStep === 'confirm') {
+                $this->sendContactConfirm($bot, $chatId, $data);
+            } else {
+                $bot->sendMessage($chatId, '📝 اكتب موضوع رسالتك (٣ إلى ١٢٠ حرف):');
+            }
+    
+            return;
+        }
+    
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
     }
 }
