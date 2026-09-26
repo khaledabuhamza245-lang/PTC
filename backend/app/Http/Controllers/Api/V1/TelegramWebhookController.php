@@ -21,6 +21,7 @@ use App\Services\TelegramBotApi;
 use App\Services\TelegramContentNotifier;
 use App\Services\TelegramGpaCalculator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -228,6 +229,31 @@ class TelegramWebhookController extends Controller
             || $request->header('X-Telegram-Bot-Api-Secret-Token') !== $expectedSecret
         ) {
             return response()->json(['ok' => false], 403);
+        }
+
+        /*
+         * حارس تكرار — السبب الفعلي وراء شكوى الطاقم "بيرسل نفس رسالة
+         * المراجعة وناتجها المبتور أكتر من ٦ مرات، وحتى بعد /start
+         * جديدة": تيليجرام بيعتبر الـwebhook "فشل" لو ما استقبل ردًا
+         * سريعًا، وبيعيد بعت **نفس التحديث** (نفس update_id) أكتر من
+         * مرة — ومسار "ورشة الأكواد" (خصوصًا فحص/تحسين على ملف كبير)
+         * بياخد لحد ١٥٠+ ثانية (نداءا Gemini)، أطول بكثير من مهلة رد
+         * تيليجرام المعتادة. كل إعادة إرسال كانت تُعاد معالجتها من
+         * الصفر بالكامل (رسالة "جارٍ المراجعة" + نداء Gemini جديد)،
+         * فتظهر للطالب كأنها ستّ عمليات مختلفة رغم إنه بعت أمرًا وحدًا.
+         * تجاهل أي update_id سبق معالجته خلال آخر ١٥ دقيقة يقطع هذا
+         * التكرار نهائيًا بغض النظر عن سبب إعادة الإرسال (بطء، خطأ 5xx...).
+         */
+        $updateId = $request->input('update_id');
+
+        if ($updateId !== null) {
+            $dedupeKey = 'tg-webhook-update:' . $updateId;
+
+            if (Cache::has($dedupeKey)) {
+                return response()->json(['ok' => true]);
+            }
+
+            Cache::put($dedupeKey, true, now()->addMinutes(15));
         }
 
         /*
@@ -1256,6 +1282,17 @@ class TelegramWebhookController extends Controller
 
         try {
             if (in_array($mode, self::DEBUG_ACTION_KEYS, true)) {
+                // راجع تعليق fastcgi_finish_request المطابق بـreplyWithCodeFileDebug.
+                if (function_exists('fastcgi_finish_request')) {
+                    if (! headers_sent()) {
+                        http_response_code(200);
+                        header('Content-Type: application/json');
+                    }
+
+                    echo json_encode(['ok' => true]);
+                    fastcgi_finish_request();
+                }
+
                 $this->sendCodeToolResult($bot, $chatId, $aiAssistant, $user, $mode, $text, 'code.txt');
 
                 return;
@@ -1317,6 +1354,27 @@ class TelegramWebhookController extends Controller
         }
 
         $bot->sendMessage($chatId, '🤖 جارٍ مراجعة الكود... ثواني وبردّ عليك.');
+
+        /*
+         * إغلاق اتصال الـwebhook مع تيليجرام هون فورًا — لا بعد ما نخلّص
+         * (وهاد هو السبب الجذري الثاني وراء "بيرسل ٦ مرات": حتى مع
+         * حارس تكرار update_id فوق بـ__invoke، سيرفر الاستضافة أو
+         * تيليجرام نفسه ممكن يعتبر الاتصال "معلّق" ويقطعه/يعيد الإرسال
+         * لو ضلّينا ممسكين فيه ١٥٠+ ثانية لحد ما نداءا Gemini يخلّصوا).
+         * fastcgi_finish_request() بيسكّر الرد لتيليجرام حالًا (بيوصله
+         * "200 ok" بثواني)، والسكربت نفسه بيكمل شغل بالخلفية عادي —
+         * ورسائل $bot->sendMessage/sendDocument بعدين نداءات شبكة
+         * منفصلة تمامًا عن هيك اتصال، فبتوصل الطالب طبيعي.
+         */
+        if (function_exists('fastcgi_finish_request')) {
+            if (! headers_sent()) {
+                http_response_code(200);
+                header('Content-Type: application/json');
+            }
+
+            echo json_encode(['ok' => true]);
+            fastcgi_finish_request();
+        }
 
         $localPath = $bot->downloadFile($fileId);
 
