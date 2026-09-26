@@ -312,12 +312,30 @@ class TelegramWebhookController extends Controller
          * رسالة توضيحية بدل ما تروح غلط للتلخيص.
          */
         if ($link->isInScheduleFlow()) {
-            if ($hasMedia) {
+            /*
+             * علة كانت موجودة: لو الطالب بمنتصف أي عملية (بحث، نشر
+             * إعلان...) وضغط زر تاني من القائمة الرئيسية الدائمة
+             * (خطتي/معدلي/جدولي...)، كان النص يروح غلط لمعالج العملية
+             * الحالية (مثلًا يُفهم كمصطلح بحث جديد) بدل ما يُفهم كتنقّل
+             * فعلي. أي ضغطة على زر رئيسي معروف لازم "تخرج" فورًا من أي
+             * عملية جارية بدل ما تُحتجَز فيها.
+             */
+            $mainMenuButtons = [
+                self::MAIN_MENU_PLAN, self::MAIN_MENU_GPA, self::MAIN_MENU_SCHEDULE,
+                self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
+                self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE,
+            ];
+
+            if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
+                $link->update(['pending_action' => null]);
+            } elseif ($hasMedia) {
                 $bot->sendMessage($chatId, 'أنت بمنتصف عملية حاليًا 🙂 اكتب ردّك كنص، أو اكتب "إلغاء" لإيقافها.');
 
                 return response()->json(['ok' => true]);
             }
+        }
 
+        if ($link->isInScheduleFlow()) {
             $pendingAction = (string) ($link->pending_action['action'] ?? '');
 
             if (str_starts_with($pendingAction, 'gpa')) {
@@ -2448,6 +2466,12 @@ class TelegramWebhookController extends Controller
 
             return;
         }
+
+        if ($key === 'coursetools') {
+            $this->sendCourseHubCourseToolsList($bot, $chatId, (string) $arg);
+
+            return;
+        }
     }
 
     private function sendCourseHubSemesterPicker(TelegramBotApi $bot, int|string $chatId, int $year): void
@@ -2614,11 +2638,59 @@ class TelegramWebhookController extends Controller
 
         $keyboard = [
             [['text' => '📁 عرض محتوى المادة', 'callback_data' => 'hub:files:'.$course->key]],
-            [['text' => '🌐 فتح صفحة المادة بالموقع', 'url' => $siteLink]],
-            [['text' => '🔙 رجوع للمساقات', 'callback_data' => 'hub:root']],
         ];
 
+        if ($tools->isNotEmpty()) {
+            $keyboard[] = [['text' => "🧰 أدوات المادة ({$tools->count()})", 'callback_data' => 'hub:coursetools:'.$course->key]];
+        }
+
+        $keyboard[] = [['text' => '🌐 فتح صفحة المادة بالموقع', 'url' => $siteLink]];
+        $keyboard[] = [['text' => '🔙 رجوع للمساقات', 'callback_data' => 'hub:root']];
+
         $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    /*
+     * "🧰 أدوات المادة" — نفس أدوات المادة المعروضة أصلًا بتفاصيلها
+     * (Course::tools()) لكن كل أداة بزر يفتح تفاصيلها الكاملة
+     * (sendCourseHubToolDetail) مباشرة، بدل مجرد أسماء بلا روابط.
+     */
+    private function sendCourseHubCourseToolsList(TelegramBotApi $bot, int|string $chatId, string $courseKey): void
+    {
+        $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.', [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]);
+
+            return;
+        }
+
+        $tools = $course->tools()->where('is_active', true)->get(['tools.id', 'tools.name', 'tools.type']);
+
+        if ($tools->isEmpty()) {
+            $bot->sendMessage(
+                $chatId,
+                '📭 لا يوجد أدوات مرتبطة بهذه المادة حاليًا.',
+                [[['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]]]
+            );
+
+            return;
+        }
+
+        $keyboard = $tools->map(function (Tool $tool) {
+            $typeLabel = self::INLINE_TOOL_TYPE_LABELS[$tool->type] ?? '';
+            $label = trim(($typeLabel !== '' ? $typeLabel.' — ' : '').(string) $tool->name);
+
+            return [['text' => $label, 'callback_data' => 'hub:tool:'.$tool->id]];
+        })->values()->all();
+
+        $keyboard[] = [['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]];
+
+        $bot->sendMessage(
+            $chatId,
+            '🧰 <b>أدوات مادة '.TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en))."</b>\n\nاختر أداة لعرض تفاصيلها وروابطها:",
+            $keyboard
+        );
     }
 
     /*
@@ -2864,7 +2936,15 @@ class TelegramWebhookController extends Controller
             return;
         }
 
-        $link->update(['pending_action' => null]);
+        /*
+         * علة كانت موجودة: كنا نلغي وضع البحث فورًا هون (قبل ما نعرض
+         * النتيجة)، فلو ما لقى نتيجة وكتب كلمة تانية مباشرة (بدل ما
+         * يضغط "🔍 بحث" من جديد كما اقترحت الرسالة)، النص كان يروح غلط
+         * لأداة الذكاء الاصطناعي المختارة حاليًا بالقائمة الذكية. وضع
+         * البحث الآن "لاصق" — يضل فعّال لعدة محاولات متتالية، ولا يخرج
+         * منه الطالب إلا بضغط زر رئيسي تاني (راجع mainMenuButtons
+         * بـ__invoke) أو كتابة "إلغاء".
+         */
         $this->sendSearchResults($bot, $chatId, $normalized);
     }
 
