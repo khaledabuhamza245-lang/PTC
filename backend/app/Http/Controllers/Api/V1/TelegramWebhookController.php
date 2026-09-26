@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Announcement;
 use App\Models\Course;
+use App\Models\CourseContentProgress;
 use App\Models\CourseFile;
 use App\Models\CourseSection;
 use App\Models\CourseUnit;
+use App\Models\Favorite;
 use App\Models\GpaEntry;
 use App\Models\ScheduleLecture;
 use App\Models\TelegramLink;
@@ -112,11 +114,13 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_HELP = '❓ مساعدة';
 
     private const MAIN_MENU_SEARCH = '🔍 بحث';
+    private const MAIN_MENU_MY_COURSES = '📖 مساقاتي الحالية';
 
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
+        [['text' => self::MAIN_MENU_MY_COURSES]],
         [['text' => self::MAIN_MENU_HELP]],
     ];
 
@@ -243,6 +247,10 @@ class TelegramWebhookController extends Controller
                 $this->handleAdminContentCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'admcourse:')) {
                 $this->handleAdminCourseCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'mycourse:')) {
+                $this->handleMyCourseCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'content:')) {
+                $this->handleContentCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -373,7 +381,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_PLAN, self::MAIN_MENU_GPA, self::MAIN_MENU_SCHEDULE,
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
-                self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES,
+                self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -400,6 +408,8 @@ class TelegramWebhookController extends Controller
                 $this->handleAdminContentTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'admcourse')) {
                 $this->handleAdminCourseTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'mycourse')) {
+                $this->handleMyCourseTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -490,6 +500,18 @@ class TelegramWebhookController extends Controller
 
         if (in_array($normalized, [self::MAIN_MENU_COURSES, 'المساقات', 'مساقات'], true)) {
             $this->sendCourseHubYearPicker($bot, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "📖 مساقاتي الحالية" — مساقات الطالب المسجَّلة فعليًا
+         * (my_courses.status = registered)، نفس الجدول الذي تقرأ/تكتب
+         * منه الصفحة الشخصية بالموقع (MyCourseController) — إضافة/حذف
+         * من هون تنعكس مباشرة هناك وبالعكس.
+         */
+        if (in_array($normalized, [self::MAIN_MENU_MY_COURSES, 'مساقاتي'], true)) {
+            $this->sendMyCoursesList($bot, $chatId, $link->user);
 
             return response()->json(['ok' => true]);
         }
@@ -2500,6 +2522,7 @@ class TelegramWebhookController extends Controller
             ],
             [['text' => '🔀 المساقات الاختيارية', 'callback_data' => 'hub:electives:1']],
             [['text' => '🧰 الأدوات الهندسية', 'callback_data' => 'hub:tools:1']],
+            [['text' => '⭐ مفضلاتي', 'callback_data' => 'content:favorites:1']],
         ];
 
         $bot->sendMessage(
@@ -2741,6 +2764,45 @@ class TelegramWebhookController extends Controller
             }
         }
 
+        /*
+         * مواضيع يُنصح بمراجعتها قبل المادة (course_prep_topics) — طلب
+         * صريح من الطاقم: "ماذا أراجع قبل المادة؟".
+         */
+        $prepTopics = $course->prepTopics()->get();
+
+        if ($prepTopics->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '📚 <b>راجع هاي المواضيع قبل ما تبلش المادة:</b>';
+
+            foreach ($prepTopics as $topic) {
+                $lines[] = '• '.TelegramBotApi::escapeHtml((string) $topic->topic);
+
+                if (! empty($topic->link)) {
+                    $lines[] = '  🔗 '.$topic->link;
+                }
+            }
+        }
+
+        /*
+         * المتطلبات اللاحقة: مواد تانية تحتاج هاي المادة كمتطلب سابق
+         * (الاتجاه المعاكس لـ$course->prerequisites() أعلاه) — طلب
+         * صريح من الطاقم.
+         */
+        $requiredFor = $course->requiredFor()->with('course')->get();
+
+        if ($requiredFor->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '🔓 <b>مواد تانية تحتاج هاي المادة كمتطلب سابق:</b>';
+
+            foreach ($requiredFor as $dependency) {
+                $dependentName = $dependency->course?->name_ar ?? $dependency->course?->name_en;
+
+                if ($dependentName) {
+                    $lines[] = '• '.TelegramBotApi::escapeHtml((string) $dependentName);
+                }
+            }
+        }
+
         $tools = $course->tools()->where('is_active', true)->get(['tools.id', 'tools.name']);
 
         if ($tools->isNotEmpty()) {
@@ -2753,6 +2815,7 @@ class TelegramWebhookController extends Controller
 
         $keyboard = [
             [['text' => '📁 عرض محتوى المادة', 'callback_data' => 'hub:files:'.$course->key]],
+            [['text' => '⭐📊 تصفّح تفاعلي (مفضلة وإنجاز)', 'callback_data' => 'content:course:'.$course->key.':1']],
         ];
 
         if ($tools->isNotEmpty()) {
@@ -6058,5 +6121,574 @@ class TelegramWebhookController extends Controller
         }
     
         $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+    }
+
+    /*
+     * ============================================================
+     * "📖 مساقاتي الحالية" — مساقات الطالب المسجَّلة فعليًا (my_courses)،
+     * بنفس منطق MyCourseController بالضبط (قيد الخانة الاختيارية المتاحة،
+     * وسلوك الحذف الناعم/الصريح حسب مصدر التسجيل) — فأي إضافة/حذف هون
+     * ينعكس مباشرة بالصفحة الشخصية بالموقع وبالعكس، لأنه نفس الجدول تمامًا.
+     * ============================================================
+     */
+    
+    private function sendMyCoursesList(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user): void
+    {
+        $courses = $user->myCourses()->wherePivot('status', 'registered')->orderBy('semester')->get();
+    
+        $lines = ['📖 <b>مساقاتي الحالية</b>'];
+        $keyboard = [];
+    
+        if ($courses->isEmpty()) {
+            $lines[] = '';
+            $lines[] = 'ما في عندك مساقات مسجَّلة حاليًا.';
+        } else {
+            foreach ($courses as $course) {
+                $label = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+                $keyboard[] = [['text' => $label, 'callback_data' => 'mycourse:view:'.$course->key]];
+            }
+        }
+    
+        $keyboard[] = [['text' => '➕ إضافة مساق', 'callback_data' => 'mycourse:addsearch']];
+    
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+    
+    private function sendMyCourseActions(TelegramBotApi $bot, int|string $chatId, string $courseKey): void
+    {
+        $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+    
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.', [[['text' => '🔙 رجوع', 'callback_data' => 'mycourse:list']]]);
+    
+            return;
+        }
+    
+        $name = TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en));
+        $keyboard = [
+            [['text' => '📂 التفاصيل والمحتوى', 'callback_data' => 'hub:course:'.$course->key]],
+            [['text' => '⭐📊 تصفّح تفاعلي (مفضلة وإنجاز)', 'callback_data' => 'content:course:'.$course->key.':1']],
+            [['text' => '🗑️ حذف من مساقاتي', 'callback_data' => 'mycourse:removeconfirm:'.$course->key]],
+            [['text' => '🔙 رجوع لمساقاتي', 'callback_data' => 'mycourse:list']],
+        ];
+    
+        $bot->sendMessage($chatId, "📘 <b>{$name}</b>", $keyboard);
+    }
+    
+    private function handleMyCourseCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('mycourse:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+    
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+    
+            return;
+        }
+    
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+    
+        if (! $link || ! $link->user) {
+            $bot->answerCallbackQuery($callbackId, 'حسابك غير مربوط.');
+    
+            return;
+        }
+    
+        $bot->answerCallbackQuery($callbackId);
+        $user = $link->user;
+    
+        if ($key === 'list') {
+            $link->update(['pending_action' => null]);
+            $this->sendMyCoursesList($bot, $chatId, $user);
+    
+            return;
+        }
+    
+        if ($key === 'view') {
+            $link->update(['pending_action' => null]);
+            $this->sendMyCourseActions($bot, $chatId, (string) ($parts[1] ?? ''));
+    
+            return;
+        }
+    
+        if ($key === 'addsearch') {
+            $link->update(['pending_action' => ['action' => 'mycourse_add', 'step' => 'query', 'lecture_id' => null, 'data' => []]]);
+            $bot->sendMessage($chatId, '🔍 اكتب اسم المادة أو رمزها للإضافة (أو اكتب "إلغاء"):');
+    
+            return;
+        }
+    
+        if ($key === 'add') {
+            $this->handleMyCourseAdd($bot, $user, $chatId, (string) ($parts[1] ?? ''));
+    
+            return;
+        }
+    
+        if ($key === 'removeconfirm') {
+            $courseKey = (string) ($parts[1] ?? '');
+            $bot->sendMessage($chatId, '⚠️ متأكد إنك بدك تحذف هذا المساق من مساقاتك الحالية؟', [[
+                ['text' => '✅ نعم، احذف', 'callback_data' => 'mycourse:removeyes:'.$courseKey],
+                ['text' => '❌ لا، رجوع', 'callback_data' => 'mycourse:view:'.$courseKey],
+            ]]);
+    
+            return;
+        }
+    
+        if ($key === 'removeyes') {
+            $this->handleMyCourseRemove($bot, $user, $chatId, (string) ($parts[1] ?? ''));
+    
+            return;
+        }
+    }
+    
+    /*
+     * نفس منطق MyCourseController@store بالضبط: قيد الخانة الاختيارية
+     * المتاحة (لا يسجّل طالب مادة اختيارية إلا ضمن خانة placeholder مفتوحة
+     * بسنته وفصله الحالي)، والتعامل مع صفّ "dropped" سابق بإعادة تفعيله
+     * بدل إدخال مكرر.
+     */
+    private function handleMyCourseAdd(TelegramBotApi $bot, \App\Models\User $user, int|string $chatId, string $courseKey): void
+    {
+        $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+    
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.');
+    
+            return;
+        }
+    
+        if ($course->course_type === 'elective') {
+            $user->loadMissing('currentTerm');
+            $term = $user->currentTerm;
+            $year = (int) $user->year;
+            $planSemester = ($year && $term && in_array((int) $term->semester, [1, 2], true))
+                ? (($year - 1) * 2) + (int) $term->semester
+                : null;
+    
+            $hasOpenSlot = $planSemester && Course::query()
+                ->where('is_active', true)
+                ->where('course_type', 'placeholder')
+                ->where('year', $year)
+                ->where('semester', $planSemester)
+                ->exists();
+    
+            if (! $hasOpenSlot) {
+                $bot->sendMessage($chatId, '⚠️ ما في خانة اختيارية متاحة إلك بفصلك الدراسي الحالي.');
+    
+                return;
+            }
+        }
+    
+        $existing = \Illuminate\Support\Facades\DB::table('my_courses')->where('user_id', $user->id)->where('course_id', $course->id)->first();
+    
+        if (! $existing) {
+            \Illuminate\Support\Facades\DB::table('my_courses')->insert([
+                'user_id' => $user->id,
+                'course_id' => $course->id,
+                'source' => 'manual',
+                'term_id' => $user->current_term_id,
+                'status' => 'registered',
+                'completed_at' => null,
+                'grade' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } else {
+            $update = ['source' => 'manual', 'updated_at' => now()];
+    
+            if (($existing->status ?? 'registered') === 'dropped') {
+                $update['status'] = 'registered';
+                $update['term_id'] = $user->current_term_id;
+                $update['completed_at'] = null;
+            } elseif (($existing->status ?? 'registered') === 'registered' && $user->current_term_id) {
+                $update['term_id'] = $user->current_term_id;
+            }
+    
+            \Illuminate\Support\Facades\DB::table('my_courses')->where('user_id', $user->id)->where('course_id', $course->id)->update($update);
+        }
+    
+        $bot->sendMessage($chatId, '✅ تمت إضافة المساق لمساقاتك الحالية.');
+        $this->sendMyCoursesList($bot, $chatId, $user);
+    }
+    
+    /*
+     * نفس منطق MyCourseController@destroy بالضبط: مساق الفصل الحالي
+     * (تلقائي أو مقترَح لسنة/فصل الطالق المُعلَنين) يُعلَّم "dropped" لا
+     * يُحذف نهائيًا (لأن المزامنة التلقائية ستعيده)، وأي مساق آخر يُحذف
+     * صفّه فعليًا.
+     */
+    private function handleMyCourseRemove(TelegramBotApi $bot, \App\Models\User $user, int|string $chatId, string $courseKey): void
+    {
+        $course = Course::query()->where('key', $courseKey)->first();
+    
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة.');
+    
+            return;
+        }
+    
+        $existing = \Illuminate\Support\Facades\DB::table('my_courses')->where('user_id', $user->id)->where('course_id', $course->id)->first();
+    
+        if ($existing) {
+            $isAutomatic = ($existing->source ?? 'manual') === 'automatic';
+            $isCurrentSuggested = $this->isCurrentSuggestedMyCourse($user, $course);
+    
+            if ($isAutomatic || $isCurrentSuggested) {
+                \Illuminate\Support\Facades\DB::table('my_courses')->where('user_id', $user->id)->where('course_id', $course->id)->update([
+                    'status' => 'dropped', 'source' => 'manual', 'completed_at' => null, 'updated_at' => now(),
+                ]);
+            } else {
+                \Illuminate\Support\Facades\DB::table('my_courses')->where('user_id', $user->id)->where('course_id', $course->id)->delete();
+            }
+        }
+    
+        $bot->sendMessage($chatId, '🗑️ تم حذف المساق من مساقاتك الحالية.');
+        $this->sendMyCoursesList($bot, $chatId, $user);
+    }
+    
+    private function isCurrentSuggestedMyCourse(\App\Models\User $user, Course $course): bool
+    {
+        $user->loadMissing('currentTerm');
+        $term = $user->currentTerm;
+        $year = (int) $user->year;
+    
+        if (! $year || ! $term || ! in_array((int) $term->semester, [1, 2], true)) {
+            return false;
+        }
+    
+        $planSemester = (($year - 1) * 2) + (int) $term->semester;
+    
+        return (bool) $course->is_active
+            && (int) $course->year === $year
+            && (int) $course->semester === $planSemester
+            && in_array($course->course_type, ['required', 'placeholder'], true);
+    }
+    
+    private function handleMyCourseTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+    
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+            $this->sendMyCoursesList($bot, $chatId, $link->user);
+    
+            return;
+        }
+    
+        $pending = $link->pending_action;
+    
+        if (($pending['action'] ?? null) === 'mycourse_add' && ($pending['step'] ?? null) === 'query') {
+            if (mb_strlen($normalized) < 2) {
+                $bot->sendMessage($chatId, 'اكتب حرفين على الأقل 🙂');
+    
+                return;
+            }
+    
+            $courses = Course::query()
+                ->where('is_active', true)
+                ->where(function ($query) use ($normalized) {
+                    $query->where('name_ar', 'like', "%{$normalized}%")
+                        ->orWhere('name_en', 'like', "%{$normalized}%")
+                        ->orWhere('code', 'like', "%{$normalized}%");
+                })
+                ->orderBy('name_ar')
+                ->limit(8)
+                ->get();
+    
+            if ($courses->isEmpty()) {
+                $bot->sendMessage($chatId, '❌ ما لقيت مادة بهذا الاسم، جرّب اسم أو رمز مختلف (أو اكتب "إلغاء"):');
+    
+                return;
+            }
+    
+            $keyboard = [];
+            foreach ($courses as $course) {
+                $label = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+                $keyboard[] = [['text' => $label, 'callback_data' => 'mycourse:add:'.$course->key]];
+            }
+            $bot->sendMessage($chatId, '📚 اختر المادة يلي بدك تضيفها:', $keyboard);
+    
+            return;
+        }
+    
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+    }
+
+    /*
+     * ============================================================
+     * "⭐📊 تصفّح تفاعلي (مفضلة وإنجاز)" — نفس محتوى المادة العام المعروض
+     * بـsendCourseHubCourseFiles (public/منشور/جاهز فقط — البوت هون بلا
+     * حساب مطابق لحالة الطالب بالمادة، فنفس قيد anonymous المستخدَم أصلًا
+     * بذاك العرض)، لكن كعناصر مستقلة بأزرار: تفضيل (favorites) وتعليم
+     * إنجاز (course_content_progress) — شخصيان لكل طالب، بنفس الجداول
+     * التي يقرأ/يكتب منها الموقع تمامًا.
+     * ============================================================
+     */
+    
+    private function contentVisibleFilesForCourse(Course $course)
+    {
+        return CourseFile::query()
+            ->where('course_id', $course->id)
+            ->where('is_published', true)
+            ->where('status', 'ready')
+            ->where('visibility', 'public')
+            ->orderBy('course_section_id')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+    }
+    
+    private function sendContentCourseFileList(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user, string $courseKey, int $page): void
+    {
+        $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+    
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.', [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]);
+    
+            return;
+        }
+    
+        $files = $this->contentVisibleFilesForCourse($course);
+        $courseName = TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en));
+    
+        if ($files->isEmpty()) {
+            $bot->sendMessage(
+                $chatId,
+                "📭 لا يوجد محتوى عام متاح لمادة \"{$courseName}\" ضمن البوت حاليًا.",
+                [[['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]]]
+            );
+    
+            return;
+        }
+    
+        $countableIds = $files->where('counts_toward_progress', true)->pluck('id');
+        $doneIds = $countableIds->isEmpty() ? collect() : CourseContentProgress::query()
+            ->where('user_id', $user->id)
+            ->whereIn('course_file_id', $countableIds)
+            ->pluck('course_file_id');
+        $favIds = Favorite::query()->where('user_id', $user->id)->whereIn('course_file_id', $files->pluck('id'))->pluck('course_file_id');
+    
+        $lines = ["📁 <b>محتوى {$courseName}</b>"];
+    
+        if ($countableIds->isNotEmpty()) {
+            $pct = (int) round(($doneIds->count() / $countableIds->count()) * 100);
+            $lines[] = "📊 إنجازك: {$doneIds->count()} من {$countableIds->count()} ({$pct}٪)";
+        }
+    
+        $total = $files->count();
+        $pageItems = $files->forPage($page, self::COURSE_HUB_PAGE_SIZE);
+    
+        $keyboard = [];
+    
+        foreach ($pageItems as $file) {
+            $prefix = ($favIds->contains($file->id) ? '⭐' : '').($file->counts_toward_progress && $doneIds->contains($file->id) ? '✅' : '');
+            $label = trim($prefix.' '.$file->title);
+            $keyboard[] = [['text' => $label, 'callback_data' => 'content:file:'.$file->id]];
+        }
+    
+        $lastPage = (int) ceil($total / self::COURSE_HUB_PAGE_SIZE);
+        $pagerRow = [];
+    
+        if ($page > 1) {
+            $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'content:course:'.$course->key.':'.($page - 1)];
+        }
+    
+        if ($page < $lastPage) {
+            $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'content:course:'.$course->key.':'.($page + 1)];
+        }
+    
+        if ($pagerRow !== []) {
+            $keyboard[] = $pagerRow;
+        }
+    
+        $keyboard[] = [['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]];
+    
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+    
+    private function sendContentFileDetail(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user, int $fileId): void
+    {
+        $file = CourseFile::query()->with('course')->find($fileId);
+    
+        if (! $file || ! $file->course || $file->visibility !== 'public' || ! $file->is_published || $file->status !== 'ready') {
+            $bot->sendMessage($chatId, '⚠️ هذا المحتوى غير متاح حاليًا.');
+    
+            return;
+        }
+    
+        $kindLabel = self::INLINE_CONTENT_KIND_LABELS[$file->kind] ?? 'محتوى';
+        $isFav = Favorite::query()->where('user_id', $user->id)->where('course_file_id', $file->id)->exists();
+        $isDone = $file->counts_toward_progress && CourseContentProgress::query()->where('user_id', $user->id)->where('course_file_id', $file->id)->exists();
+    
+        $lines = [
+            '📄 <b>'.TelegramBotApi::escapeHtml((string) $file->title).'</b>',
+            '🏷️ '.$kindLabel,
+        ];
+    
+        if (! empty($file->description)) {
+            $lines[] = '📝 '.TelegramBotApi::escapeHtml((string) $file->description);
+        }
+    
+        if ($isFav) {
+            $lines[] = '⭐ بمفضلاتك';
+        }
+    
+        if ($file->counts_toward_progress) {
+            $lines[] = $isDone ? '✅ معلَّم كمنجَز' : '⬜ لسا ما أنجزته';
+        }
+    
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+        $externalUrl = trim((string) $file->external_url);
+        $openUrl = $externalUrl !== '' ? $externalUrl : $frontendUrl.'/course.html?course='.urlencode((string) $file->course->key).'&content='.$file->id;
+    
+        $keyboard = [
+            [['text' => '🔗 فتح الرابط', 'url' => $openUrl]],
+            [['text' => $isFav ? '💔 إزالة من المفضلة' : '⭐ إضافة للمفضلة', 'callback_data' => 'content:fav:'.$file->id]],
+        ];
+    
+        if ($file->counts_toward_progress) {
+            $keyboard[] = [['text' => $isDone ? '↩️ إلغاء الإنجاز' : '✅ علّمه كمنجَز', 'callback_data' => 'content:done:'.$file->id]];
+        }
+    
+        $keyboard[] = [['text' => '🔙 رجوع لمحتوى المادة', 'callback_data' => 'content:course:'.$file->course->key.':1']];
+    
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+    
+    private function sendContentFavoritesList(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user, int $page): void
+    {
+        $favFileIds = Favorite::query()->where('user_id', $user->id)->pluck('course_file_id');
+    
+        $files = CourseFile::query()
+            ->with('course')
+            ->whereIn('id', $favFileIds)
+            ->where('is_published', true)
+            ->where('status', 'ready')
+            ->where('visibility', 'public')
+            ->orderBy('id', 'desc')
+            ->get();
+    
+        if ($files->isEmpty()) {
+            $bot->sendMessage($chatId, '⭐ لسا ما ضفت أي محتوى للمفضلة.', [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]);
+    
+            return;
+        }
+    
+        $total = $files->count();
+        $pageItems = $files->forPage($page, self::COURSE_HUB_PAGE_SIZE);
+    
+        $keyboard = [];
+    
+        foreach ($pageItems as $file) {
+            $courseLabel = (string) ($file->course->code ?? $file->course->name_ar ?? '');
+            $label = trim(($courseLabel !== '' ? $courseLabel.' — ' : '').$file->title);
+            $keyboard[] = [['text' => $label, 'callback_data' => 'content:file:'.$file->id]];
+        }
+    
+        $lastPage = (int) ceil($total / self::COURSE_HUB_PAGE_SIZE);
+        $pagerRow = [];
+    
+        if ($page > 1) {
+            $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'content:favorites:'.($page - 1)];
+        }
+    
+        if ($page < $lastPage) {
+            $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'content:favorites:'.($page + 1)];
+        }
+    
+        if ($pagerRow !== []) {
+            $keyboard[] = $pagerRow;
+        }
+    
+        $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'hub:root']];
+    
+        $bot->sendMessage($chatId, '⭐ <b>مفضلاتي</b> (صفحة '.$page.' من '.max(1, $lastPage).')', $keyboard);
+    }
+    
+    private function handleContentCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('content:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+    
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+    
+            return;
+        }
+    
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+    
+        if (! $link || ! $link->user) {
+            $bot->answerCallbackQuery($callbackId, 'حسابك غير مربوط.');
+    
+            return;
+        }
+    
+        $bot->answerCallbackQuery($callbackId);
+        $user = $link->user;
+    
+        if ($key === 'course') {
+            $courseKey = (string) ($parts[1] ?? '');
+            $page = max(1, (int) ($parts[2] ?? 1));
+            $this->sendContentCourseFileList($bot, $chatId, $user, $courseKey, $page);
+    
+            return;
+        }
+    
+        if ($key === 'file') {
+            $this->sendContentFileDetail($bot, $chatId, $user, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'fav') {
+            $fileId = (int) ($parts[1] ?? 0);
+            $existing = Favorite::query()->where('user_id', $user->id)->where('course_file_id', $fileId)->first();
+    
+            if ($existing) {
+                $existing->delete();
+            } else {
+                Favorite::create(['user_id' => $user->id, 'course_file_id' => $fileId]);
+            }
+    
+            $this->sendContentFileDetail($bot, $chatId, $user, $fileId);
+    
+            return;
+        }
+    
+        if ($key === 'done') {
+            $fileId = (int) ($parts[1] ?? 0);
+            $file = CourseFile::query()->find($fileId);
+    
+            if ($file && $file->counts_toward_progress) {
+                $existing = CourseContentProgress::query()->where('user_id', $user->id)->where('course_file_id', $fileId)->first();
+    
+                if ($existing) {
+                    $existing->delete();
+                } else {
+                    CourseContentProgress::create(['user_id' => $user->id, 'course_file_id' => $fileId, 'completed_at' => now()]);
+                }
+            }
+    
+            $this->sendContentFileDetail($bot, $chatId, $user, $fileId);
+    
+            return;
+        }
+    
+        if ($key === 'favorites') {
+            $page = max(1, (int) ($parts[1] ?? 1));
+            $this->sendContentFavoritesList($bot, $chatId, $user, $page);
+    
+            return;
+        }
     }
 }
