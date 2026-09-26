@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Announcement;
 use App\Models\Course;
 use App\Models\CourseFile;
+use App\Models\CourseSection;
+use App\Models\CourseUnit;
 use App\Models\GpaEntry;
 use App\Models\ScheduleLecture;
 use App\Models\TelegramLink;
@@ -13,6 +15,7 @@ use App\Models\Tool;
 use App\Services\PlanCalculator;
 use App\Services\TelegramAiAssistant;
 use App\Services\TelegramBotApi;
+use App\Services\TelegramContentNotifier;
 use App\Services\TelegramGpaCalculator;
 use Illuminate\Http\Request;
 
@@ -121,12 +124,35 @@ class TelegramWebhookController extends Controller
     // buildMainMenuKeyboard().
     private const MAIN_MENU_ADMIN_ANNOUNCE = '📢 نشر إعلان';
     private const MAIN_MENU_ADMIN_TOOLS = '🧰 إدارة الأدوات';
+    private const MAIN_MENU_ADMIN_CONTENT = '📚 إدارة المحتوى';
 
     // تسميات حقول تعديل الأداة — نفس أعمدة Tool (Staff/ToolController::validated()).
     private const ADMIN_TOOL_FIELD_LABELS = [
         'name' => 'الاسم', 'type' => 'النوع', 'description' => 'الوصف',
         'official_url' => 'الرابط الرسمي', 'explanation' => 'الشرح',
         'video_url' => 'رابط فيديو الشرح', 'sort_order' => 'ترتيب الظهور',
+    ];
+
+    /*
+     * إدارة المحتوى (أقسام/وحدات/تصنيفات/ملفات) — نفس ١٤ نوع محتوى
+     * بالضبط الموجودة بـStaff/CourseFileController::validatedData()
+     * ونفس التسميات العربية المستخدمة أصلًا بـTelegramContentNotifier
+     * وبالواجهة (admin.html::FILE_KIND_LABELS) حتى ما يقرأ الطاقم تسمية
+     * مختلفة هون عن يلي يشوفه بلوحة "بناء المادة".
+     */
+    private const ADMIN_CONTENT_KIND_LABELS = [
+        'pdf' => 'PDF', 'doc' => 'مستند', 'vid' => 'فيديو', 'youtube' => 'يوتيوب',
+        'drive' => 'درايف', 'assignment' => 'تعيين', 'exercise' => 'تدريب',
+        'exam' => 'اختبار', 'book' => 'مرجع', 'software' => 'برنامج',
+        'github' => 'GitHub', 'link' => 'رابط', 'image' => 'صورة', 'other' => 'أخرى',
+    ];
+
+    // نفس ٤ قيم CourseFile::visibility بالضبط (راجع validatedData()).
+    private const ADMIN_CONTENT_VISIBILITY_LABELS = [
+        'public' => 'عام (لأي زائر)',
+        'authenticated' => 'لأي حساب مسجّل دخول',
+        'course_students' => 'لطلاب المادة المسجَّلين فقط',
+        'staff_only' => 'لحسابات الإدارة فقط',
     ];
 
     // حجم صفحة قوائم "المساقات" (اختياريات/ملفات) — نفس فلسفة GPA_PAGE_SIZE.
@@ -204,6 +230,8 @@ class TelegramWebhookController extends Controller
                 $this->handleAnnounceCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'admtool:')) {
                 $this->handleAdminToolCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'admcontent:')) {
+                $this->handleAdminContentCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -334,6 +362,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_PLAN, self::MAIN_MENU_GPA, self::MAIN_MENU_SCHEDULE,
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
+                self::MAIN_MENU_ADMIN_CONTENT,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -356,6 +385,8 @@ class TelegramWebhookController extends Controller
                 $this->handleSearchTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'admtool')) {
                 $this->handleAdminToolTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'admcontent')) {
+                $this->handleAdminContentTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -489,6 +520,22 @@ class TelegramWebhookController extends Controller
             }
 
             $this->sendAdminToolMenu($bot, $chatId, 1);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "📚 إدارة المحتوى" — نفس فحص الصلاحية الحقيقي أعلاه بالضبط.
+         * أول خطوة دايمًا: بحث عن المادة (بدل تصفّح كل المساقات).
+         */
+        if ($normalized === self::MAIN_MENU_ADMIN_CONTENT) {
+            if (! $link->user->isStaff()) {
+                $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+                return response()->json(['ok' => true]);
+            }
+
+            $this->startAdminContentFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -2398,6 +2445,9 @@ class TelegramWebhookController extends Controller
                 ['text' => self::MAIN_MENU_ADMIN_ANNOUNCE],
                 ['text' => self::MAIN_MENU_ADMIN_TOOLS],
             ];
+            $keyboard[] = [
+                ['text' => self::MAIN_MENU_ADMIN_CONTENT],
+            ];
         }
 
         return $keyboard;
@@ -4022,5 +4072,1268 @@ class TelegramWebhookController extends Controller
 
             return;
         }
+    }
+
+    /*
+     * ============================================================
+     * "📚 إدارة المحتوى" — إدارة كاملة لبنية محتوى المساقات من داخل
+     * البوت (قسم ← وحدة ← تصنيف ← ملف)، بنفس منطق ونماذج الموقع تمامًا
+     * (Staff/CourseStructureController + Staff/CourseFileController)،
+     * فأي عملية هون تُخزَّن مباشرة بنفس الجداول التي تقرأ/تكتب منها لوحة
+     * "بناء المادة" بالموقع — لا مسار منفصل ولا مزامنة لاحقة، الكتابة
+     * نفسها متزامنة فورًا. الملاحظة الوحيدة المتفق عليها مع الطاقم: حاليًا
+     * روابط خارجية (https) فقط، بلا رفع ملفات فعلي عبر تيليجرام، تمامًا
+     * كحال لوحة الموقع نفسها اليوم (external_url هو المسار الوحيد الحي).
+     *
+     * التنبيه المتزامن مع الموقع مطلوب فقط عند إضافة ملف منشور — بنفس
+     * نموذج TelegramContentNotifier::notifyNewFile() المستخدَم أصلًا من
+     * CourseFileController@store (طلاب المادة المسجَّلين تلقائيًا).
+     * تنبيه جرس الموقع نفسه مبني على استعلام حي (CourseFile.is_published +
+     * created_at) فلا يحتاج أي كتابة إضافية هون — يكفي أن نضبط is_published
+     * وcreated_at بشكل صحيح كما تفعل CourseFile::create() افتراضيًا.
+     *
+     * تصنيف CourseSection: نفس الصف والجدول لكلا الدورين تمامًا — قسم
+     * رئيسي (course_unit_id = null) أو تصنيف داخل وحدة (course_unit_id
+     * محدد). أي محتوى (CourseFile) دومًا مرتبط بـcourse_section_id (سواء
+     * قسم مباشرة أو تصنيف)، وcourse_unit_id يُشتق من نفس القسم/التصنيف.
+     * ============================================================
+     */
+    
+    /*
+     * نقطة الدخول: بحث عن مادة بدل تصفّح كل المساقات — أسرع للطاقم
+     * (طلب صريح من الأدمن).
+     */
+    private function startAdminContentFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $link->update(['pending_action' => ['action' => 'admcontent_course_query', 'step' => 'query', 'lecture_id' => null, 'data' => []]]);
+        $bot->sendMessage($chatId, "📚 <b>إدارة المحتوى</b>\n\nاكتب اسم المادة أو رمزها للبحث عنها (أو اكتب \"إلغاء\"):");
+    }
+    
+    /*
+     * إحصاء المحتوى المضاف بالمادة (أقسام/وحدات/تصنيفات/ملفات) + قائمة
+     * الأقسام الرئيسية كأزرار — طلب صريح من الأدمن.
+     */
+    private function sendAdminContentCourseMenu(TelegramBotApi $bot, int|string $chatId, int $courseId): void
+    {
+        $course = Course::query()->find($courseId);
+    
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة.');
+    
+            return;
+        }
+    
+        $topSections = CourseSection::query()
+            ->where('course_id', $course->id)
+            ->whereNull('course_unit_id')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+    
+        $unitsCount = CourseUnit::query()->where('course_id', $course->id)->count();
+        $categoriesCount = CourseSection::query()->where('course_id', $course->id)->whereNotNull('course_unit_id')->count();
+        $filesCount = CourseFile::query()->where('course_id', $course->id)->count();
+        $publishedFilesCount = CourseFile::query()->where('course_id', $course->id)->where('is_published', true)->count();
+    
+        $courseName = TelegramBotApi::escapeHtml((string) ($course->name_ar ?? $course->name_en ?? $course->code));
+    
+        $lines = [
+            '📚 <b>'.$courseName.'</b>',
+            '',
+            '📊 <b>إحصاء المحتوى:</b>',
+            '🗂️ أقسام رئيسية: '.$topSections->count(),
+            '📦 وحدات: '.$unitsCount,
+            '🏷️ تصنيفات: '.$categoriesCount,
+            '📄 عناصر محتوى: '.$filesCount.' ('.$publishedFilesCount.' منشور)',
+            '',
+            $topSections->isEmpty() ? 'لا يوجد أقسام رئيسية بعد.' : '🗂️ <b>الأقسام الرئيسية:</b>',
+        ];
+    
+        $keyboard = [];
+    
+        foreach ($topSections as $section) {
+            $icon = $section->is_published ? '🟢' : '🔴';
+            $keyboard[] = [['text' => $icon.' '.$section->title, 'callback_data' => 'admcontent:section:'.$section->id]];
+        }
+    
+        $keyboard[] = [['text' => '➕ إضافة قسم جديد', 'callback_data' => 'admcontent:addsection:'.$course->id]];
+        $keyboard[] = [['text' => '🔍 بحث عن مادة أخرى', 'callback_data' => 'admcontent:searchagain']];
+    
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+    
+    /*
+     * تفاصيل قسم رئيسي أو تصنيف (نفس CourseSection، الفرق فقط
+     * course_unit_id) — يعرض وحداته الفرعية (إن كان قسمًا رئيسيًا فقط)
+     * ومحتواه المباشر، مع أزرار الإضافة/التعديل/النشر/الحذف.
+     */
+    private function sendAdminContentSectionDetail(TelegramBotApi $bot, int|string $chatId, int $sectionId): void
+    {
+        $section = CourseSection::query()->with('course')->find($sectionId);
+    
+        if (! $section) {
+            $bot->sendMessage($chatId, '⚠️ هذا القسم/التصنيف غير موجود (يمكن اتحذف).');
+    
+            return;
+        }
+    
+        $isCategory = $section->course_unit_id !== null;
+        $title = TelegramBotApi::escapeHtml((string) $section->title);
+        $statusIcon = $section->is_published ? '🟢 منشور' : '🔴 غير منشور';
+    
+        $lines = [
+            ($isCategory ? '🏷️ <b>تصنيف:</b> ' : '🗂️ <b>قسم رئيسي:</b> ').$title,
+            $statusIcon.' | إنجاز الطالب: '.($section->counts_toward_progress ? 'نعم' : 'لا'),
+        ];
+    
+        if (! empty($section->description)) {
+            $lines[] = '📝 '.TelegramBotApi::escapeHtml((string) $section->description);
+        }
+    
+        $keyboard = [];
+    
+        if (! $isCategory) {
+            $units = CourseUnit::query()->where('course_section_id', $section->id)->orderBy('sort_order')->orderBy('id')->get();
+            $lines[] = '';
+            $lines[] = $units->isEmpty() ? '📦 لا يوجد وحدات بهذا القسم بعد.' : '📦 <b>الوحدات:</b>';
+    
+            foreach ($units as $unit) {
+                $icon = $unit->is_published ? '🟢' : '🔴';
+                $keyboard[] = [['text' => $icon.' '.$unit->title, 'callback_data' => 'admcontent:unit:'.$unit->id]];
+            }
+    
+            $keyboard[] = [['text' => '➕ إضافة وحدة', 'callback_data' => 'admcontent:addunit:'.$section->id]];
+        }
+    
+        $files = CourseFile::query()->where('course_section_id', $section->id)->orderBy('sort_order')->orderBy('id')->get();
+        $lines[] = '';
+        $lines[] = $files->isEmpty() ? '📄 لا يوجد محتوى هون مباشرة بعد.' : '📄 <b>المحتوى هون مباشرة:</b>';
+    
+        foreach ($files as $file) {
+            $icon = $file->is_published ? '🟢' : '🔴';
+            $keyboard[] = [['text' => $icon.' '.$file->title, 'callback_data' => 'admcontent:file:'.$file->id]];
+        }
+    
+        $keyboard[] = [['text' => '➕ إضافة محتوى هون', 'callback_data' => 'admcontent:addfile:'.$section->id]];
+        $keyboard[] = [
+            ['text' => '✏️ تعديل', 'callback_data' => 'admcontent:editsection:'.$section->id],
+            ['text' => $section->is_published ? '🔴 إلغاء النشر' : '🟢 نشر', 'callback_data' => 'admcontent:toggle:section:'.$section->id],
+        ];
+        $keyboard[] = [['text' => '🗑️ حذف', 'callback_data' => 'admcontent:del:section:'.$section->id]];
+        $keyboard[] = $isCategory
+            ? [['text' => '🔙 رجوع للوحدة', 'callback_data' => 'admcontent:unit:'.$section->course_unit_id]]
+            : [['text' => '🔙 رجوع للمادة', 'callback_data' => 'admcontent:course:'.$section->course_id]];
+    
+        $this->sendChunkedMessage($bot, $chatId, $lines, $keyboard);
+    }
+    
+    /*
+     * تفاصيل وحدة — تعرض تصنيفاتها كأزرار.
+     */
+    private function sendAdminContentUnitDetail(TelegramBotApi $bot, int|string $chatId, int $unitId): void
+    {
+        $unit = CourseUnit::query()->find($unitId);
+    
+        if (! $unit) {
+            $bot->sendMessage($chatId, '⚠️ هذه الوحدة غير موجودة (يمكن اتحذفت).');
+    
+            return;
+        }
+    
+        $title = TelegramBotApi::escapeHtml((string) $unit->title);
+        $statusIcon = $unit->is_published ? '🟢 منشورة' : '🔴 غير منشورة';
+    
+        $lines = ['📦 <b>وحدة:</b> '.$title, $statusIcon];
+    
+        if (! empty($unit->description)) {
+            $lines[] = '📝 '.TelegramBotApi::escapeHtml((string) $unit->description);
+        }
+    
+        $categories = CourseSection::query()->where('course_unit_id', $unit->id)->orderBy('sort_order')->orderBy('id')->get();
+        $lines[] = '';
+        $lines[] = $categories->isEmpty() ? '🏷️ لا يوجد تصنيفات بهذه الوحدة بعد.' : '🏷️ <b>التصنيفات:</b>';
+    
+        $keyboard = [];
+    
+        foreach ($categories as $category) {
+            $icon = $category->is_published ? '🟢' : '🔴';
+            $keyboard[] = [['text' => $icon.' '.$category->title, 'callback_data' => 'admcontent:section:'.$category->id]];
+        }
+    
+        $keyboard[] = [['text' => '➕ إضافة تصنيف', 'callback_data' => 'admcontent:addcategory:'.$unit->id]];
+        $keyboard[] = [
+            ['text' => '✏️ تعديل', 'callback_data' => 'admcontent:editunit:'.$unit->id],
+            ['text' => $unit->is_published ? '🔴 إلغاء النشر' : '🟢 نشر', 'callback_data' => 'admcontent:toggle:unit:'.$unit->id],
+        ];
+        $keyboard[] = [['text' => '🗑️ حذف', 'callback_data' => 'admcontent:del:unit:'.$unit->id]];
+        $keyboard[] = [['text' => '🔙 رجوع للقسم', 'callback_data' => 'admcontent:section:'.$unit->course_section_id]];
+    
+        $this->sendChunkedMessage($bot, $chatId, $lines, $keyboard);
+    }
+    
+    /*
+     * تفاصيل ملف محتوى — كل الحقول المطلوبة صراحةً بطلب الطاقم: العنوان،
+     * النوع، الوصف، الرابط، والخيارات الثلاثة (منشور/إنجاز/تلخيص AI).
+     */
+    private function sendAdminContentFileDetail(TelegramBotApi $bot, int|string $chatId, int $fileId): void
+    {
+        $file = CourseFile::query()->find($fileId);
+    
+        if (! $file) {
+            $bot->sendMessage($chatId, '⚠️ هذا المحتوى غير موجود (يمكن اتحذف).');
+    
+            return;
+        }
+    
+        $kindLabel = self::ADMIN_CONTENT_KIND_LABELS[$file->kind] ?? $file->kind;
+        $visibilityLabel = self::ADMIN_CONTENT_VISIBILITY_LABELS[$file->visibility] ?? $file->visibility;
+    
+        $lines = [
+            '📄 <b>'.TelegramBotApi::escapeHtml((string) $file->title).'</b>',
+            '🏷️ النوع: '.$kindLabel,
+        ];
+    
+        if (! empty($file->description)) {
+            $lines[] = '📝 '.TelegramBotApi::escapeHtml((string) $file->description);
+        }
+    
+        $lines[] = '🔗 '.$file->external_url;
+        $lines[] = '';
+        $lines[] = ($file->is_published ? '🟢 منشور للطلاب' : '🔴 غير منشور');
+        $lines[] = ($file->counts_toward_progress ? '✅ يُحتسب ضمن إنجاز الطالب' : '➖ لا يُحتسب ضمن الإنجاز');
+        $lines[] = ($file->ai_summarizable ? '🤖 يسمح بتلخيصه/تحويله لبطاقات مراجعة' : '🚫 لا يسمح بالتلخيص/البطاقات');
+        $lines[] = '👁️ الظهور: '.$visibilityLabel;
+    
+        $keyboard = [
+            [
+                ['text' => '✏️ تعديل', 'callback_data' => 'admcontent:editfile:'.$file->id],
+                ['text' => $file->is_published ? '🔴 إلغاء النشر' : '🟢 نشر', 'callback_data' => 'admcontent:toggle:file:'.$file->id],
+            ],
+            [['text' => '🗑️ حذف', 'callback_data' => 'admcontent:del:file:'.$file->id]],
+            [['text' => '🔙 رجوع للقسم', 'callback_data' => 'admcontent:section:'.$file->course_section_id]],
+        ];
+    
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+    
+    /*
+     * اشتقاق افتراضي لـai_summarizable وقت الإنشاء فقط — نفس منطق
+     * Staff/CourseFileController::defaultAiSummarizable() بالضبط، مكرَّر
+     * هون عمدًا (دالة خاصة بكنترولر آخر) بدل تغيير رؤية الأصل.
+     */
+    private function defaultAiSummarizable(?string $kind): bool
+    {
+        return ! in_array($kind, ['vid', 'youtube', 'link', 'github', 'software', 'image'], true);
+    }
+    
+    private function isValidHttpsUrl(string $value): bool
+    {
+        return (bool) preg_match('#^https://#i', $value) && filter_var($value, FILTER_VALIDATE_URL) !== false;
+    }
+    
+    /*
+     * توجيه "رجوع" عام بعد إتمام/إلغاء أي معالج (إضافة قسم/وحدة/ملف) —
+     * $returnTo بصيغة ['type' => 'course'|'section'|'unit', 'id' => ...].
+     */
+    private function renderAdminContentReturn(TelegramBotApi $bot, int|string $chatId, array $returnTo): void
+    {
+        $type = $returnTo['type'] ?? null;
+        $id = (int) ($returnTo['id'] ?? 0);
+    
+        if ($type === 'course') {
+            $this->sendAdminContentCourseMenu($bot, $chatId, $id);
+        } elseif ($type === 'unit') {
+            $this->sendAdminContentUnitDetail($bot, $chatId, $id);
+        } elseif ($type === 'section') {
+            $this->sendAdminContentSectionDetail($bot, $chatId, $id);
+        }
+    }
+    
+    /*
+     * أزرار تعديل حقول قسم/تصنيف/وحدة/ملف — نفس فلسفة
+     * sendAdminToolFieldPicker: حقول نصية تُفتح كخطوة كتابة، وحقول
+     * منطقية/تعداد تُعرض كأزرار مباشرة.
+     */
+    private function sendAdminContentEditFieldPicker(TelegramBotApi $bot, int|string $chatId, string $type, int $id): void
+    {
+        $labels = match ($type) {
+            'section' => ['title' => 'العنوان', 'description' => 'الوصف', 'counts_toward_progress' => 'إنجاز الطالب', 'is_published' => 'النشر'],
+            'unit' => ['title' => 'العنوان', 'description' => 'الوصف', 'is_published' => 'النشر'],
+            'file' => [
+                'title' => 'العنوان', 'kind' => 'النوع', 'description' => 'الوصف', 'external_url' => 'الرابط',
+                'is_published' => 'منشور للطلاب', 'counts_toward_progress' => 'إنجاز الطالب',
+                'ai_summarizable' => 'تلخيص/بطاقات AI', 'visibility' => 'الظهور',
+            ],
+            default => [],
+        };
+    
+        $keyboard = [];
+    
+        foreach ($labels as $field => $label) {
+            $keyboard[] = [['text' => $label, 'callback_data' => 'admcontent:editfield:'.$type.':'.$id.':'.$field]];
+        }
+    
+        $backCallback = match ($type) {
+            'section' => 'admcontent:section:'.$id,
+            'unit' => 'admcontent:unit:'.$id,
+            'file' => 'admcontent:file:'.$id,
+            default => 'admcontent:searchagain',
+        };
+    
+        $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => $backCallback]];
+    
+        $bot->sendMessage($chatId, 'اختر الحقل يلي بدك تعدّله:', $keyboard);
+    }
+    
+    /*
+     * معالج كل أزرار "admcontent:" — تصفّح (course/section/unit/file)،
+     * الإضافة (addsection/addcategory/addunit/addfile وأزرار المعالج
+     * التدريجي wizbtn)، التعديل (editfield/setval)، والنشر/الحذف
+     * (toggle/del/delyes/delno).
+     */
+    private function handleAdminContentCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('admcontent:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+    
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+    
+            return;
+        }
+    
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+    
+        if (! $link || ! $link->user || ! $link->user->isStaff()) {
+            $bot->answerCallbackQuery($callbackId, 'غير مخوّل.');
+    
+            return;
+        }
+    
+        $bot->answerCallbackQuery($callbackId);
+    
+        if ($key === 'searchagain') {
+            $this->startAdminContentFlow($bot, $link, $chatId);
+    
+            return;
+        }
+    
+        if ($key === 'course') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminContentCourseMenu($bot, $chatId, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'section') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminContentSectionDetail($bot, $chatId, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'unit') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminContentUnitDetail($bot, $chatId, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'file') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminContentFileDetail($bot, $chatId, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'addsection') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $link->update(['pending_action' => [
+                'action' => 'admcontent_addsection', 'step' => 'title', 'lecture_id' => null,
+                'data' => ['course_id' => $courseId, 'course_unit_id' => null, 'return_to' => ['type' => 'course', 'id' => $courseId]],
+            ]]);
+            $bot->sendMessage($chatId, '🗂️ اكتب عنوان القسم الجديد:');
+    
+            return;
+        }
+    
+        if ($key === 'addcategory') {
+            $unitId = (int) ($parts[1] ?? 0);
+            $unit = CourseUnit::query()->find($unitId);
+    
+            if (! $unit) {
+                $bot->sendMessage($chatId, '⚠️ هذه الوحدة غير موجودة.');
+    
+                return;
+            }
+    
+            $link->update(['pending_action' => [
+                'action' => 'admcontent_addsection', 'step' => 'title', 'lecture_id' => null,
+                'data' => ['course_id' => $unit->course_id, 'course_unit_id' => $unit->id, 'return_to' => ['type' => 'unit', 'id' => $unit->id]],
+            ]]);
+            $bot->sendMessage($chatId, '🏷️ اكتب عنوان التصنيف الجديد:');
+    
+            return;
+        }
+    
+        if ($key === 'addunit') {
+            $sectionId = (int) ($parts[1] ?? 0);
+            $section = CourseSection::query()->find($sectionId);
+    
+            if (! $section || $section->course_unit_id !== null) {
+                $bot->sendMessage($chatId, '⚠️ لا يمكن إضافة وحدة إلا داخل قسم رئيسي.');
+    
+                return;
+            }
+    
+            $link->update(['pending_action' => [
+                'action' => 'admcontent_addunit', 'step' => 'title', 'lecture_id' => null,
+                'data' => ['course_id' => $section->course_id, 'course_section_id' => $section->id, 'return_to' => ['type' => 'section', 'id' => $section->id]],
+            ]]);
+            $bot->sendMessage($chatId, '📦 اكتب عنوان الوحدة الجديدة:');
+    
+            return;
+        }
+    
+        if ($key === 'addfile') {
+            $sectionId = (int) ($parts[1] ?? 0);
+            $section = CourseSection::query()->find($sectionId);
+    
+            if (! $section) {
+                $bot->sendMessage($chatId, '⚠️ هذا القسم/التصنيف غير موجود.');
+    
+                return;
+            }
+    
+            $link->update(['pending_action' => [
+                'action' => 'admcontent_addfile', 'step' => 'title', 'lecture_id' => null,
+                'data' => [
+                    'course_id' => $section->course_id,
+                    'course_section_id' => $section->id,
+                    'course_unit_id' => $section->course_unit_id,
+                    'return_to' => ['type' => 'section', 'id' => $section->id],
+                ],
+            ]]);
+            $bot->sendMessage($chatId, '📄 اكتب عنوان المحتوى الجديد:');
+    
+            return;
+        }
+    
+        if ($key === 'editsection') {
+            $this->sendAdminContentEditFieldPicker($bot, $chatId, 'section', (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'editunit') {
+            $this->sendAdminContentEditFieldPicker($bot, $chatId, 'unit', (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'editfile') {
+            $this->sendAdminContentEditFieldPicker($bot, $chatId, 'file', (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'editfield') {
+            $type = $parts[1] ?? '';
+            $id = (int) ($parts[2] ?? 0);
+            $field = $parts[3] ?? '';
+    
+            $textFields = ['title', 'description', 'external_url'];
+            $boolFields = ['is_published', 'counts_toward_progress', 'ai_summarizable'];
+    
+            if (in_array($field, $textFields, true)) {
+                $link->update(['pending_action' => [
+                    'action' => 'admcontent_edit_'.$type, 'step' => $field, 'lecture_id' => null,
+                    'data' => ['id' => $id, 'field' => $field],
+                ]]);
+    
+                $prompts = [
+                    'title' => '✏️ اكتب العنوان الجديد:',
+                    'description' => '📝 اكتب الوصف الجديد (أو ارسل "-" لمسحه):',
+                    'external_url' => '🔗 اكتب الرابط الجديد (لازم يبدأ بـ https://):',
+                ];
+                $bot->sendMessage($chatId, $prompts[$field] ?? 'اكتب القيمة الجديدة:');
+    
+                return;
+            }
+    
+            if (in_array($field, $boolFields, true)) {
+                $keyboard = [[
+                    ['text' => '✅ نعم', 'callback_data' => 'admcontent:setval:'.$type.':'.$id.':'.$field.':1'],
+                    ['text' => '❌ لا', 'callback_data' => 'admcontent:setval:'.$type.':'.$id.':'.$field.':0'],
+                ]];
+                $bot->sendMessage($chatId, 'اختر القيمة:', $keyboard);
+    
+                return;
+            }
+    
+            if ($field === 'kind') {
+                $keyboard = [];
+                $row = [];
+                foreach (self::ADMIN_CONTENT_KIND_LABELS as $kindKey => $label) {
+                    $row[] = ['text' => $label, 'callback_data' => 'admcontent:setval:file:'.$id.':kind:'.$kindKey];
+                    if (count($row) === 2) {
+                        $keyboard[] = $row;
+                        $row = [];
+                    }
+                }
+                if ($row !== []) {
+                    $keyboard[] = $row;
+                }
+                $bot->sendMessage($chatId, 'اختر النوع الجديد:', $keyboard);
+    
+                return;
+            }
+    
+            if ($field === 'visibility') {
+                $keyboard = [];
+                foreach (self::ADMIN_CONTENT_VISIBILITY_LABELS as $visKey => $label) {
+                    $keyboard[] = [['text' => $label, 'callback_data' => 'admcontent:setval:file:'.$id.':visibility:'.$visKey]];
+                }
+                $bot->sendMessage($chatId, 'اختر مستوى الظهور الجديد:', $keyboard);
+    
+                return;
+            }
+    
+            return;
+        }
+    
+        if ($key === 'setval') {
+            $type = $parts[1] ?? '';
+            $id = (int) ($parts[2] ?? 0);
+            $field = $parts[3] ?? '';
+            $rawValue = $parts[4] ?? null;
+    
+            $model = match ($type) {
+                'section' => CourseSection::query()->find($id),
+                'unit' => CourseUnit::query()->find($id),
+                'file' => CourseFile::query()->find($id),
+                default => null,
+            };
+    
+            if (! $model || $rawValue === null) {
+                $bot->sendMessage($chatId, '⚠️ تعذّر التحديث.');
+    
+                return;
+            }
+    
+            $boolFields = ['is_published', 'counts_toward_progress', 'ai_summarizable'];
+            $value = in_array($field, $boolFields, true) ? ($rawValue === '1') : $rawValue;
+    
+            $model->update([$field => $value]);
+            $bot->sendMessage($chatId, '✅ تم الحفظ.');
+    
+            if ($type === 'section') {
+                $this->sendAdminContentSectionDetail($bot, $chatId, $id);
+            } elseif ($type === 'unit') {
+                $this->sendAdminContentUnitDetail($bot, $chatId, $id);
+            } else {
+                $this->sendAdminContentFileDetail($bot, $chatId, $id);
+            }
+    
+            return;
+        }
+    
+        if ($key === 'toggle') {
+            $type = $parts[1] ?? '';
+            $id = (int) ($parts[2] ?? 0);
+    
+            $model = match ($type) {
+                'section' => CourseSection::query()->find($id),
+                'unit' => CourseUnit::query()->find($id),
+                'file' => CourseFile::query()->find($id),
+                default => null,
+            };
+    
+            if (! $model) {
+                $bot->sendMessage($chatId, '⚠️ تعذّر إيجاد العنصر.');
+    
+                return;
+            }
+    
+            $model->update(['is_published' => ! $model->is_published]);
+    
+            if ($type === 'section') {
+                $this->sendAdminContentSectionDetail($bot, $chatId, $id);
+            } elseif ($type === 'unit') {
+                $this->sendAdminContentUnitDetail($bot, $chatId, $id);
+            } else {
+                $this->sendAdminContentFileDetail($bot, $chatId, $id);
+            }
+    
+            return;
+        }
+    
+        if ($key === 'del') {
+            $type = $parts[1] ?? '';
+            $id = (int) ($parts[2] ?? 0);
+    
+            $labels = ['section' => 'هذا القسم/التصنيف ووحداته وتصنيفاته ومحتواه', 'unit' => 'هذه الوحدة وتصنيفاتها ومحتواها', 'file' => 'هذا المحتوى'];
+            $keyboard = [[
+                ['text' => '✅ نعم، احذف', 'callback_data' => 'admcontent:delyes:'.$type.':'.$id],
+                ['text' => '❌ لا، رجوع', 'callback_data' => 'admcontent:delno:'.$type.':'.$id],
+            ]];
+            $bot->sendMessage($chatId, '⚠️ متأكد إنك بدك تحذف '.($labels[$type] ?? 'هذا العنصر').'؟ العملية لا يمكن التراجع عنها.', $keyboard);
+    
+            return;
+        }
+    
+        if ($key === 'delno') {
+            $type = $parts[1] ?? '';
+            $id = (int) ($parts[2] ?? 0);
+    
+            if ($type === 'section') {
+                $this->sendAdminContentSectionDetail($bot, $chatId, $id);
+            } elseif ($type === 'unit') {
+                $this->sendAdminContentUnitDetail($bot, $chatId, $id);
+            } elseif ($type === 'file') {
+                $this->sendAdminContentFileDetail($bot, $chatId, $id);
+            }
+    
+            return;
+        }
+    
+        if ($key === 'delyes') {
+            $type = $parts[1] ?? '';
+            $id = (int) ($parts[2] ?? 0);
+    
+            if ($type === 'file') {
+                $file = CourseFile::query()->find($id);
+    
+                if ($file) {
+                    $returnTo = ['type' => 'section', 'id' => $file->course_section_id];
+                    $file->delete();
+                    $bot->sendMessage($chatId, '🗑️ تم حذف المحتوى.');
+                    $this->renderAdminContentReturn($bot, $chatId, $returnTo);
+                }
+    
+                return;
+            }
+    
+            if ($type === 'unit') {
+                $unit = CourseUnit::query()->find($id);
+    
+                if ($unit) {
+                    $returnTo = ['type' => 'section', 'id' => $unit->course_section_id];
+                    \Illuminate\Support\Facades\DB::transaction(function () use ($unit) {
+                        $categoryIds = CourseSection::query()->where('course_unit_id', $unit->id)->pluck('id');
+    
+                        if ($categoryIds->isNotEmpty()) {
+                            CourseFile::query()->whereIn('course_section_id', $categoryIds)->delete();
+                            CourseSection::query()->whereIn('id', $categoryIds)->delete();
+                        }
+    
+                        CourseFile::query()->where('course_unit_id', $unit->id)->delete();
+                        $unit->delete();
+                    });
+                    $bot->sendMessage($chatId, '🗑️ تم حذف الوحدة وتصنيفاتها ومحتواها.');
+                    $this->renderAdminContentReturn($bot, $chatId, $returnTo);
+                }
+    
+                return;
+            }
+    
+            if ($type === 'section') {
+                $section = CourseSection::query()->find($id);
+    
+                if ($section) {
+                    $returnTo = $section->course_unit_id !== null
+                        ? ['type' => 'unit', 'id' => $section->course_unit_id]
+                        : ['type' => 'course', 'id' => $section->course_id];
+    
+                    \Illuminate\Support\Facades\DB::transaction(function () use ($section) {
+                        if ($section->course_unit_id) {
+                            CourseFile::query()->where('course_section_id', $section->id)->delete();
+                            $section->delete();
+    
+                            return;
+                        }
+    
+                        $unitIds = CourseUnit::query()->where('course_id', $section->course_id)->where('course_section_id', $section->id)->pluck('id');
+    
+                        if ($unitIds->isNotEmpty()) {
+                            $categoryIds = CourseSection::query()->whereIn('course_unit_id', $unitIds)->pluck('id');
+    
+                            if ($categoryIds->isNotEmpty()) {
+                                CourseFile::query()->whereIn('course_section_id', $categoryIds)->delete();
+                                CourseSection::query()->whereIn('id', $categoryIds)->delete();
+                            }
+    
+                            CourseFile::query()->whereIn('course_unit_id', $unitIds)->delete();
+                            CourseUnit::query()->whereIn('id', $unitIds)->delete();
+                        }
+    
+                        CourseFile::query()->where('course_section_id', $section->id)->delete();
+                        $section->delete();
+                    });
+    
+                    $bot->sendMessage($chatId, '🗑️ تم حذف القسم ووحداته وتصنيفاته ومحتواه.');
+                    $this->renderAdminContentReturn($bot, $chatId, $returnTo);
+                }
+    
+                return;
+            }
+    
+            return;
+        }
+    
+        // أزرار المعالج التدريجي (wizbtn) — تُتابَع أثناء إضافة قسم/وحدة/ملف.
+        if ($key === 'wizbtn') {
+            $this->handleAdminContentWizardButton($bot, $link, $chatId, $parts);
+    
+            return;
+        }
+    
+        if ($key === 'wizcreate') {
+            $this->handleAdminContentWizardCreate($bot, $link, $chatId);
+    
+            return;
+        }
+    
+        if ($key === 'wizcancel') {
+            $returnTo = $link->pending_action['data']['return_to'] ?? null;
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+    
+            if ($returnTo) {
+                $this->renderAdminContentReturn($bot, $chatId, $returnTo);
+            }
+    
+            return;
+        }
+    }
+    
+    /*
+     * زر أثناء معالج تدريجي — بصيغة admcontent:wizbtn:{field}:{value}.
+     * يقرأ الخطوة الحالية من pending_action ويتحقق أنها تطابق الحقل
+     * المضغوط قبل أي تعديل (حماية من ضغط زر قديم بعد تغيّر الخطوة).
+     */
+    private function handleAdminContentWizardButton(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, array $parts): void
+    {
+        $field = $parts[1] ?? '';
+        $value = $parts[2] ?? '';
+        $pending = $link->pending_action;
+        $action = $pending['action'] ?? null;
+        $step = $pending['step'] ?? null;
+        $data = $pending['data'] ?? [];
+    
+        if (! $action || $step !== $field) {
+            return;
+        }
+    
+        if ($action === 'admcontent_addsection') {
+            if ($field === 'counts_toward_progress') {
+                $data['counts_toward_progress'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'published', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, 'هل ينشر مباشرة للطلاب؟', [[
+                    ['text' => '🟢 نعم', 'callback_data' => 'admcontent:wizbtn:published:1'],
+                    ['text' => '🔴 لا (مسودة)', 'callback_data' => 'admcontent:wizbtn:published:0'],
+                ]]);
+    
+                return;
+            }
+    
+            if ($field === 'published') {
+                $data['is_published'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+                $this->sendAdminContentSectionConfirm($bot, $chatId, $data);
+    
+                return;
+            }
+        }
+    
+        if ($action === 'admcontent_addunit') {
+            if ($field === 'defaultcats') {
+                $data['create_default_categories'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'published', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, 'هل تُنشر الوحدة مباشرة للطلاب؟', [[
+                    ['text' => '🟢 نعم', 'callback_data' => 'admcontent:wizbtn:published:1'],
+                    ['text' => '🔴 لا (مسودة)', 'callback_data' => 'admcontent:wizbtn:published:0'],
+                ]]);
+    
+                return;
+            }
+    
+            if ($field === 'published') {
+                $data['is_published'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+                $this->sendAdminContentUnitConfirm($bot, $chatId, $data);
+    
+                return;
+            }
+        }
+    
+        if ($action === 'admcontent_addfile') {
+            if ($field === 'kind') {
+                $data['kind'] = $value;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'url', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '🔗 اكتب رابط المحتوى (لازم يبدأ بـ https://):');
+    
+                return;
+            }
+    
+            if ($field === 'published') {
+                $data['is_published'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'counts', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, 'هل يُحتسب ضمن إنجاز الطالب؟', [[
+                    ['text' => '✅ نعم', 'callback_data' => 'admcontent:wizbtn:counts:1'],
+                    ['text' => '➖ لا', 'callback_data' => 'admcontent:wizbtn:counts:0'],
+                ]]);
+    
+                return;
+            }
+    
+            if ($field === 'counts') {
+                $data['counts_toward_progress'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'visibility', 'lecture_id' => null, 'data' => $data]]);
+                $keyboard = [];
+                foreach (self::ADMIN_CONTENT_VISIBILITY_LABELS as $visKey => $label) {
+                    $keyboard[] = [['text' => $label, 'callback_data' => 'admcontent:wizbtn:visibility:'.$visKey]];
+                }
+                $bot->sendMessage($chatId, '👁️ اختر مستوى الظهور:', $keyboard);
+    
+                return;
+            }
+    
+            if ($field === 'visibility') {
+                $data['visibility'] = $value;
+                $default = $this->defaultAiSummarizable($data['kind'] ?? null);
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'aisum', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage(
+                    $chatId,
+                    '🤖 هل يسمح بتلخيص هذا الملف وتحويله لبطاقات مراجعة بالمساعد الذكي؟ (الافتراض حسب النوع: '.($default ? 'نعم' : 'لا').')',
+                    [[
+                        ['text' => '✅ نعم', 'callback_data' => 'admcontent:wizbtn:aisum:1'],
+                        ['text' => '🚫 لا', 'callback_data' => 'admcontent:wizbtn:aisum:0'],
+                    ]]
+                );
+    
+                return;
+            }
+    
+            if ($field === 'aisum') {
+                $data['ai_summarizable'] = $value === '1';
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+                $this->sendAdminContentFileConfirm($bot, $chatId, $data);
+    
+                return;
+            }
+        }
+    }
+    
+    private function sendAdminContentSectionConfirm(TelegramBotApi $bot, int|string $chatId, array $data): void
+    {
+        $preview = "🗂️ <b>معاينة</b>\n\n".
+            '<b>'.TelegramBotApi::escapeHtml((string) ($data['title'] ?? '')).'</b>'.
+            (! empty($data['description']) ? "\n📝 ".TelegramBotApi::escapeHtml((string) $data['description']) : '').
+            "\n".($data['counts_toward_progress'] ?? false ? '✅ يُحتسب ضمن الإنجاز' : '➖ لا يُحتسب ضمن الإنجاز').
+            "\n".($data['is_published'] ?? true ? '🟢 سينشر مباشرة' : '🔴 مسودة (غير منشور)');
+    
+        $bot->sendMessage($chatId, $preview, [[
+            ['text' => '✅ إضافة', 'callback_data' => 'admcontent:wizcreate'],
+            ['text' => '❌ إلغاء', 'callback_data' => 'admcontent:wizcancel'],
+        ]]);
+    }
+    
+    private function sendAdminContentUnitConfirm(TelegramBotApi $bot, int|string $chatId, array $data): void
+    {
+        $preview = "📦 <b>معاينة</b>\n\n".
+            '<b>'.TelegramBotApi::escapeHtml((string) ($data['title'] ?? '')).'</b>'.
+            (! empty($data['description']) ? "\n📝 ".TelegramBotApi::escapeHtml((string) $data['description']) : '').
+            "\n".($data['create_default_categories'] ?? false ? '🏷️ ستُنشأ التصنيفات الأساسية الأربعة تلقائيًا' : '🏷️ بلا تصنيفات افتراضية').
+            "\n".($data['is_published'] ?? true ? '🟢 ستنشر مباشرة' : '🔴 مسودة (غير منشورة)');
+    
+        $bot->sendMessage($chatId, $preview, [[
+            ['text' => '✅ إضافة', 'callback_data' => 'admcontent:wizcreate'],
+            ['text' => '❌ إلغاء', 'callback_data' => 'admcontent:wizcancel'],
+        ]]);
+    }
+    
+    private function sendAdminContentFileConfirm(TelegramBotApi $bot, int|string $chatId, array $data): void
+    {
+        $kindLabel = self::ADMIN_CONTENT_KIND_LABELS[$data['kind'] ?? ''] ?? ($data['kind'] ?? '');
+        $visibilityLabel = self::ADMIN_CONTENT_VISIBILITY_LABELS[$data['visibility'] ?? ''] ?? ($data['visibility'] ?? '');
+    
+        $preview = "📄 <b>معاينة المحتوى الجديد</b>\n\n".
+            '<b>'.TelegramBotApi::escapeHtml((string) ($data['title'] ?? '')).'</b>'."\n".
+            '🏷️ '.$kindLabel.
+            (! empty($data['description']) ? "\n📝 ".TelegramBotApi::escapeHtml((string) $data['description']) : '').
+            "\n🔗 ".($data['external_url'] ?? '').
+            "\n".($data['is_published'] ?? true ? '🟢 سينشر مباشرة للطلاب' : '🔴 مسودة (غير منشور)').
+            "\n".($data['counts_toward_progress'] ?? false ? '✅ يُحتسب ضمن الإنجاز' : '➖ لا يُحتسب ضمن الإنجاز').
+            "\n".($data['ai_summarizable'] ?? true ? '🤖 يسمح بالتلخيص/البطاقات' : '🚫 لا يسمح بالتلخيص/البطاقات').
+            "\n👁️ ".$visibilityLabel;
+    
+        $bot->sendMessage($chatId, $preview, [[
+            ['text' => '✅ إضافة المحتوى', 'callback_data' => 'admcontent:wizcreate'],
+            ['text' => '❌ إلغاء', 'callback_data' => 'admcontent:wizcancel'],
+        ]]);
+    }
+    
+    /*
+     * تنفيذ الإنشاء الفعلي بعد "✅ إضافة" — نفس الحقول/الترتيب الافتراضي
+     * المستخدَم بالضبط بـStaff/CourseStructureController وStaff/CourseFileController
+     * (sort_order = آخر قيمة + ١ ضمن نفس النطاق).
+     */
+    private function handleAdminContentWizardCreate(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $pending = $link->pending_action;
+        $action = $pending['action'] ?? null;
+        $data = $pending['data'] ?? [];
+    
+        if ($action === 'admcontent_addsection') {
+            $sortOrder = ((int) CourseSection::query()
+                ->where('course_id', $data['course_id'])
+                ->where('course_unit_id', $data['course_unit_id'])
+                ->max('sort_order')) + 1;
+    
+            $section = new CourseSection();
+            $section->forceFill([
+                'course_id' => $data['course_id'],
+                'course_unit_id' => $data['course_unit_id'],
+                'title' => $data['title'],
+                'description' => $data['description'] ?? null,
+                'sort_order' => $sortOrder,
+                'counts_toward_progress' => $data['counts_toward_progress'] ?? false,
+                'is_published' => $data['is_published'] ?? true,
+            ]);
+            $section->save();
+    
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, ($data['course_unit_id'] ? '✅ تمت إضافة التصنيف.' : '✅ تمت إضافة القسم.'));
+            $this->sendAdminContentSectionDetail($bot, $chatId, $section->id);
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addunit') {
+            $sortOrder = ((int) CourseUnit::query()
+                ->where('course_id', $data['course_id'])
+                ->where('course_section_id', $data['course_section_id'])
+                ->max('sort_order')) + 1;
+    
+            $unit = \Illuminate\Support\Facades\DB::transaction(function () use ($data, $sortOrder) {
+                $unit = new CourseUnit();
+                $unit->forceFill([
+                    'course_id' => $data['course_id'],
+                    'course_section_id' => $data['course_section_id'],
+                    'title' => $data['title'],
+                    'description' => $data['description'] ?? null,
+                    'sort_order' => $sortOrder,
+                    'is_published' => $data['is_published'] ?? true,
+                ]);
+                $unit->save();
+    
+                if ($data['create_default_categories'] ?? false) {
+                    $defaults = [
+                        ['title' => 'المحاضرات وملفاتها', 'sort_order' => 1, 'counts_toward_progress' => true],
+                        ['title' => 'التعيينات والواجبات', 'sort_order' => 2, 'counts_toward_progress' => true],
+                        ['title' => 'التدريبات والأسئلة', 'sort_order' => 3, 'counts_toward_progress' => true],
+                        ['title' => 'روابط مهمة', 'sort_order' => 4, 'counts_toward_progress' => false],
+                    ];
+    
+                    foreach ($defaults as $categoryData) {
+                        $category = new CourseSection();
+                        $category->forceFill([
+                            'course_id' => $data['course_id'],
+                            'course_unit_id' => $unit->id,
+                            'title' => $categoryData['title'],
+                            'sort_order' => $categoryData['sort_order'],
+                            'counts_toward_progress' => $categoryData['counts_toward_progress'],
+                            'is_published' => true,
+                        ]);
+                        $category->save();
+                    }
+                }
+    
+                return $unit;
+            });
+    
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تمت إضافة الوحدة.');
+            $this->sendAdminContentUnitDetail($bot, $chatId, $unit->id);
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addfile') {
+            $sortOrder = ((int) CourseFile::query()
+                ->where('course_id', $data['course_id'])
+                ->where('course_section_id', $data['course_section_id'])
+                ->where('course_unit_id', $data['course_unit_id'])
+                ->max('sort_order')) + 1;
+    
+            $file = CourseFile::create([
+                'course_id' => $data['course_id'],
+                'course_section_id' => $data['course_section_id'],
+                'course_unit_id' => $data['course_unit_id'],
+                'title' => $data['title'],
+                'description' => $data['description'] ?? null,
+                'kind' => $data['kind'],
+                'external_url' => $data['external_url'],
+                'sort_order' => $sortOrder,
+                'counts_toward_progress' => $data['counts_toward_progress'] ?? false,
+                'is_published' => $data['is_published'] ?? true,
+                'visibility' => $data['visibility'] ?? 'public',
+                'ai_summarizable' => $data['ai_summarizable'] ?? $this->defaultAiSummarizable($data['kind'] ?? null),
+                'status' => 'ready',
+                'created_by' => $link->user_id,
+            ]);
+    
+            /*
+             * نفس تنبيه Staff/CourseFileController@store بالضبط — معزول
+             * بـtry/catch حتى لو تعطّل البوت ما يمنع حفظ المحتوى نفسه.
+             * تنبيه جرس الموقع مبني على استعلام حي (is_published + created_at)
+             * فيكفي أنه انضبط هون بلا أي كتابة إضافية.
+             */
+            try {
+                app(TelegramContentNotifier::class)->notifyNewFile($file);
+            } catch (\Throwable $error) {
+                report($error);
+            }
+    
+            $returnTo = $data['return_to'] ?? ['type' => 'section', 'id' => $data['course_section_id']];
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تم إضافة المحتوى'.($file->is_published ? ' ونُشر مباشرة للطلاب.' : ' كمسودة (غير منشور).'), [[
+                ['text' => '➕ أضف محتوى آخر هون', 'callback_data' => 'admcontent:addfile:'.$data['course_section_id']],
+                ['text' => '🔙 رجوع للقسم', 'callback_data' => 'admcontent:section:'.$data['course_section_id']],
+            ]]);
+    
+            return;
+        }
+    }
+    
+    /*
+     * إدخال نصي أثناء أي معالج "admcontent_*" — بحث عن مادة، إنشاء
+     * قسم/وحدة/ملف تدريجيًا، أو تعديل حقل نصي بملف/قسم/وحدة موجود.
+     */
+    private function handleAdminContentTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+    
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $returnTo = $link->pending_action['data']['return_to'] ?? null;
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+    
+            if ($returnTo) {
+                $this->renderAdminContentReturn($bot, $chatId, $returnTo);
+            }
+    
+            return;
+        }
+    
+        if (! $link->user || ! $link->user->isStaff()) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+    
+            return;
+        }
+    
+        $pending = $link->pending_action;
+        $action = $pending['action'] ?? null;
+        $step = $pending['step'] ?? null;
+        $data = $pending['data'] ?? [];
+    
+        if ($action === 'admcontent_course_query' && $step === 'query') {
+            if (mb_strlen($normalized) < 2) {
+                $bot->sendMessage($chatId, 'اكتب حرفين على الأقل 🙂');
+    
+                return;
+            }
+    
+            $courses = Course::query()
+                ->where('is_active', true)
+                ->where(function ($query) use ($normalized) {
+                    $query->where('name_ar', 'like', "%{$normalized}%")
+                        ->orWhere('name_en', 'like', "%{$normalized}%")
+                        ->orWhere('code', 'like', "%{$normalized}%");
+                })
+                ->orderBy('name_ar')
+                ->limit(8)
+                ->get();
+    
+            if ($courses->isEmpty()) {
+                // لا نمسح pending_action هون (سلوك "لاصق" كالبحث العام) —
+                // حتى تعمل إعادة المحاولة بلا إعادة ضغط الزر.
+                $bot->sendMessage($chatId, '❌ ما لقيت مادة بهذا الاسم، جرّب اسم أو رمز مختلف (أو اكتب "إلغاء"):');
+    
+                return;
+            }
+    
+            $keyboard = [];
+            foreach ($courses as $course) {
+                $label = (string) ($course->name_ar ?? $course->name_en ?? $course->code);
+                $keyboard[] = [['text' => $label, 'callback_data' => 'admcontent:course:'.$course->id]];
+            }
+            $bot->sendMessage($chatId, '📚 اختر المادة:', $keyboard);
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addsection' && $step === 'title') {
+            if ($normalized === '' || mb_strlen($normalized) > 190) {
+                $bot->sendMessage($chatId, 'عنوان غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ١٩٠ حرف):');
+    
+                return;
+            }
+    
+            $data['title'] = $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'description', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '📝 اكتب وصف مختصر (اختياري)، أو ارسل "تخطي":');
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addsection' && $step === 'description') {
+            $data['description'] = in_array($normalized, ['تخطي', 'skip', '-'], true) ? null : $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'counts_toward_progress', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, 'هل يُحتسب ضمن إنجاز الطالب؟', [[
+                ['text' => '✅ نعم', 'callback_data' => 'admcontent:wizbtn:counts_toward_progress:1'],
+                ['text' => '➖ لا', 'callback_data' => 'admcontent:wizbtn:counts_toward_progress:0'],
+            ]]);
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addunit' && $step === 'title') {
+            if ($normalized === '' || mb_strlen($normalized) > 190) {
+                $bot->sendMessage($chatId, 'عنوان غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ١٩٠ حرف):');
+    
+                return;
+            }
+    
+            $data['title'] = $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'description', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '📝 اكتب وصف مختصر (اختياري)، أو ارسل "تخطي":');
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addunit' && $step === 'description') {
+            $data['description'] = in_array($normalized, ['تخطي', 'skip', '-'], true) ? null : $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'defaultcats', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '🏷️ هل تُنشأ التصنيفات الأساسية الأربعة تلقائيًا (المحاضرات/التعيينات/التدريبات/روابط مهمة)؟', [[
+                ['text' => '✅ نعم', 'callback_data' => 'admcontent:wizbtn:defaultcats:1'],
+                ['text' => '❌ لا', 'callback_data' => 'admcontent:wizbtn:defaultcats:0'],
+            ]]);
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addfile' && $step === 'title') {
+            if ($normalized === '' || mb_strlen($normalized) > 190) {
+                $bot->sendMessage($chatId, 'عنوان غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ١٩٠ حرف):');
+    
+                return;
+            }
+    
+            $data['title'] = $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'kind', 'lecture_id' => null, 'data' => $data]]);
+    
+            $keyboard = [];
+            $row = [];
+            foreach (self::ADMIN_CONTENT_KIND_LABELS as $kindKey => $label) {
+                $row[] = ['text' => $label, 'callback_data' => 'admcontent:wizbtn:kind:'.$kindKey];
+                if (count($row) === 2) {
+                    $keyboard[] = $row;
+                    $row = [];
+                }
+            }
+            if ($row !== []) {
+                $keyboard[] = $row;
+            }
+            $bot->sendMessage($chatId, '🏷️ اختر نوع المحتوى:', $keyboard);
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addfile' && $step === 'url') {
+            if (! $this->isValidHttpsUrl($normalized) || mb_strlen($normalized) > 1000) {
+                $bot->sendMessage($chatId, 'رابط غير صالح 🙂 لازم يبدأ بـ https:// (بحد أقصى ١٠٠٠ حرف):');
+    
+                return;
+            }
+    
+            $data['external_url'] = $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'description', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '📝 اكتب وصف مختصر (اختياري)، أو ارسل "تخطي":');
+    
+            return;
+        }
+    
+        if ($action === 'admcontent_addfile' && $step === 'description') {
+            $data['description'] = in_array($normalized, ['تخطي', 'skip', '-'], true) ? null : $normalized;
+            $link->update(['pending_action' => ['action' => $action, 'step' => 'published', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '👁️ هل يُنشر مباشرة للطلاب؟', [[
+                ['text' => '🟢 نعم', 'callback_data' => 'admcontent:wizbtn:published:1'],
+                ['text' => '🔴 لا (مسودة)', 'callback_data' => 'admcontent:wizbtn:published:0'],
+            ]]);
+    
+            return;
+        }
+    
+        // تعديل حقل نصي بقسم/تصنيف/وحدة/ملف موجود (title/description/external_url).
+        if (str_starts_with((string) $action, 'admcontent_edit_')) {
+            $type = substr((string) $action, strlen('admcontent_edit_'));
+            $id = (int) ($data['id'] ?? 0);
+            $field = $data['field'] ?? null;
+    
+            $model = match ($type) {
+                'section' => CourseSection::query()->find($id),
+                'unit' => CourseUnit::query()->find($id),
+                'file' => CourseFile::query()->find($id),
+                default => null,
+            };
+    
+            if (! $model || ! $field) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, '⚠️ تعذّر إيجاد العنصر، ابدأ من جديد.');
+    
+                return;
+            }
+    
+            if ($field === 'title') {
+                if ($normalized === '' || mb_strlen($normalized) > 190) {
+                    $bot->sendMessage($chatId, 'عنوان غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ١٩٠ حرف):');
+    
+                    return;
+                }
+                $model->update(['title' => $normalized]);
+            } elseif ($field === 'description') {
+                $isClear = in_array($normalized, ['-', 'تخطي', 'skip'], true);
+                $model->update(['description' => $isClear ? null : $normalized]);
+            } elseif ($field === 'external_url') {
+                if (! $this->isValidHttpsUrl($normalized) || mb_strlen($normalized) > 1000) {
+                    $bot->sendMessage($chatId, 'رابط غير صالح 🙂 لازم يبدأ بـ https:// (بحد أقصى ١٠٠٠ حرف):');
+    
+                    return;
+                }
+                $model->update(['external_url' => $normalized]);
+            }
+    
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تم الحفظ.');
+    
+            if ($type === 'section') {
+                $this->sendAdminContentSectionDetail($bot, $chatId, $id);
+            } elseif ($type === 'unit') {
+                $this->sendAdminContentUnitDetail($bot, $chatId, $id);
+            } else {
+                $this->sendAdminContentFileDetail($bot, $chatId, $id);
+            }
+    
+            return;
+        }
+    
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
     }
 }
