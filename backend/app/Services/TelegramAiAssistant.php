@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Controllers\Api\V1\AiAssistantController;
 use App\Models\User;
+use App\Services\Ai\GeminiProviderPool;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -54,6 +55,7 @@ class TelegramAiAssistant
 
     public function __construct(
         private readonly GeminiFileService $files,
+        private readonly GeminiProviderPool $providers,
     ) {
     }
 
@@ -96,12 +98,32 @@ class TelegramAiAssistant
             }
         }
 
+        /*
+         * ⚠ ملفات Files API (>8 ميغا) مقيّدة بقيد فعلي من Gemini نفسه:
+         * أي ملف مرفوع لازم يُستخدم لاحقًا بنفس المفتاح اللي رفعه
+         * بالضبط — مفتاح مختلف بنفس الطلب يفشل دائمًا (نفس القيد
+         * الموثَّق بتعليق AiAssistantController::primaryGeminiProvider
+         * بمساعد الموقع). لهيك بلا أي تدوير *داخل* نفس الطلب هون (إعادة
+         * رفع نفس الملف الكبير بمفتاح تاني لو الأول فشل مكلفة وقتًا جدًا
+         * — قد تتجاوز سقف سكربت الويبهوك)، لكن *أي مفتاح* بالمجموعة
+         * يُختار عشوائيًا هون (بدل تثبيت المفتاح الأساسي دائمًا) — فيتوزّع
+         * حِمل الملفات الكبيرة عبر الطلبات المختلفة على الثلاث مفاتيح
+         * بمرور الوقت، بدل ما يتركّز كله على مفتاح واحد.
+         */
+        $uploadProvider = $this->providers->rotated($this->providers->geminiOnly())[0] ?? null;
+
+        if ($uploadProvider === null) {
+            @unlink($localPath);
+            throw new RuntimeException('المساعد الذكي غير مفعّل حاليًا على الخادم.');
+        }
+
+        $uploadKey = $uploadProvider['key'];
         $geminiFile = null;
 
         try {
-            $geminiFile = $this->files->uploadFile($localPath, $displayName, $mimeType);
+            $geminiFile = $this->files->uploadFile($localPath, $displayName, $mimeType, $uploadKey);
 
-            $text = $this->generate($geminiFile['uri'], $mimeType);
+            $text = $this->generate($geminiFile['uri'], $mimeType, forcedApiKey: $uploadKey);
 
             $this->incrementDailyUsage($user->id);
 
@@ -110,7 +132,7 @@ class TelegramAiAssistant
             @unlink($localPath);
 
             if ($geminiFile && ! empty($geminiFile['name'])) {
-                $this->files->deleteFile($geminiFile['name']);
+                $this->files->deleteFile($geminiFile['name'], $uploadKey);
             }
         }
     }
@@ -130,7 +152,14 @@ class TelegramAiAssistant
      * المسار الآخر كان قد "جهّز" الملف مسبقًا بنداء uploadFile/getFile
      * منفصل قبل ما نوصل هون أصلًا.
      */
-    private function generate(string $fileData, string $mimeType, bool $inline = false): string
+    /*
+     * $forcedApiKey: null بالمسار inline (بيانات خام، غير مربوطة بأي
+     * مفتاح — تدور بحرية بين كل مفاتيح Gemini، راجع callGemini)، أو
+     * المفتاح المحدَّد اللي رفع الملف فعليًا بمسار Files API (الزامي
+     * هون، لا تدوير ممكن لملف مرفوع مسبقًا). كلا المسارين allowOpenRouter
+     * يبقى false دائمًا — OpenRouter لا يدعم أي محتوى ملف إطلاقًا.
+     */
+    private function generate(string $fileData, string $mimeType, bool $inline = false, ?string $forcedApiKey = null): string
     {
         $systemInstruction =
             'أنت مساعد أكاديمي لطلاب هندسة أنظمة الحاسوب بكلية فلسطين التقنية. ' .
@@ -149,7 +178,9 @@ class TelegramAiAssistant
             ],
             tooLargeMessage: 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.',
             emptyMessage: 'ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.',
-            timeoutSeconds: $inline ? 120 : 90
+            timeoutSeconds: $inline ? 120 : 90,
+            forcedApiKey: $inline ? null : $forcedApiKey,
+            allowOpenRouter: false
         );
     }
 
@@ -677,6 +708,29 @@ class TelegramAiAssistant
      * الإضافي ما بيأثر على تسليم الرد لتيليجرام. سقف 3 جولات يمنع حلقة
      * لا نهائية لو الموديل استمر يقطع ردّه لأي سبب.
      */
+    /*
+     * ⚠ إعادة هيكلة جوهرية (جلسة اليوم الخامسة، جزء 6): كانت هاي الدالة
+     * تستخدم مفتاح Gemini الأساسي وحده دائمًا (config('services.gemini.key'))
+     * — بلا أي تدوير ولا خط دفاع، بعكس مساعد الموقع (AiAssistantController)
+     * يلي عنده 3 مفاتيح Gemini + OpenRouter كمزوّد رابع، ويتنقّل بينهم
+     * تلقائيًا لو مفتاح رجع "مزدحم". النتيجة كانت: البوت والموقع يتشاركوا
+     * نفس المفتاح الأساسي حرفيًا (نفس القيمة بـ.env)، فحِمل الاثنين
+     * يتراكم على نفس الحصة، والبوت بلا أي بديل لو نفدت.
+     *
+     * الحل: نفس منطق تدوير الموقع بالضبط (GeminiProviderPool)، لكن على
+     * مستوى *كل جولة* (round) لا على مستوى النداء كامل — لو مزوّد فشل/
+     * ازدحم بجولة معيّنة (حتى بمنتصف سلسلة "كمّل من حيث توقفت")، نجرّب
+     * المزوّد التالي لنفس الجولة فورًا (نفس $contents الكامل، لأنه صيغة
+     * Gemini/OpenRouter نصّية بالكامل بلا حالة محفوظة بالسيرفر — أي
+     * مزوّد يقدر يكمل من نفس التاريخ). ما نستسلم إلا لو كل المزوّدين
+     * المتاحين فشلوا لنفس الجولة.
+     *
+     * $forcedApiKey: مفتاح واحد محدَّد إلزاميًا (بلا تدوير ولا OpenRouter) —
+     * الحالة الوحيدة اللي يُستخدَم فيها: ملف Files API مرفوع مسبقًا،
+     * لازم يُستخدم بنفس مفتاحه بالضبط (راجع تعليق summarizeFile).
+     * $allowOpenRouter: false لأي نداء فيه محتوى ملف (inline أو مرفوع) —
+     * OpenRouter لا يدعم أي مرفقات إطلاقًا (نفس قيد الموقع بالحرف).
+     */
     private function callGemini(
         string $systemInstruction,
         array $parts,
@@ -684,11 +738,18 @@ class TelegramAiAssistant
         string $emptyMessage,
         int $maxOutputTokens = 1500,
         int $timeoutSeconds = 45,
-        bool $continueOnTruncation = false
+        bool $continueOnTruncation = false,
+        ?string $forcedApiKey = null,
+        bool $allowOpenRouter = true
     ): string {
-        $apiKey = config('services.gemini.key');
+        if ($forcedApiKey !== null) {
+            $providers = [['type' => 'gemini', 'key' => $forcedApiKey]];
+        } else {
+            $pool = $allowOpenRouter ? $this->providers->all() : $this->providers->geminiOnly();
+            $providers = $this->providers->rotated($pool);
+        }
 
-        if (! $apiKey) {
+        if ($providers === []) {
             throw new RuntimeException('المساعد الذكي غير مفعّل حاليًا على الخادم.');
         }
 
@@ -697,6 +758,62 @@ class TelegramAiAssistant
         $maxRounds = $continueOnTruncation ? 3 : 1;
 
         for ($round = 1; $round <= $maxRounds; $round++) {
+            $roundText = null;
+            $finishReason = null;
+
+            foreach ($providers as $provider) {
+                $result = $provider['type'] === 'openrouter'
+                    ? $this->attemptOpenRouterRound($systemInstruction, $contents, $timeoutSeconds)
+                    : $this->attemptGeminiRound($provider['key'], $systemInstruction, $contents, $maxOutputTokens, $timeoutSeconds);
+
+                if (! empty($result['too_large'])) {
+                    // حجم المحتوى نفسه هو المشكلة — تجربة مزوّد آخر لن تُغيّر شيئًا.
+                    throw new RuntimeException($tooLargeMessage);
+                }
+
+                if ($result['ok']) {
+                    $roundText = $result['text'];
+                    $finishReason = $result['finishReason'];
+                    break; // نجح مزوّد لهذي الجولة — لا داعي نجرّب البقية.
+                }
+
+                // فشل/ازدحام هذا المزوّد تحديدًا — جرّب التالي بنفس الجولة.
+            }
+
+            if ($roundText === null) {
+                // كل المزوّدين المتاحين فشلوا لهذي الجولة بالذات.
+                break;
+            }
+
+            $accumulated .= $roundText;
+
+            if (! $continueOnTruncation || $finishReason !== 'MAX_TOKENS' || $round === $maxRounds) {
+                break;
+            }
+
+            $contents[] = ['role' => 'model', 'parts' => [['text' => $roundText]]];
+            $contents[] = ['role' => 'user', 'parts' => [
+                ['text' => 'تابع بالضبط من حيث توقفت، بلا إعادة أي جزء سبق إرساله، وبلا أي مقدمة أو تعليق إضافي.'],
+            ]];
+        }
+
+        if (! $accumulated) {
+            throw new RuntimeException($emptyMessage);
+        }
+
+        return $accumulated;
+    }
+
+    /**
+     * محاولة جولة واحدة عبر Gemini بمفتاح محدَّد. لا تلقي استثناء أبدًا —
+     * كل النتائج (نجاح/فشل/ازدحام/حجم زائد) ترجع بصيغة موحّدة يقرأها
+     * callGemini() ليقرر يجرّب مزوّد آخر أو يستسلم.
+     *
+     * @return array{ok: bool, text: ?string, finishReason: ?string, rate_limited: bool, too_large: bool}
+     */
+    private function attemptGeminiRound(string $apiKey, string $systemInstruction, array $contents, int $maxOutputTokens, int $timeoutSeconds): array
+    {
+        try {
             $response = Http::timeout($timeoutSeconds)
                 ->withHeaders(['x-goog-api-key' => $apiKey])
                 ->post(
@@ -708,50 +825,94 @@ class TelegramAiAssistant
                         'generationConfig' => ['maxOutputTokens' => $maxOutputTokens, 'temperature' => 0.6],
                     ]
                 );
+        } catch (\Throwable $e) {
+            report($e);
 
-            if ($response->status() === 429) {
-                if ($accumulated !== '') {
-                    break;
-                }
-
-                throw new RuntimeException('المساعد الذكي مزدحم حاليًا، جرّب بعد شوي.');
-            }
-
-            if (! $response->successful()) {
-                report(new RuntimeException('Telegram AI Gemini call failed: ' . $response->body()));
-
-                if ($accumulated !== '') {
-                    break;
-                }
-
-                $tooLarge = $response->status() === 400
-                    && str_contains($response->body(), 'exceeds the maximum number of tokens');
-
-                throw new RuntimeException($tooLarge ? $tooLargeMessage : 'تعذّر تحليل الطلب حاليًا، جرّب مرة أخرى بعد شوي.');
-            }
-
-            $candidate = $response->json('candidates.0') ?? [];
-            $chunkParts = $candidate['content']['parts'] ?? [];
-            $chunkText = collect($chunkParts)->pluck('text')->filter()->implode('');
-            $finishReason = $candidate['finishReason'] ?? null;
-
-            $accumulated .= $chunkText;
-
-            if (! $continueOnTruncation || $finishReason !== 'MAX_TOKENS' || $round === $maxRounds) {
-                break;
-            }
-
-            $contents[] = ['role' => 'model', 'parts' => [['text' => $chunkText]]];
-            $contents[] = ['role' => 'user', 'parts' => [
-                ['text' => 'تابع بالضبط من حيث توقفت، بلا إعادة أي جزء سبق إرساله، وبلا أي مقدمة أو تعليق إضافي.'],
-            ]];
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => false, 'too_large' => false];
         }
 
-        if (! $accumulated) {
-            throw new RuntimeException($emptyMessage);
+        if ($response->status() === 429) {
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => true, 'too_large' => false];
         }
 
-        return $accumulated;
+        if (! $response->successful()) {
+            report(new RuntimeException('Telegram AI Gemini call failed: ' . $response->body()));
+
+            $tooLarge = $response->status() === 400
+                && str_contains($response->body(), 'exceeds the maximum number of tokens');
+
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => false, 'too_large' => $tooLarge];
+        }
+
+        $candidate = $response->json('candidates.0') ?? [];
+        $chunkParts = $candidate['content']['parts'] ?? [];
+        $chunkText = collect($chunkParts)->pluck('text')->filter()->implode('');
+
+        return [
+            'ok' => true,
+            'text' => $chunkText,
+            'finishReason' => $candidate['finishReason'] ?? null,
+            'rate_limited' => false,
+            'too_large' => false,
+        ];
+    }
+
+    /**
+     * خط الدفاع الأخير — نفس نموذج "openrouter/free" المستخدَم بمساعد
+     * الموقع بالضبط. تُستدعى فقط لنداءات نصية صرفة ($allowOpenRouter
+     * بـcallGemini)، فلا داعي هون لأي فحص وجود ملف بـ$contents. تحويل
+     * صيغة Gemini (role: user/model) لصيغة OpenRouter/OpenAI القياسية
+     * (role: user/assistant) — كل "دور" يُدمَج كنص واحد (مافي أكواد
+     * متعددة بجزء واحد بهذا المسار أصلًا).
+     *
+     * ⚠ لا تدعم "كمّل من حيث توقفت" (finishReason دائمًا null هون) —
+     * هي أصلًا خط دفاع أخير لمرة واحدة لا محادثة مستمرة.
+     *
+     * @return array{ok: bool, text: ?string, finishReason: ?string, rate_limited: bool, too_large: bool}
+     */
+    private function attemptOpenRouterRound(string $systemInstruction, array $contents, int $timeoutSeconds): array
+    {
+        $messages = [['role' => 'system', 'content' => $systemInstruction]];
+
+        foreach ($contents as $turn) {
+            $role = ($turn['role'] ?? 'user') === 'model' ? 'assistant' : 'user';
+            $text = collect($turn['parts'] ?? [])->pluck('text')->filter()->implode("\n");
+            $messages[] = ['role' => $role, 'content' => $text];
+        }
+
+        try {
+            $response = Http::timeout($timeoutSeconds)
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . config('services.openrouter.key'),
+                    'X-Title' => 'PTC Hub Telegram Bot',
+                ])
+                ->post('https://openrouter.ai/api/v1/chat/completions', [
+                    'model' => 'openrouter/free',
+                    'messages' => $messages,
+                ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => false, 'too_large' => false];
+        }
+
+        if ($response->status() === 429) {
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => true, 'too_large' => false];
+        }
+
+        if (! $response->successful()) {
+            report(new RuntimeException('Telegram AI OpenRouter call failed: ' . $response->body()));
+
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => false, 'too_large' => false];
+        }
+
+        $text = $response->json('choices.0.message.content');
+
+        if (! $text) {
+            return ['ok' => false, 'text' => null, 'finishReason' => null, 'rate_limited' => false, 'too_large' => false];
+        }
+
+        return ['ok' => true, 'text' => $text, 'finishReason' => null, 'rate_limited' => false, 'too_large' => false];
     }
 
     /*

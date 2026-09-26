@@ -13,10 +13,17 @@ class GeminiFileService
      * رفع مباشر من السيرفر (لا من المتصفح) بطلب واحد فقط — يتجاوز
      * قيد CORS تمامًا لأن جوجل ترفض استقبال رفع الملفات من متصفح
      * مباشرة أساسًا؛ هذا اتصال سيرفر-لسيرفر لا علاقة له بتلك السياسة.
+     *
+     * $apiKey اختياري (افتراضيًا null → المفتاح الأساسي، بلا أي تغيير
+     * بالسلوك القديم لكل المستدعين الحاليين بالموقع) — أُضيف حتى يقدر
+     * أي مستدعٍ (حاليًا TelegramAiAssistant فقط) يختار مفتاحًا مختلفًا
+     * صراحة (تدوير بين عدة مفاتيح Gemini). ⚠ الملف الناتج مربوط بنفس
+     * هذا المفتاح تحديدًا — أي نداء generateContent لاحق يشير لملفه
+     * لازم يستخدم *نفس* المفتاح بالضبط، وإلا يفشل دائمًا.
      */
-    public function uploadFile(string $filePath, string $displayName, string $mimeType): array
+    public function uploadFile(string $filePath, string $displayName, string $mimeType, ?string $apiKey = null): array
     {
-        $apiKey = config('services.gemini.key');
+        $apiKey = $apiKey ?: config('services.gemini.key');
         if (!$apiKey) {
             throw new RuntimeException('Gemini غير مفعّل حاليًا على الخادم.');
         }
@@ -48,7 +55,7 @@ class GeminiFileService
          * جذريًا: يفشل الرفع بوضوح فورًا إن تعذّر التجهيز، بدل أن يعلَّق
          * طلب الإجابة نفسه لاحقًا بلا تفسير واضح للطالب.
          */
-        return $this->getFile($file['name']);
+        return $this->getFile($file['name'], apiKey: $apiKey);
     }
  
     public function startUpload(string $displayName, string $mimeType, int $size): string
@@ -85,9 +92,9 @@ class GeminiFileService
         return $uploadUrl;
     }
  
-    public function getFile(string $name, int $waitSeconds = 25): array
+    public function getFile(string $name, int $waitSeconds = 25, ?string $apiKey = null): array
     {
-        $apiKey = config('services.gemini.key');
+        $apiKey = $apiKey ?: config('services.gemini.key');
         if (!$apiKey) {
             throw new RuntimeException('Gemini غير مفعّل حاليًا على الخادم.');
         }
@@ -127,9 +134,9 @@ class GeminiFileService
         throw new RuntimeException('الملف ما زال قيد المعالجة لدى Gemini. حاول إرساله بعد لحظات.');
     }
  
-    public function deleteFile(string $name): void
+    public function deleteFile(string $name, ?string $apiKey = null): void
     {
-        $apiKey = config('services.gemini.key');
+        $apiKey = $apiKey ?: config('services.gemini.key');
         if (!$apiKey) return;
  
         $name = ltrim($name, '/');
