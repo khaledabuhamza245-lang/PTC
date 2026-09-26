@@ -58,7 +58,17 @@ Route::prefix('v1')->group(function () {
      * الحماية برمز سرّي بالترويسة (X-Telegram-Bot-Api-Secret-Token)
      * لا بجلسة تسجيل دخول، لأن المستدعي هون سيرفرات تيليجرام نفسها.
      */
-    Route::post('/telegram/webhook', TelegramWebhookController::class);
+    /*
+     * withoutMiddleware('throttle:api') + throttle:telegram-webhook خاص:
+     * هاد المسار بلا مصادقة مستخدم أبدًا، فكان يقع تحت حدّ الضيوف العام
+     * (60/دقيقة بالـIP) ويتشارك فيه كل طلاب البوت مع بعض لأن المستدعي
+     * دايمًا سيرفرات تيليجرام — راجع تعليق RateLimiter::for('telegram-webhook')
+     * بـAppServiceProvider لتفصيل كيف هاد بالضبط سبب شكوى "تأخّر الردّ
+     * لما بيستخدمه أكتر من طالب مع بعض".
+     */
+    Route::post('/telegram/webhook', TelegramWebhookController::class)
+        ->withoutMiddleware('throttle:api')
+        ->middleware('throttle:telegram-webhook');
         Route::get('/ai/provider-usage', [AiAssistantController::class, 'providerUsage']);
     Route::middleware('throttle:auth')->prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
