@@ -485,7 +485,7 @@ class TelegramWebhookController extends Controller
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
                 "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل) + أزرار تسجيل/تعديل/حذف علامة أي مادة، ومحاكي \"ماذا لو؟\" — كلها بمزامنة فورية مع حاسبة المعدل بالموقع.\n".
                 "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة، وأزرار إضافة/تعديل/حذف/تفعيل التذكيرات مباشرة تحت الجدول.\n".
-                "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية أو الأدوات الهندسية)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة واللاحقة، مواضيع تحضيرية، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
+                "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية أو الأدوات الهندسية أو 🌳 شجرة المساقات الكاملة بضغطة وحدة)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة واللاحقة، مواضيع تحضيرية، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
                 "📖 مساقاتي الحالية — مساقاتك المسجَّلة فعليًا، مع أزرار إضافة/حذف مساق مباشرة (تتزامن مع الصفحة الشخصية بالموقع فورًا).\n".
                 "⭐ مفضلاتي — كل الملفات يلي حفظتها من أي مادة، بروابطها المباشرة، بمكان وحد.\n".
                 "🔍 بحث — دور بكلمة وحدة عن مادة أو محتوى أو أداة بنفس الوقت.\n".
@@ -2560,6 +2560,7 @@ class TelegramWebhookController extends Controller
             ],
             [['text' => '🔀 المساقات الاختيارية', 'callback_data' => 'hub:electives:1']],
             [['text' => '🧰 الأدوات الهندسية', 'callback_data' => 'hub:tools:1']],
+            [['text' => '🌳 شجرة المساقات الكاملة', 'callback_data' => 'hub:tree']],
             [['text' => '⭐ مفضلاتي', 'callback_data' => 'content:favorites:1']],
         ];
 
@@ -2588,6 +2589,12 @@ class TelegramWebhookController extends Controller
 
         if ($key === 'root') {
             $this->sendCourseHubYearPicker($bot, $chatId);
+
+            return;
+        }
+
+        if ($key === 'tree') {
+            $this->sendCourseHubTree($bot, $chatId);
 
             return;
         }
@@ -2648,6 +2655,68 @@ class TelegramWebhookController extends Controller
 
             return;
         }
+    }
+
+    /*
+     * "🌳 شجرة المساقات الكاملة" — نظرة عامة على الخطة كلها (٤ سنوات)
+     * بضغطة وحدة، بدل التنقّل سنة بسنة وفصل بفصل. تيليجرام ما بيدعم
+     * رسم شجرة تفاعلية حقيقية متل الموقع، فالبديل هون: رسالة نصية لكل
+     * سنة تسرد موادها الإجبارية مجمَّعة حسب الفصل (نظرة سريعة)، تحتها
+     * زر لكل مادة يفتح نفس شاشة "تفاصيل المادة" الموجودة أصلًا
+     * (المتطلبات السابقة واللاحقة، مواضيع تحضيرية، المحتوى، الأدوات) —
+     * فالطالب يحصل عمليًا على نفس فائدة الشجرة بالموقع: يشوف مكان
+     * أي مادة بالخطة، وبضغطة وحدة يعرف شو بتفتحله وشو لازم قبلها.
+     */
+    private function sendCourseHubTree(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $bot->sendMessage($chatId, "🌳 <b>شجرة المساقات الكاملة</b>\n\nكل المواد الإجبارية بالخطة، مرتبة حسب السنة والفصل. اضغط أي مادة بالأزرار تحت رسالة سنتها لعرض تفاصيلها ومتطلباتها السابقة واللاحقة.");
+
+        for ($year = 1; $year <= 4; $year++) {
+            $firstSemester = ($year - 1) * 2 + 1;
+            $secondSemester = $firstSemester + 1;
+
+            $courses = Course::query()
+                ->where('is_active', true)
+                ->where('year', $year)
+                ->where('course_type', 'required')
+                ->whereIn('semester', [$firstSemester, $secondSemester])
+                ->orderBy('semester')
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get(['key', 'code', 'name_ar', 'name_en', 'semester']);
+
+            if ($courses->isEmpty()) {
+                continue;
+            }
+
+            $bySemester = $courses->groupBy('semester');
+            $lines = ["📘 <b>السنة {$year}</b>"];
+
+            foreach ([$firstSemester => '1️⃣ الفصل الأول', $secondSemester => '2️⃣ الفصل الثاني'] as $semesterNumber => $label) {
+                $semesterCourses = $bySemester->get($semesterNumber, collect());
+
+                if ($semesterCourses->isEmpty()) {
+                    continue;
+                }
+
+                $lines[] = '';
+                $lines[] = "<b>{$label}:</b>";
+
+                foreach ($semesterCourses as $course) {
+                    $lines[] = '• '.TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en));
+                }
+            }
+
+            $keyboard = $courses->map(function (Course $course) {
+                $label = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+
+                return [['text' => $label, 'callback_data' => 'hub:course:'.$course->key]];
+            })->values()->all();
+
+            $this->sendChunkedMessage($bot, $chatId, $lines, $keyboard);
+        }
+
+        $bot->sendMessage($chatId, '🔀 المساقات الاختيارية والأدوات الهندسية موجودة بقائمة "📚 المساقات" الرئيسية.', [[['text' => '🔙 رجوع للمساقات', 'callback_data' => 'hub:root']]]);
     }
 
     private function sendCourseHubSemesterPicker(TelegramBotApi $bot, int|string $chatId, int $year): void
