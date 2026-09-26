@@ -1062,6 +1062,19 @@ class TelegramWebhookController extends Controller
         $data = (string) ($callbackQuery['data'] ?? '');
         $rest = substr($data, strlen('quizloop:'));
 
+        /*
+         * الخلل الفعلي وراء "بيضغط ما بيصير اشي": أزرار الإجابة مُرسَلة
+         * بصيغة "quizloop:answer:أ" (راجع sendQuizQuestionCard)، لكن
+         * $rest بعد تجريد "quizloop:" فقط كانت تضل "answer:أ" — وهاي ما
+         * بتطابق أبدًا ['أ','ب','ج','د'] تحت، فيسقط بصمت بفرع "لا شيء
+         * مطابق" (answerCallbackQuery بس بلا أي رسالة). زر "إنهاء
+         * الاختبار" (quizloop:end، بلا مقطع "answer:") ما كان فيه هاد
+         * الخلل — لهيك بينحل هو وحده وبيفشل التفاعل بالإجابات فقط.
+         */
+        if (str_starts_with($rest, 'answer:')) {
+            $rest = substr($rest, strlen('answer:'));
+        }
+
         if (! $chatId) {
             $bot->answerCallbackQuery($callbackId);
 
