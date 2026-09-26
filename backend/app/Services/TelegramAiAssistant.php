@@ -84,6 +84,13 @@ class TelegramAiAssistant
         }
     }
 
+    /*
+     * timeoutSeconds مرفوع لـ90 (بدل الافتراضي 45) — ملف PDF متعدد
+     * الصفحات يحتاج Gemini وقتًا فعليًا أطول ليقرأه كاملًا قبل التلخيص،
+     * والـ45 القديمة كانت أقصر من هذا الاحتياج الواقعي أحيانًا (راجع
+     * تعليق replyWithFileSummary بالـwebhook للصورة الكاملة: رفع الملف
+     * لـGemini + انتظار جهوزيته يضيفان وقتًا فوق هذا النداء نفسه).
+     */
     private function generate(string $fileUri, string $mimeType): string
     {
         $systemInstruction =
@@ -91,10 +98,16 @@ class TelegramAiAssistant
             'لخّص محتوى الصورة أو الملف المرفق بشكل واضح ومركّز يفيد الطالب '.
             'للمذاكرة، بالعربية الفصحى البسيطة، بدون مقدمات طويلة.';
 
-        return $this->callGemini($systemInstruction, [
-            ['text' => 'لخّصلي هذا المحتوى.'],
-            ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileUri]],
-        ], tooLargeMessage: 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.', emptyMessage: 'ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.');
+        return $this->callGemini(
+            $systemInstruction,
+            [
+                ['text' => 'لخّصلي هذا المحتوى.'],
+                ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileUri]],
+            ],
+            tooLargeMessage: 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.',
+            emptyMessage: 'ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.',
+            timeoutSeconds: 90
+        );
     }
 
     /**

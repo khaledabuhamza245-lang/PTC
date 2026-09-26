@@ -2950,9 +2950,20 @@ class TelegramWebhookController extends Controller
 
     /*
      * صورة أو ملف (PDF/صورة كمستند) → تنزيل من تيليجرام → تلخيص عبر
-     * TelegramAiAssistant. رفع الحد الزمني هون تحديدًا (لا لباقي
-     * الأوامر) لأن استدعاء Gemini قد يأخذ عشرات الثواني، وإعدادات PHP
-     * الافتراضية بالاستضافة المشتركة أقصر من ذلك عادة.
+     * TelegramAiAssistant.
+     *
+     * ⚠ كانت هون علة حقيقية (شكوى: "بعتلي جارٍ التحليل... وبعدها ولا
+     * اشي" على PDF بحجم ٤.٦ ميغا): @set_time_limit(60) كانت أقصر بكثير
+     * من أسوأ سيناريو واقعي لسلسلة النداءات الفعلية — رفع الملف لـGemini
+     * (GeminiFileService::uploadFile، حده ١٢٠ث) + انتظار جهوزيته
+     * (getFile، حتى ٢٥ث إضافية) + نداء التلخيص نفسه (حتى ٩٠ث بعد رفعه —
+     * راجع TelegramAiAssistant::generate()) يعني حتى ~٢٣٥ ثانية بأسوأ
+     * حالة، أطول بكثير من ٦٠ ثانية. النتيجة: PHP كان يقتل الطلب بصمت
+     * بلا أي استثناء ولا رسالة خطأ (لا try/catch يمسك "انتهاء الوقت"
+     * لأنه إنهاء قسري من المفسّر نفسه)، فالطالب يضل ينتظر للأبد. نفس
+     * حل "ورشة الأكواد" بالضبط هون: سقف وقت أعلى فعليًا + قطع اتصال
+     * الويبهوك فورًا (fastcgi_finish_request) حتى ما يتأثر التسليم
+     * بطول وقت المعالجة، ولا بمهلة أي وسيط استضافة/تيليجرام إضافية.
      */
     private function replyWithFileSummary(
         TelegramBotApi $bot,
@@ -2962,7 +2973,7 @@ class TelegramWebhookController extends Controller
         ?array $photos,
         ?array $document
     ): void {
-        @set_time_limit(60);
+        @set_time_limit(300);
 
         if (is_array($photos) && $photos !== []) {
             $fileId = (string) end($photos)['file_id'];
@@ -2994,6 +3005,17 @@ class TelegramWebhookController extends Controller
         }
 
         $bot->sendMessage($chatId, '🤖 جارٍ تحليل الملف... ثواني وبردّ عليك.');
+
+        // راجع تعليق fastcgi_finish_request المطابق بـreplyWithCodeFileDebug — نفس المنطق بالضبط.
+        if (function_exists('fastcgi_finish_request')) {
+            if (! headers_sent()) {
+                http_response_code(200);
+                header('Content-Type: application/json');
+            }
+
+            echo json_encode(['ok' => true]);
+            fastcgi_finish_request();
+        }
 
         $localPath = $bot->downloadFile($fileId);
 
