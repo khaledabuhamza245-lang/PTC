@@ -366,6 +366,7 @@ class TelegramWebhookController extends Controller
 
         if (str_starts_with($text, '/start')) {
             $token = trim(substr($text, strlen('/start')));
+            $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
 
             if ($token === '') {
                 /*
@@ -393,9 +394,21 @@ class TelegramWebhookController extends Controller
                     return response()->json(['ok' => true]);
                 }
 
+                /*
+                 * ⚠ رابط مباشر لمكان الربط بالموقع بدل وصف نصي فقط —
+                 * بطلب صريح من المستخدم: أي طالب (مسجّل أو لأ) يضغط
+                 * /start بلا حساب مربوط لازم يوصله رابط ينقله فورًا
+                 * لنفس مكان أيقونة "اربط حسابي بتيليجرام" (بطاقة #tgLinkCard
+                 * بصفحة إعدادات الحساب — نُقل إليها اختصار بارز من
+                 * "صفحتي الشخصية" كمان). لو الطالب أصلًا مش مسجّل بالموقع،
+                 * حارس الدخول بالصفحة نفسها (ptc-fast-auth-guard) بيحوّله
+                 * لصفحة تسجيل الدخول تلقائيًا، ومنها لإنشاء حساب جديد.
+                 */
                 $bot->sendMessage(
                     $chatId,
-                    'أهلًا 👋 لازم تربط حسابك أول شي من صفحة "حسابي" بموقع دليل طالب هندسة أنظمة الحاسوب.'
+                    'أهلًا 👋 لازم تربط حسابك أول شي.'."\n\n".
+                    'اضغط هذا الرابط وسجّل دخولك (أو أنشئ حسابًا جديدًا لو ما عندك واحد بعد)، وهناك بتلاقي زر "اربط حسابي بتيليجرام":'."\n".
+                    $frontendUrl.'/account.html#tgLinkCard'
                 );
 
                 return response()->json(['ok' => true]);
@@ -449,9 +462,12 @@ class TelegramWebhookController extends Controller
             ->first();
 
         if (! $link || ! $link->user) {
+            // راجع تعليق مطابق بفرع "/start" فوق — نفس رابط مباشر لمكان الربط بالضبط.
             $bot->sendMessage(
                 $chatId,
-                'لسا ما ربطت حسابك 🙂 روح لصفحة "إعدادات الحساب" بالموقع واضغط "اربط حسابي بتيليجرام".'
+                'لسا ما ربطت حسابك 🙂'."\n\n".
+                'اضغط هذا الرابط وسجّل دخولك (أو أنشئ حسابًا جديدًا لو ما عندك واحد بعد)، وهناك بتلاقي زر "اربط حسابي بتيليجرام":'."\n".
+                rtrim((string) config('app.frontend_url'), '/').'/account.html#tgLinkCard'
             );
 
             return response()->json(['ok' => true]);
