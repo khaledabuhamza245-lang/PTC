@@ -149,6 +149,45 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_ADMIN_CONTENT = '📚 إدارة المحتوى';
     private const MAIN_MENU_ADMIN_COURSES = '🎓 إدارة المساقات';
 
+    /*
+     * قائمة أوامر "/" الظاهرة بتيليجرام (زر جنب أيقونة السمايلات
+     * بصندوق الكتابة — راجع TelegramBotApi::setMyCommands()) — تُسجَّل
+     * تلقائيًا بكل /start (syncBotCommands() تحت)، بلا حاجة لأي أمر
+     * artisan يدوي (الاستضافة بلا SSH أصلًا). أسماء الأوامر لازم تكون
+     * لاتينية صغيرة بحكم قيد تيليجرام نفسه (^[a-z0-9_]{1,32}$)، لكن
+     * الوصف عربي وحر تمامًا — وهو أيضًا نفس النص يلي يطابقه $normalized
+     * بالأسفل، فكل أمر هون شغّال فعليًا لا مجرد واجهة (راجع كل alias
+     * "لاتيني" بمطابقات in_array تحت — أُضيفت بنفس هالجولة).
+     *
+     * الترتيب هون مقصود لا عشوائي: يبدأ بالأكاديمي الشخصي (خطة/معدل/جدول)،
+     * يمر بالتصفح والاستكشاف (مساقات/بحث)، فالذكاء الاصطناعي والمشاركة،
+     * وينتهي بالتواصل والمساعدة — يعطي إحساس "قوائم منظمة" رغم إنه
+     * تيليجرام نفسه ما بيدعم عناوين أقسام حقيقية بقائمة الأوامر.
+     */
+    private const DEFAULT_BOT_COMMANDS = [
+        ['command' => 'start', 'description' => '🚀 ابدأ من هون أو اربط حسابك بالبوت'],
+        ['command' => 'plan', 'description' => '📊 لقطة سريعة لمشوارك نحو التخرّج'],
+        ['command' => 'gpa', 'description' => '🧮 معدّلك التراكمي بالتفصيل، وحدّثه من هون'],
+        ['command' => 'schedule', 'description' => '📅 جدول محاضراتك + تذكير قبل كل وحدة'],
+        ['command' => 'courses', 'description' => '📚 نزهة داخل الخطة الدراسية سنة سنة'],
+        ['command' => 'mycourses', 'description' => '📖 مساقاتك المسجَّلة فعليًا هالفصل'],
+        ['command' => 'favorites', 'description' => '⭐ كل ملف عجبك وحفظته، بمكان وحد'],
+        ['command' => 'tools', 'description' => '🧪 معمل الذكاء الاصطناعي: أسئلة وأكواد واختبارات'],
+        ['command' => 'search', 'description' => '🔍 دور بكلمة وحدة عن أي شي بالموقع'],
+        ['command' => 'contribute', 'description' => '📤 عندك ملف يفيد زملاءك؟ شاركه بضغطة'],
+        ['command' => 'contact', 'description' => '📨 وصلتك ملاحظة أو مشكلة؟ راسلنا مباشرة'],
+        ['command' => 'help', 'description' => '❓ دليل استخدام البوت كامل، خطوة خطوة'],
+    ];
+
+    // تُضاف لقائمة الأعلى فقط بمحادثة حساب إدارة (User::isStaff()) —
+    // عبر scope خاص بمحادثته وحدها (BotCommandScopeChat)، لا تظهر لأي طالب.
+    private const STAFF_BOT_COMMANDS = [
+        ['command' => 'announce', 'description' => '📢 انشر إعلانًا يوصل كل الطلاب فورًا'],
+        ['command' => 'admintools', 'description' => '🧰 تحكّم بالأدوات الهندسية بالموقع'],
+        ['command' => 'admincontent', 'description' => '📚 إدارة محتوى المساقات والملفات'],
+        ['command' => 'admincourses', 'description' => '🎓 إدارة بيانات المساقات والخطة'],
+    ];
+
     // نفس ٣ قيم CourseFile... لا، نفس ٣ قيم Course::course_type — لكن
     // الطاقم من داخل البوت لا يختار إلا بين إجباري/اختياري (placeholder
     // نوع داخلي قديم غير مطروح هون).
@@ -343,6 +382,8 @@ class TelegramWebhookController extends Controller
                     ->first();
 
                 if ($existingLink && $existingLink->user) {
+                    $this->syncBotCommands($bot, $chatId, $existingLink->user);
+
                     $bot->sendMessageWithMainMenu(
                         $chatId,
                         'أهلًا فيك من جديد 👋 حسابك مربوط أصلًا — استخدم الأزرار تحت 👇 للمتابعة.',
@@ -383,6 +424,10 @@ class TelegramWebhookController extends Controller
             ]);
 
             $studentName = trim((string) ($link->user?->first_name ?? ''));
+
+            if ($link->user) {
+                $this->syncBotCommands($bot, $chatId, $link->user);
+            }
 
             $bot->sendMessageWithMainMenu(
                 $chatId,
@@ -548,7 +593,7 @@ class TelegramWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, [self::MAIN_MENU_TOOLS, 'القائمة', 'menu', 'قائمة'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_TOOLS, 'القائمة', 'menu', 'قائمة', 'tools'], true)) {
             $this->sendMenu($bot, $chatId, $link->currentMode());
 
             return response()->json(['ok' => true]);
@@ -560,7 +605,7 @@ class TelegramWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, [self::MAIN_MENU_COURSES, 'المساقات', 'مساقات'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_COURSES, 'المساقات', 'مساقات', 'courses'], true)) {
             $this->sendCourseHubYearPicker($bot, $chatId);
 
             return response()->json(['ok' => true]);
@@ -572,7 +617,7 @@ class TelegramWebhookController extends Controller
          * منه الصفحة الشخصية بالموقع (MyCourseController) — إضافة/حذف
          * من هون تنعكس مباشرة هناك وبالعكس.
          */
-        if (in_array($normalized, [self::MAIN_MENU_MY_COURSES, 'مساقاتي'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_MY_COURSES, 'مساقاتي', 'mycourses'], true)) {
             $this->sendMyCoursesList($bot, $chatId, $link->user);
 
             return response()->json(['ok' => true]);
@@ -582,7 +627,7 @@ class TelegramWebhookController extends Controller
          * "⭐ مفضلاتي" — زر رئيسي مستقل (كان قبل هيك زر ثانوي مدفون
          * تحت "المساقات" فقط، فلم يلاحظه الطاقم بالتجربة الأولى).
          */
-        if (in_array($normalized, [self::MAIN_MENU_FAVORITES, 'مفضلاتي', 'المفضلة'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_FAVORITES, 'مفضلاتي', 'المفضلة', 'favorites'], true)) {
             $this->sendContentFavoritesList($bot, $chatId, $link->user, 1);
 
             return response()->json(['ok' => true]);
@@ -596,7 +641,7 @@ class TelegramWebhookController extends Controller
          * الموقع، ومصمَّمة لتبقى شغّالة لو صار بالمستقبل دعم لطلاب غير
          * مسجَّلين (بس تبدأ الحقول فاضية بدل مُعبَّأة).
          */
-        if (in_array($normalized, [self::MAIN_MENU_CONTACT, 'تواصل معنا', 'تواصل'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_CONTACT, 'تواصل معنا', 'تواصل', 'contact'], true)) {
             $this->startContactFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
@@ -609,13 +654,13 @@ class TelegramWebhookController extends Controller
          * بيولّد رابط دخول جاهز لبوت الرفع الموجود مسبقًا (راجع
          * generateContributionLink).
          */
-        if (in_array($normalized, [self::MAIN_MENU_CONTRIBUTE, 'شارك ملف', 'مشاركة ملف'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_CONTRIBUTE, 'شارك ملف', 'مشاركة ملف', 'contribute'], true)) {
             $this->startContributeFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, [self::MAIN_MENU_SEARCH, 'بحث'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_SEARCH, 'بحث', 'search'], true)) {
             $link->update(['pending_action' => ['action' => 'search', 'step' => 'query', 'lecture_id' => null, 'data' => []]]);
             $bot->sendMessage($chatId, '🔍 اكتب كلمة أو اسم مادة/ملف/أداة تدور عليه (حرفين على الأقل):');
 
@@ -630,7 +675,7 @@ class TelegramWebhookController extends Controller
          * يمر من نفس فحص الصلاحية الحقيقي. مرحلة ٣ (نطاق أول: إعلانات
          * فقط — باقي صلاحيات الإدارة الكاملة مؤجلة لمراحل لاحقة).
          */
-        if ($normalized === self::MAIN_MENU_ADMIN_ANNOUNCE) {
+        if (in_array($normalized, [self::MAIN_MENU_ADMIN_ANNOUNCE, 'announce'], true)) {
             if (! $link->user->isStaff()) {
                 $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
 
@@ -646,7 +691,7 @@ class TelegramWebhookController extends Controller
          * "🧰 إدارة الأدوات" — نفس فحص الصلاحية الحقيقي أعلاه بالضبط،
          * لا يعتمد على ظهور الزر بالواجهة فقط.
          */
-        if ($normalized === self::MAIN_MENU_ADMIN_TOOLS) {
+        if (in_array($normalized, [self::MAIN_MENU_ADMIN_TOOLS, 'admintools'], true)) {
             if (! $link->user->isStaff()) {
                 $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
 
@@ -662,7 +707,7 @@ class TelegramWebhookController extends Controller
          * "📚 إدارة المحتوى" — نفس فحص الصلاحية الحقيقي أعلاه بالضبط.
          * أول خطوة دايمًا: بحث عن المادة (بدل تصفّح كل المساقات).
          */
-        if ($normalized === self::MAIN_MENU_ADMIN_CONTENT) {
+        if (in_array($normalized, [self::MAIN_MENU_ADMIN_CONTENT, 'admincontent'], true)) {
             if (! $link->user->isStaff()) {
                 $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
 
@@ -682,7 +727,7 @@ class TelegramWebhookController extends Controller
          * يقرأ من جدول courses (قوائم السنوات، الاختياريات، صفحة
          * المادة، والخطة الدراسية بالصفحة الشخصية) بلا أي خطوة إضافية.
          */
-        if ($normalized === self::MAIN_MENU_ADMIN_COURSES) {
+        if (in_array($normalized, [self::MAIN_MENU_ADMIN_COURSES, 'admincourses'], true)) {
             if (! $link->user->isStaff()) {
                 $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
 
@@ -3170,6 +3215,26 @@ class TelegramWebhookController extends Controller
         }
 
         return $keyboard;
+    }
+
+    /*
+     * تسجيل قائمة أوامر "/" بتيليجرام (راجع تعليق DEFAULT_BOT_COMMANDS
+     * فوق) — تُستدعى بكل /start ناجح (حساب مربوط جديد أو رجوع لحساب
+     * مربوط أصلًا). القائمة العامة (بلا scope) تنطبق على أي محادثة ما
+     * إلها قائمة خاصة، وقائمة الإدارة الإضافية مربوطة بـchat_id هالطالب
+     * تحديدًا (BotCommandScopeChat) فما تظهر عند أي طالب عادي إطلاقًا،
+     * حتى لو رفع صلاحيته لاحقًا لازم يعمل /start مرة تانية ليشوفها.
+     */
+    private function syncBotCommands(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user): void
+    {
+        $bot->setMyCommands(self::DEFAULT_BOT_COMMANDS);
+
+        if ($user->isStaff()) {
+            $bot->setMyCommands(
+                array_merge(self::DEFAULT_BOT_COMMANDS, self::STAFF_BOT_COMMANDS),
+                ['type' => 'chat', 'chat_id' => $chatId]
+            );
+        }
     }
 
     private function sendCourseHubYearPicker(TelegramBotApi $bot, int|string $chatId): void

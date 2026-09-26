@@ -92,6 +92,34 @@ class TelegramBotApi
     }
 
     /*
+     * تسجيل قائمة أوامر "/" الظاهرة بتيليجرام (الزر جنب أيقونة
+     * السمايلات بصندوق الكتابة) — $commands مصفوفة عناصر
+     * {command, description} بصيغة تيليجرام القياسية (command لاتيني
+     * صغير فقط بحكم قيد تيليجرام نفسه ^[a-z0-9_]{1,32}$، description
+     * حر بأي لغة). $scope اختياري بصيغة تيليجرام القياسية (مثلًا
+     * ['type' => 'chat', 'chat_id' => ...]) لقائمة إضافية خاصة
+     * بمحادثة وحدة بدل القائمة الافتراضية العامة — راجع
+     * TelegramWebhookController::syncBotCommands() لاستخدامها الفعلي
+     * (قائمة طلاب عامة + قائمة إدارة إضافية بمحادثات الإدارة فقط).
+     *
+     * @param array<int, array{command: string, description: string}> $commands
+     */
+    public function setMyCommands(array $commands, ?array $scope = null): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $payload = ['commands' => json_encode($commands)];
+
+        if ($scope !== null) {
+            $payload['scope'] = json_encode($scope);
+        }
+
+        Http::timeout(10)->post("https://api.telegram.org/bot{$this->token}/setMyCommands", $payload);
+    }
+
+    /*
      * لازم تُستدعى لكل ضغطة زر inline (callback_query) حتى تختفي
      * دوّامة التحميل عن الزر بواجهة تيليجرام — حتى لو ما بدنا نعرض
      * أي "toast" فعلي للطالب ($text فاضي افتراضيًا مقبول).
