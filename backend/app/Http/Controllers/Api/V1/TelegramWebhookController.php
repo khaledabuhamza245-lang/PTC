@@ -115,12 +115,13 @@ class TelegramWebhookController extends Controller
 
     private const MAIN_MENU_SEARCH = '🔍 بحث';
     private const MAIN_MENU_MY_COURSES = '📖 مساقاتي الحالية';
+    private const MAIN_MENU_FAVORITES = '⭐ مفضلاتي';
 
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
-        [['text' => self::MAIN_MENU_MY_COURSES]],
+        [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
         [['text' => self::MAIN_MENU_HELP]],
     ];
 
@@ -382,6 +383,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
                 self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
+                self::MAIN_MENU_FAVORITES,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -473,7 +475,9 @@ class TelegramWebhookController extends Controller
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
                 "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل) + أزرار تسجيل/تعديل/حذف علامة أي مادة، ومحاكي \"ماذا لو؟\" — كلها بمزامنة فورية مع حاسبة المعدل بالموقع.\n".
                 "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة، وأزرار إضافة/تعديل/حذف/تفعيل التذكيرات مباشرة تحت الجدول.\n".
-                "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية أو الأدوات الهندسية)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
+                "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية أو الأدوات الهندسية)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة واللاحقة، مواضيع تحضيرية، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
+                "📖 مساقاتي الحالية — مساقاتك المسجَّلة فعليًا، مع أزرار إضافة/حذف مساق مباشرة (تتزامن مع الصفحة الشخصية بالموقع فورًا).\n".
+                "⭐ مفضلاتي — كل الملفات يلي حفظتها من أي مادة، بروابطها المباشرة، بمكان وحد.\n".
                 "🔍 بحث — دور بكلمة وحدة عن مادة أو محتوى أو أداة بنفس الوقت.\n".
                 "🧰 القائمة الذكية — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات).\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
@@ -512,6 +516,16 @@ class TelegramWebhookController extends Controller
          */
         if (in_array($normalized, [self::MAIN_MENU_MY_COURSES, 'مساقاتي'], true)) {
             $this->sendMyCoursesList($bot, $chatId, $link->user);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "⭐ مفضلاتي" — زر رئيسي مستقل (كان قبل هيك زر ثانوي مدفون
+         * تحت "المساقات" فقط، فلم يلاحظه الطاقم بالتجربة الأولى).
+         */
+        if (in_array($normalized, [self::MAIN_MENU_FAVORITES, 'مفضلاتي', 'المفضلة'], true)) {
+            $this->sendContentFavoritesList($bot, $chatId, $link->user, 1);
 
             return response()->json(['ok' => true]);
         }
@@ -6581,22 +6595,40 @@ class TelegramWebhookController extends Controller
     
         $total = $files->count();
         $pageItems = $files->forPage($page, self::COURSE_HUB_PAGE_SIZE);
-    
+
+        /*
+         * الطلب صريح: القائمة نفسها لازم تعرض عنوان الملف، مادته،
+         * ورابطه المباشر (يوتيوب/درايف/أي رابط) بدون ما يضطر الطالب
+         * يفتح كل عنصر لحاله ليشوف الرابط — الأزرار تحته تبقى فقط
+         * لإدارة المفضلة/الإنجاز بضغطة وحدة.
+         */
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+        $lastPageForHeader = (int) ceil($total / self::COURSE_HUB_PAGE_SIZE);
+        $lines = ['⭐ <b>مفضلاتي</b> (صفحة '.$page.' من '.max(1, $lastPageForHeader).')', ''];
         $keyboard = [];
-    
+
         foreach ($pageItems as $file) {
-            $courseLabel = (string) ($file->course->code ?? $file->course->name_ar ?? '');
-            $label = trim(($courseLabel !== '' ? $courseLabel.' — ' : '').$file->title);
+            $courseName = (string) ($file->course->name_ar ?: $file->course->name_en ?: $file->course->code);
+            $kindLabel = self::INLINE_CONTENT_KIND_LABELS[$file->kind] ?? 'محتوى';
+            $externalUrl = trim((string) $file->external_url);
+            $link = $externalUrl !== '' ? $externalUrl : $frontendUrl.'/course.html?course='.urlencode((string) $file->course->key).'&content='.$file->id;
+
+            $lines[] = '📄 <b>'.TelegramBotApi::escapeHtml((string) $file->title).'</b> — '.$kindLabel;
+            $lines[] = '📘 '.TelegramBotApi::escapeHtml($courseName);
+            $lines[] = '🔗 '.$link;
+            $lines[] = '';
+
+            $label = '⚙️ '.trim($file->title);
             $keyboard[] = [['text' => $label, 'callback_data' => 'content:file:'.$file->id]];
         }
-    
-        $lastPage = (int) ceil($total / self::COURSE_HUB_PAGE_SIZE);
+
+        $lastPage = $lastPageForHeader;
         $pagerRow = [];
-    
+
         if ($page > 1) {
             $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'content:favorites:'.($page - 1)];
         }
-    
+
         if ($page < $lastPage) {
             $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'content:favorites:'.($page + 1)];
         }
@@ -6606,8 +6638,8 @@ class TelegramWebhookController extends Controller
         }
     
         $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'hub:root']];
-    
-        $bot->sendMessage($chatId, '⭐ <b>مفضلاتي</b> (صفحة '.$page.' من '.max(1, $lastPage).')', $keyboard);
+
+        $this->sendChunkedMessage($bot, $chatId, $lines, $keyboard);
     }
     
     private function handleContentCallback(TelegramBotApi $bot, array $callbackQuery): void
