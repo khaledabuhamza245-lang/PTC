@@ -63,6 +63,35 @@ class TelegramBotApi
     }
 
     /*
+     * القائمة الرئيسية (مرحلة ١) — لوحة أزرار دائمة (ReplyKeyboardMarkup)
+     * تظهر تحت مربع الكتابة وتبقى ظاهرة بكل الرسائل الجاية (لا تحتاج
+     * إعادة إرسال كل مرة، لكن ما في ضرر بإعادتها)، على عكس
+     * inline_keyboard يلي يُلصق برسالة وحدة بس. $rows بصيغة تيليجرام:
+     * [[['text' => '...'], ...], ...] — بلا callback_data، الضغط
+     * بيبعث نص الزر نفسه كرسالة عادية.
+     */
+    public function sendMessageWithMainMenu(int|string $chatId, string $text, array $rows): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        Http::timeout(10)->post(
+            "https://api.telegram.org/bot{$this->token}/sendMessage",
+            [
+                'chat_id' => $chatId,
+                'text' => $text,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'keyboard' => $rows,
+                    'resize_keyboard' => true,
+                    'is_persistent' => true,
+                ]),
+            ]
+        );
+    }
+
+    /*
      * لازم تُستدعى لكل ضغطة زر inline (callback_query) حتى تختفي
      * دوّامة التحميل عن الزر بواجهة تيليجرام — حتى لو ما بدنا نعرض
      * أي "toast" فعلي للطالب ($text فاضي افتراضيًا مقبول).

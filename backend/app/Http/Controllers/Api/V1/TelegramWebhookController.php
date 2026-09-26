@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Announcement;
 use App\Models\Course;
 use App\Models\CourseFile;
 use App\Models\GpaEntry;
@@ -91,6 +92,35 @@ class TelegramWebhookController extends Controller
         'summarize' => '📄 تلخيص ملفات',
     ];
 
+    // مواضيع جاهزة بأزرار لمولّد الأسئلة — يبقى ممكن كمان كتابة أي
+    // موضوع تاني حر كنص عادي (مرحلة ٠).
+    private const QUIZ_SUBJECTS = ['هياكل بيانات', 'معمارية حاسوب', 'شبكات', 'أنظمة تشغيل', 'قواعد بيانات'];
+
+    /*
+     * القائمة الرئيسية (مرحلة ١) — أسماء الأزرار الدائمة (ReplyKeyboardMarkup)
+     * كثوابت حتى ما نكرر النص الحرفي بأكثر من مكان (الكيبورد نفسه +
+     * أماكن المطابقة بـ__invoke()).
+     */
+    private const MAIN_MENU_PLAN = '📊 خطتي';
+    private const MAIN_MENU_GPA = '🧮 معدلي';
+    private const MAIN_MENU_SCHEDULE = '📅 جدولي';
+    private const MAIN_MENU_COURSES = '📚 المساقات';
+    private const MAIN_MENU_TOOLS = '🧰 القائمة';
+    private const MAIN_MENU_HELP = '❓ مساعدة';
+
+    private const MAIN_MENU_KEYBOARD = [
+        [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
+        [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
+        [['text' => self::MAIN_MENU_TOOLS], ['text' => self::MAIN_MENU_HELP]],
+    ];
+
+    // زر إضافي يظهر فقط لحسابات الإدارة (User::isStaff()) — راجع
+    // buildMainMenuKeyboard().
+    private const MAIN_MENU_ADMIN_ANNOUNCE = '📢 نشر إعلان';
+
+    // حجم صفحة قوائم "المساقات" (اختياريات/ملفات) — نفس فلسفة GPA_PAGE_SIZE.
+    private const COURSE_HUB_PAGE_SIZE = 8;
+
     /*
      * امتدادات ملفات الكود المقبولة بوضع "مصحّح أكواد" فقط — منفصلة
      * تمامًا عن الصور/PDF المقبولة بالتلخيص (replyWithFileSummary).
@@ -102,6 +132,9 @@ class TelegramWebhookController extends Controller
         'html', 'htm', 'css', 'js', 'jsx', 'ts', 'tsx', 'php', 'py', 'java',
         'c', 'h', 'cpp', 'hpp', 'cs', 'json', 'sql', 'txt', 'md', 'xml',
         'sh', 'rb', 'go', 'kt', 'swift', 'yml', 'yaml', 'vue', 'dart',
+        // لغات وصف عتاد رقمي/تجميع — مهمة تحديدًا لتخصص هندسة أنظمة
+        // الحاسوب (مواد الدوائر الرقمية/المعمارية)، أُضيفت مع المرحلة ٠.
+        'v', 'vhd', 'vhdl', 'asm', 's',
     ];
 
     /*
@@ -152,6 +185,12 @@ class TelegramWebhookController extends Controller
                 $this->handleScheduleCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'gpa:')) {
                 $this->handleGpaCallback($bot, $gpaCalculator, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'quizsubj:')) {
+                $this->handleQuizSubjectCallback($bot, $aiAssistant, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'hub:')) {
+                $this->handleCourseHubCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'announce:')) {
+                $this->handleAnnounceCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -211,10 +250,11 @@ class TelegramWebhookController extends Controller
 
             $studentName = trim((string) ($link->user?->first_name ?? ''));
 
-            $bot->sendMessage(
+            $bot->sendMessageWithMainMenu(
                 $chatId,
                 "تم ربط حسابك بنجاح يا {$studentName} ✅\n".
-                "جرّب تكتب \"خطتي\" أو \"معدلي\" أو \"جدولي\"، أو اكتب \"القائمة\" لتختار أداة الذكاء الاصطناعي (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات)، أو اكتب \"مساعدة\" تشوف كل الأوامر."
+                'استخدم الأزرار تحت 👇 للتنقل بين خطتك ومعدلك وجدولك وأدوات الذكاء الاصطناعي، أو زر "مساعدة" لشرح كل شيء.',
+                $this->buildMainMenuKeyboard($link->user)
             );
 
             return response()->json(['ok' => true]);
@@ -252,8 +292,12 @@ class TelegramWebhookController extends Controller
                 return response()->json(['ok' => true]);
             }
 
-            if (str_starts_with((string) ($link->pending_action['action'] ?? ''), 'gpa')) {
+            $pendingAction = (string) ($link->pending_action['action'] ?? '');
+
+            if (str_starts_with($pendingAction, 'gpa')) {
                 $this->handleGpaTextInput($bot, $gpaCalculator, $link, $chatId, $text);
+            } elseif ($pendingAction === 'announce') {
+                $this->handleAnnounceTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -288,76 +332,81 @@ class TelegramWebhookController extends Controller
 
         $normalized = trim($text, "/ \t\n");
 
-        if (in_array($normalized, ['خطتي', 'plan'], true)) {
+        /*
+         * القائمة الرئيسية (مرحلة ١) — أزرار دائمة (ReplyKeyboardMarkup)
+         * تظهر تحت مربع الكتابة دايمًا، بدل أوامر نصية لازم تُحفظ أو
+         * تُكتب يدويًا. الضغط على أي زر هون بيبعت نصه كرسالة عادية
+         * (آلية تيليجرام القياسية)، فالمطابقة بالأسفل ضد self::MAIN_MENU_*
+         * كافية — القيم القديمة (plan/gpa/schedule/help/menu...) باقية
+         * كمان للتوافق لو حدا كتبها يدويًا، لكنها لم تعد مذكورة بأي
+         * رسالة للمستخدم.
+         */
+        if (in_array($normalized, [self::MAIN_MENU_PLAN, 'خطتي', 'plan'], true)) {
             $this->replyWithPlanSummary($bot, $chatId, $link->user, $planCalculator);
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, ['معدلي', 'المعدل', 'gpa'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_GPA, 'معدلي', 'المعدل', 'gpa'], true)) {
             $this->replyWithGpaSummary($bot, $chatId, $link->user, $gpaCalculator);
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, ['مساعدة', 'help', 'أوامر'], true)) {
-            $bot->sendMessage(
+        if (in_array($normalized, [self::MAIN_MENU_HELP, 'مساعدة', 'help', 'أوامر'], true)) {
+            $bot->sendMessageWithMainMenu(
                 $chatId,
-                "الأوامر المتاحة حاليًا (نسخة تجريبية، رح تكبر تدريجيًا):\n\n".
+                "🧭 <b>دليلك باستخدام البوت</b> (نسخة تجريبية، رح تكبر تدريجيًا)\n\n".
+                "استخدم الأزرار الظاهرة تحت مربع الكتابة دايمًا للتنقل — ما في داعي تكتب أي شيء يدوي:\n\n".
                 "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
-                "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل) + أزرار تسجيل/تعديل/حذف علامة أي مادة (إجباري أو اختياري) مباشرة من هون، بمزامنة فورية مع حاسبة المعدل بالموقع.\n".
-                "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة (وفيها أزرار إضافة/تعديل/حذف).\n".
-                "➕ إضافة محاضرة / ✏️ تعديل محاضرة / 🗑️ حذف محاضرة — تديرها كلها من هون بدون فتح الموقع.\n".
-                "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها.\n".
+                "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل) + أزرار تسجيل/تعديل/حذف علامة أي مادة، ومحاكي \"ماذا لو؟\" — كلها بمزامنة فورية مع حاسبة المعدل بالموقع.\n".
+                "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة، وأزرار إضافة/تعديل/حذف/تفعيل التذكيرات مباشرة تحت الجدول.\n".
+                "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
+                "🧰 القائمة — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات).\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
                 "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
                 "🔎 بأي محادثة تيليجرام (حتى مجموعات الدراسة)، اكتب @".config('services.telegram.bot_username', 'اسم_البوت')." متبوعًا باسم مادة/أداة لتشاركها بضغطة وحدة، بدون فتح البوت.\n".
-                "❓ مساعدة — هاي القائمة."
+                "❓ مساعدة — هاي القائمة.",
+                $this->buildMainMenuKeyboard($link->user)
             );
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, ['القائمة', 'menu', 'قائمة'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_TOOLS, 'القائمة', 'menu', 'قائمة'], true)) {
             $this->sendMenu($bot, $chatId, $link->currentMode());
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, ['جدولي', 'جدول', 'الجدول', 'schedule'], true)) {
+        if (in_array($normalized, [self::MAIN_MENU_SCHEDULE, 'جدولي', 'جدول', 'الجدول', 'schedule'], true)) {
             $this->replyWithScheduleSummary($bot, $chatId, $link);
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, ['تفعيل التذكيرات', 'تشغيل التذكيرات'], true)) {
-            $link->update(['reminders_enabled' => true]);
-            $bot->sendMessage($chatId, '🔔 تم تفعيل تذكيرات المحاضرات — رح أذكّرك قبل كل محاضرة بربع ساعة.');
+        if (in_array($normalized, [self::MAIN_MENU_COURSES, 'المساقات', 'مساقات'], true)) {
+            $this->sendCourseHubYearPicker($bot, $chatId);
 
             return response()->json(['ok' => true]);
         }
 
-        if (in_array($normalized, ['إيقاف التذكيرات', 'ايقاف التذكيرات'], true)) {
-            $link->update(['reminders_enabled' => false]);
-            $bot->sendMessage($chatId, '🔕 تم إيقاف تذكيرات المحاضرات. اكتب "تفعيل التذكيرات" لإرجاعها بأي وقت.');
+        /*
+         * "📢 نشر إعلان" — زر لا يظهر إلا لحسابات الإدارة (User::isStaff())
+         * بلوحة القائمة الرئيسية أصلًا، لكن نتحقق هون كمان من نفس
+         * الحساب المربوط فعليًا (لا من كون الزر ظاهر بواجهة المستخدم)،
+         * لأنه أي نص - حتى لو حدا كتبه يدويًا بدون ما يشوف الزر - لازم
+         * يمر من نفس فحص الصلاحية الحقيقي. مرحلة ٣ (نطاق أول: إعلانات
+         * فقط — باقي صلاحيات الإدارة الكاملة مؤجلة لمراحل لاحقة).
+         */
+        if ($normalized === self::MAIN_MENU_ADMIN_ANNOUNCE) {
+            if (! $link->user->isStaff()) {
+                $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
 
-            return response()->json(['ok' => true]);
-        }
+                return response()->json(['ok' => true]);
+            }
 
-        if (in_array($normalized, ['إضافة محاضرة', 'اضافة محاضرة'], true)) {
-            $this->startAddFlow($bot, $link, $chatId);
-
-            return response()->json(['ok' => true]);
-        }
-
-        if (in_array($normalized, ['تعديل محاضرة'], true)) {
-            $this->startEditFlow($bot, $link, $chatId);
-
-            return response()->json(['ok' => true]);
-        }
-
-        if (in_array($normalized, ['حذف محاضرة'], true)) {
-            $this->startDeleteFlow($bot, $link, $chatId);
+            $this->startAnnounceFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -445,11 +494,92 @@ class TelegramWebhookController extends Controller
         $confirmations = [
             'chat' => "💬 <b>مساعد أسئلة عام</b>\nاكتب أي سؤال أكاديمي وبردّ عليك مباشرة.",
             'debug' => "🐛 <b>مصحّح أكواد</b>\nابعت الكود كنص عادي أو كملف (html/css/js/php...)، وبردّلك بملاحظات على الأخطاء + ملف فيه الكود بعد التصحيح.",
-            'quiz' => "📝 <b>مولّد أسئلة</b>\nاكتب اسم موضوع أو مفهوم دراسي، وبولّدلك 5 أسئلة اختيار من متعدد للمراجعة.",
+            'quiz' => "📝 <b>مولّد أسئلة</b>\nاختر موضوع جاهز من الأزرار تحت، أو اكتب اسم أي موضوع/مفهوم دراسي حر، وبولّدلك 5 أسئلة اختيار من متعدد للمراجعة.",
             'summarize' => "📄 <b>تلخيص ملفات</b>\nابعتلي صورة صفحة أو ملف PDF وبلخصلك محتواها (هاي شغالة بأي وضع أصلًا).",
         ];
 
+        if ($mode === 'quiz') {
+            $bot->sendMessage($chatId, $confirmations[$mode], $this->buildQuizSubjectKeyboard());
+
+            return;
+        }
+
         $bot->sendMessage($chatId, $confirmations[$mode]);
+    }
+
+    /*
+     * لوحة أزرار بمواضيع جاهزة لمولّد الأسئلة (self::QUIZ_SUBJECTS)،
+     * صفين بكل سطر — بديل اختياري عن كتابة الموضوع كنص حر.
+     */
+    private function buildQuizSubjectKeyboard(): array
+    {
+        $buttons = array_map(
+            static fn (string $subject) => ['text' => $subject, 'callback_data' => 'quizsubj:' . $subject],
+            self::QUIZ_SUBJECTS
+        );
+
+        return array_chunk($buttons, 2);
+    }
+
+    /*
+     * طالب ضغط زر موضوع جاهز لمولّد الأسئلة (quizsubj:<الموضوع>) —
+     * نفس منطق فرع quiz بـrouteFreeTextToAssistant() بالضبط، لكن
+     * المصدر callback_data لا نص حر بالرسالة.
+     */
+    private function handleQuizSubjectCallback(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $subject = trim(substr($data, strlen('quizsubj:')));
+
+        if (! $chatId || $subject === '') {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        @set_time_limit(60);
+
+        $user = $link->user;
+
+        if ($aiAssistant->remainingToday($user) <= 0) {
+            $bot->sendMessage(
+                $chatId,
+                'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+
+            return;
+        }
+
+        try {
+            $answer = $aiAssistant->generateQuiz($user, $subject);
+            $safeAnswer = TelegramBotApi::escapeHtml($answer);
+            $bot->sendMessage($chatId, "📝 {$safeAnswer}");
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException
+                ? $error->getMessage()
+                : 'صار خطأ غير متوقع أثناء معالجة طلبك، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $bot->sendMessage($chatId, "⚠️ {$friendly}");
+        }
     }
 
     /*
@@ -629,12 +759,13 @@ class TelegramWebhookController extends Controller
         $percent = (int) $summary['percent'];
         $registered = (int) ($summary['counts']['registered'] ?? 0);
 
-        $bot->sendMessage(
+        $bot->sendMessageWithMainMenu(
             $chatId,
             "📊 <b>تقدّمك نحو التخرّج</b>\n\n".
             "✅ أنجزت {$completed} من {$total} ساعة معتمدة ({$percent}٪)\n".
             "📚 متبقّي: {$remaining} ساعة\n".
-            "🟢 مسجّل حاليًا: {$registered} مساق"
+            "🟢 مسجّل حاليًا: {$registered} مساق",
+            $this->buildMainMenuKeyboard($user)
         );
     }
 
@@ -699,15 +830,22 @@ class TelegramWebhookController extends Controller
         }
 
         $remindersStatus = $link->reminders_enabled
-            ? '🔔 التذكيرات مفعّلة (اكتب "إيقاف التذكيرات" لإيقافها)'
-            : '🔕 التذكيرات متوقفة (اكتب "تفعيل التذكيرات" لتشغيلها)';
+            ? '🔔 التذكيرات مفعّلة (قبل كل محاضرة بربع ساعة)'
+            : '🔕 التذكيرات متوقفة حاليًا';
         $lines[] = $remindersStatus;
 
-        $keyboard = [[
-            ['text' => '➕ إضافة محاضرة', 'callback_data' => 'sched:add'],
-            ['text' => '✏️ تعديل', 'callback_data' => 'sched:edit'],
-            ['text' => '🗑️ حذف', 'callback_data' => 'sched:delete'],
-        ]];
+        $keyboard = [
+            [
+                ['text' => '➕ إضافة محاضرة', 'callback_data' => 'sched:add'],
+                ['text' => '✏️ تعديل', 'callback_data' => 'sched:edit'],
+                ['text' => '🗑️ حذف', 'callback_data' => 'sched:delete'],
+            ],
+            [
+                $link->reminders_enabled
+                    ? ['text' => '🔕 إيقاف التذكيرات', 'callback_data' => 'sched:remind_off']
+                    : ['text' => '🔔 تفعيل التذكيرات', 'callback_data' => 'sched:remind_on'],
+            ],
+        ];
 
         $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
     }
@@ -1089,6 +1227,20 @@ class TelegramWebhookController extends Controller
 
                 return;
 
+            case 'remind_on':
+                $link->update(['reminders_enabled' => true]);
+                $bot->answerCallbackQuery($callbackId, '🔔 تم تفعيل التذكيرات.');
+                $this->replyWithScheduleSummary($bot, $chatId, $link->fresh());
+
+                return;
+
+            case 'remind_off':
+                $link->update(['reminders_enabled' => false]);
+                $bot->answerCallbackQuery($callbackId, '🔕 تم إيقاف التذكيرات.');
+                $this->replyWithScheduleSummary($bot, $chatId, $link->fresh());
+
+                return;
+
             case 'cancel':
                 $link->update(['pending_action' => null]);
                 $bot->answerCallbackQuery($callbackId, 'تم الإلغاء.');
@@ -1392,10 +1544,13 @@ class TelegramWebhookController extends Controller
         $bot->sendMessage(
             $chatId,
             $gpaCalculator->formatForTelegram($user),
-            [[
-                ['text' => '➕ تسجيل/تعديل علامة', 'callback_data' => 'gpa:set'],
-                ['text' => '🗑️ حذف علامة', 'callback_data' => 'gpa:delete'],
-            ]]
+            [
+                [
+                    ['text' => '➕ تسجيل/تعديل علامة', 'callback_data' => 'gpa:set'],
+                    ['text' => '🗑️ حذف علامة', 'callback_data' => 'gpa:delete'],
+                ],
+                [['text' => '🎯 محاكي "ماذا لو؟"', 'callback_data' => 'gpa:whatif']],
+            ]
         );
     }
 
@@ -1617,6 +1772,13 @@ class TelegramWebhookController extends Controller
 
                 return;
 
+            case 'whatif':
+                $bot->answerCallbackQuery($callbackId);
+                $link->update(['pending_action' => ['action' => 'gpa_whatif', 'step' => 'enter_target', 'lecture_id' => null, 'data' => []]]);
+                $bot->sendMessage($chatId, '🎯 شو المعدل التراكمي يلي بدك توصله؟ اكتب رقم من ٠ إلى ١٠٠ (مثلًا: 85):');
+
+                return;
+
             case 'cancel':
                 $link->update(['pending_action' => null]);
                 $bot->answerCallbackQuery($callbackId, 'تم الإلغاء.');
@@ -1825,6 +1987,29 @@ class TelegramWebhookController extends Controller
         $pending = $link->pending_action;
         $step = (string) ($pending['step'] ?? '');
         $data = (array) ($pending['data'] ?? []);
+
+        if ($step === 'enter_target') {
+            $normalizedTarget = str_replace(',', '.', $normalized);
+
+            if (! preg_match('/^\d{1,3}(\.\d{1,2})?$/', $normalizedTarget)) {
+                $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم هدف من ٠ إلى ١٠٠ (مثلًا: 85):');
+
+                return;
+            }
+
+            $target = round((float) $normalizedTarget, 2);
+            $link->update(['pending_action' => null]);
+
+            if ($target < 0 || $target > 100) {
+                $bot->sendMessage($chatId, 'الهدف لازم يكون بين ٠ و١٠٠.');
+
+                return;
+            }
+
+            $bot->sendMessage($chatId, $gpaCalculator->formatWhatIfForTelegram($link->user, $target));
+
+            return;
+        }
 
         if ($step !== 'enter_grade') {
             $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
@@ -2095,5 +2280,522 @@ class TelegramWebhookController extends Controller
         }
 
         return $results;
+    }
+
+    /*
+     * ============================================================
+     * "المساقات" (Course Hub) — مرحلة ٢. تصفح كل مساقات الخطة
+     * الدراسية من داخل البوت مباشرة (سنة → فصل → قائمة مساقات →
+     * تفاصيل مادة + محتواها العام)، قراءة فقط، بلا أي حاجة لحساب
+     * مربوط ولا لفتح الموقع. مبني على نفس الاستعلامات المستخدمة
+     * بـCourseController/CoursePrerequisiteController/CourseFileController
+     * العامة (راجع Course::prerequisites()/requiredFor()، Tool::TYPES،
+     * self::INLINE_TOOL_TYPE_LABELS وINLINE_CONTENT_KIND_LABELS
+     * الموجودة أصلًا لميزة البحث الفوري).
+     *
+     * السنوات ١-٤، والفصول مرقّمة ١-٨ بشكل متسلسل بكل الخطة (فصلين
+     * لكل سنة) — نفس قاعدة between:1,4 وbetween:1,8 المستخدمة
+     * بالتحقق من صحة بيانات Staff/CourseController.
+     *
+     * مخطط callback_data: hub:root | hub:year:{سنة} |
+     * hub:sem:{سنة}:{فصل} | hub:electives:{صفحة} | hub:course:{key} |
+     * hub:files:{key}:{صفحة}.
+     * ============================================================
+     */
+    /*
+     * لوحة القائمة الرئيسية — نفس self::MAIN_MENU_KEYBOARD لكل الطلاب،
+     * وصف إضافي "📢 نشر إعلان" لحسابات الإدارة فقط (User::isStaff())
+     * — مرحلة ٣.
+     */
+    private function buildMainMenuKeyboard(\App\Models\User $user): array
+    {
+        $keyboard = self::MAIN_MENU_KEYBOARD;
+
+        if ($user->isStaff()) {
+            $keyboard[] = [['text' => self::MAIN_MENU_ADMIN_ANNOUNCE]];
+        }
+
+        return $keyboard;
+    }
+
+    private function sendCourseHubYearPicker(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $keyboard = [
+            [
+                ['text' => '📘 السنة الأولى', 'callback_data' => 'hub:year:1'],
+                ['text' => '📗 السنة الثانية', 'callback_data' => 'hub:year:2'],
+            ],
+            [
+                ['text' => '📙 السنة الثالثة', 'callback_data' => 'hub:year:3'],
+                ['text' => '📕 السنة الرابعة', 'callback_data' => 'hub:year:4'],
+            ],
+            [['text' => '🔀 المساقات الاختيارية', 'callback_data' => 'hub:electives:1']],
+        ];
+
+        $bot->sendMessage(
+            $chatId,
+            "📚 <b>المساقات</b>\n\nاختر السنة الدراسية لتصفّح مساقاتها الإجبارية، أو تصفّح المساقات الاختيارية مباشرة:",
+            $keyboard
+        );
+    }
+
+    private function handleCourseHubCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('hub:'));
+        [$key, $arg] = array_pad(explode(':', $action, 2), 2, null);
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        if ($key === 'root') {
+            $this->sendCourseHubYearPicker($bot, $chatId);
+
+            return;
+        }
+
+        if ($key === 'year') {
+            $year = (int) $arg;
+
+            if ($year < 1 || $year > 4) {
+                $this->sendCourseHubYearPicker($bot, $chatId);
+
+                return;
+            }
+
+            $this->sendCourseHubSemesterPicker($bot, $chatId, $year);
+
+            return;
+        }
+
+        if ($key === 'sem') {
+            [$year, $semester] = array_pad(explode(':', (string) $arg, 2), 2, null);
+            $this->sendCourseHubCourseList($bot, $chatId, (int) $year, (int) $semester);
+
+            return;
+        }
+
+        if ($key === 'electives') {
+            $this->sendCourseHubElectivesList($bot, $chatId, max(1, (int) $arg));
+
+            return;
+        }
+
+        if ($key === 'course') {
+            $this->sendCourseHubCourseDetail($bot, $chatId, (string) $arg);
+
+            return;
+        }
+
+        if ($key === 'files') {
+            $segments = explode(':', (string) $arg);
+            $page = max(1, (int) array_pop($segments));
+            $courseKey = implode(':', $segments);
+            $this->sendCourseHubCourseFiles($bot, $chatId, $courseKey, $page);
+
+            return;
+        }
+    }
+
+    private function sendCourseHubSemesterPicker(TelegramBotApi $bot, int|string $chatId, int $year): void
+    {
+        $firstSemester = ($year - 1) * 2 + 1;
+        $secondSemester = $firstSemester + 1;
+
+        $keyboard = [
+            [
+                ['text' => '1️⃣ الفصل الأول', 'callback_data' => "hub:sem:{$year}:{$firstSemester}"],
+                ['text' => '2️⃣ الفصل الثاني', 'callback_data' => "hub:sem:{$year}:{$secondSemester}"],
+            ],
+            [['text' => '🔙 رجوع للسنوات', 'callback_data' => 'hub:root']],
+        ];
+
+        $bot->sendMessage($chatId, "📘 <b>السنة {$year}</b>\n\nاختر الفصل:", $keyboard);
+    }
+
+    private function sendCourseHubCourseList(TelegramBotApi $bot, int|string $chatId, int $year, int $semester): void
+    {
+        $courses = Course::query()
+            ->where('is_active', true)
+            ->where('year', $year)
+            ->where('semester', $semester)
+            ->where('course_type', 'required')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['key', 'code', 'name_ar', 'name_en']);
+
+        if ($courses->isEmpty()) {
+            $bot->sendMessage(
+                $chatId,
+                '📭 لا يوجد مساقات إجبارية مسجّلة لهذا الفصل حاليًا بالموقع.',
+                [[['text' => '🔙 رجوع للفصول', 'callback_data' => "hub:year:{$year}"]]]
+            );
+
+            return;
+        }
+
+        $keyboard = $courses->map(function (Course $course) {
+            $label = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+
+            return [['text' => $label, 'callback_data' => 'hub:course:'.$course->key]];
+        })->values()->all();
+
+        $keyboard[] = [['text' => '🔙 رجوع للفصول', 'callback_data' => "hub:year:{$year}"]];
+
+        $bot->sendMessage($chatId, "📘 <b>مساقات السنة {$year} — الفصل {$semester}</b>\n\nاختر مادة لعرض تفاصيلها:", $keyboard);
+    }
+
+    private function sendCourseHubElectivesList(TelegramBotApi $bot, int|string $chatId, int $page): void
+    {
+        $query = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'elective')
+            ->orderBy('year')
+            ->orderBy('semester')
+            ->orderBy('sort_order')
+            ->orderBy('id');
+
+        $total = (clone $query)->count();
+        $courses = $query
+            ->forPage($page, self::COURSE_HUB_PAGE_SIZE)
+            ->get(['key', 'code', 'name_ar', 'name_en', 'year']);
+
+        if ($courses->isEmpty()) {
+            $bot->sendMessage(
+                $chatId,
+                '📭 لا يوجد مساقات اختيارية مسجّلة حاليًا بالموقع.',
+                [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]
+            );
+
+            return;
+        }
+
+        $keyboard = $courses->map(function (Course $course) {
+            $label = trim((string) ($course->name_ar ?: $course->name_en)).' (سنة '.$course->year.')';
+
+            return [['text' => $label, 'callback_data' => 'hub:course:'.$course->key]];
+        })->values()->all();
+
+        $lastPage = (int) ceil($total / self::COURSE_HUB_PAGE_SIZE);
+        $pagerRow = [];
+
+        if ($page > 1) {
+            $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'hub:electives:'.($page - 1)];
+        }
+
+        if ($page < $lastPage) {
+            $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'hub:electives:'.($page + 1)];
+        }
+
+        if ($pagerRow !== []) {
+            $keyboard[] = $pagerRow;
+        }
+
+        $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'hub:root']];
+
+        $bot->sendMessage(
+            $chatId,
+            "🔀 <b>المساقات الاختيارية</b> (صفحة {$page} من ".max(1, $lastPage).")\n\nاختر مادة لعرض تفاصيلها:",
+            $keyboard
+        );
+    }
+
+    private function sendCourseHubCourseDetail(TelegramBotApi $bot, int|string $chatId, string $courseKey): void
+    {
+        $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.', [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]);
+
+            return;
+        }
+
+        $name = TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en));
+        $code = TelegramBotApi::escapeHtml((string) $course->code);
+        $typeLabel = match ($course->course_type) {
+            'elective' => 'اختياري',
+            'placeholder' => 'غير محدد',
+            default => 'إجباري',
+        };
+
+        $lines = [
+            "📘 <b>{$name}</b>".($code !== '' ? " ({$code})" : ''),
+            "🏷️ النوع: {$typeLabel}",
+            '🎓 الساعات المعتمدة: '.(int) $course->credit_hours,
+            "📅 السنة {$course->year} — الفصل {$course->semester}",
+        ];
+
+        $description = trim((string) $course->description);
+
+        if ($description !== '') {
+            $lines[] = '';
+            $lines[] = TelegramBotApi::escapeHtml(mb_substr($description, 0, 400));
+        }
+
+        $prerequisites = $course->prerequisites()->with('prerequisite')->get();
+        $lines[] = '';
+
+        if ($prerequisites->isEmpty()) {
+            $lines[] = '🔗 المتطلبات السابقة: لا يوجد';
+        } else {
+            $lines[] = '🔗 <b>المتطلبات السابقة:</b>';
+
+            foreach ($prerequisites as $prerequisite) {
+                $prereqName = $prerequisite->prerequisite?->name_ar
+                    ?? $prerequisite->prerequisite?->name_en
+                    ?? $prerequisite->prerequisite_code_raw
+                    ?? 'غير معروف';
+                $lines[] = '• '.TelegramBotApi::escapeHtml((string) $prereqName);
+            }
+        }
+
+        $tools = $course->tools()->where('is_active', true)->get(['tools.id', 'tools.name']);
+
+        if ($tools->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '🧰 <b>الأدوات المرتبطة:</b> '.TelegramBotApi::escapeHtml($tools->pluck('name')->implode('، '));
+        }
+
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+        $siteLink = $frontendUrl.'/course.html?course='.urlencode((string) $course->key);
+
+        $keyboard = [
+            [['text' => '📁 عرض محتوى المادة', 'callback_data' => 'hub:files:'.$course->key.':1']],
+            [['text' => '🌐 فتح صفحة المادة بالموقع', 'url' => $siteLink]],
+            [['text' => '🔙 رجوع للمساقات', 'callback_data' => 'hub:root']],
+        ];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    private function sendCourseHubCourseFiles(TelegramBotApi $bot, int|string $chatId, string $courseKey, int $page): void
+    {
+        $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.', [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]);
+
+            return;
+        }
+
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+        $courseLink = $frontendUrl.'/course.html?course='.urlencode((string) $course->key);
+
+        /*
+         * بدون حساب مربوط بالموقع (context البوت مجهول الهوية دايمًا
+         * هون تمامًا متل البحث الفوري)، فقط visibility=public مسموح —
+         * نفس منطق CourseFile::isVisibleTo() لما $user و$isCourseStudent
+         * تكونان null/false.
+         */
+        $query = $course->files()
+            ->where('is_published', true)
+            ->where('status', 'ready')
+            ->where('visibility', 'public')
+            ->orderBy('sort_order')
+            ->orderBy('id');
+
+        $total = (clone $query)->count();
+        $files = $query->forPage($page, self::COURSE_HUB_PAGE_SIZE)->get(['id', 'title', 'kind']);
+
+        if ($files->isEmpty()) {
+            $bot->sendMessage(
+                $chatId,
+                "📭 لا يوجد محتوى عام متاح لمادة \"".TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en))."\" ضمن البوت حاليًا.\n🌐 {$courseLink}",
+                [[['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]]]
+            );
+
+            return;
+        }
+
+        $lines = ['📁 <b>محتوى مادة '.TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en)).'</b>', ''];
+
+        foreach ($files as $file) {
+            $kindLabel = self::INLINE_CONTENT_KIND_LABELS[$file->kind] ?? 'محتوى';
+            $link = $courseLink.'&content='.(int) $file->id;
+            $lines[] = '📄 <b>'.TelegramBotApi::escapeHtml((string) $file->title).'</b> — '.$kindLabel;
+            $lines[] = '🌐 '.$link;
+            $lines[] = '';
+        }
+
+        $lastPage = (int) ceil($total / self::COURSE_HUB_PAGE_SIZE);
+        $pagerRow = [];
+
+        if ($page > 1) {
+            $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'hub:files:'.$course->key.':'.($page - 1)];
+        }
+
+        if ($page < $lastPage) {
+            $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'hub:files:'.$course->key.':'.($page + 1)];
+        }
+
+        $keyboard = $pagerRow !== [] ? [$pagerRow] : [];
+        $keyboard[] = [['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    /*
+     * ============================================================
+     * "📢 نشر إعلان" (مرحلة ٣) — حصريًا لحسابات الإدارة
+     * (User::isStaff(): role admin/supervisor)، والتعرّف على الحساب
+     * فقط عبر telegram_links.telegram_chat_id المربوط فعليًا (لا أي
+     * معطى يبعته العميل نفسه). نطاق أول محدود عمدًا: نشر إعلان عام
+     * (audience=all) بعنوان + نص اختياري فقط — بدون استهداف سنة/فصل
+     * (عمود users.semester غير موجود فعليًا بقاعدة البيانات رغم إشارة
+     * الكود له بأماكن تانية — علة موثّقة بـstep90)، وبدون أي صلاحيات
+     * إدارة تانية (محتوى/أدوات/مساقات/خطة دراسية) — هذي مؤجلة عمدًا
+     * لمراحل لاحقة منفصلة (راجع step90_next_phase_full_plan.md).
+     *
+     * تسلسل الخطوات (pending_action.action = 'announce'): title →
+     * body (اختياري، "تخطي" لتجاوزه) → confirm (أزرار نشر/إلغاء).
+     * ============================================================
+     */
+    private function startAnnounceFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $link->update(['pending_action' => ['action' => 'announce', 'step' => 'title', 'lecture_id' => null, 'data' => []]]);
+        $bot->sendMessage($chatId, "📢 <b>نشر إعلان جديد</b>\n\nاكتب عنوان الإعلان (بحد أقصى ١٩٠ حرف)، أو اكتب \"إلغاء\" لإيقاف العملية:");
+    }
+
+    private function handleAnnounceTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء نشر الإعلان.');
+
+            return;
+        }
+
+        if (! $link->user || ! $link->user->isStaff()) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $step = $pending['step'] ?? null;
+        $data = $pending['data'] ?? [];
+
+        if ($step === 'title') {
+            if ($normalized === '' || mb_strlen($normalized) > 190) {
+                $bot->sendMessage($chatId, 'عنوان غير صالح 🙂 اكتب عنوان الإعلان (نص غير فاضي، بحد أقصى ١٩٠ حرف):');
+
+                return;
+            }
+
+            $data['title'] = $normalized;
+            $link->update(['pending_action' => ['action' => 'announce', 'step' => 'body', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '📝 اكتب نص الإعلان (اختياري)، أو ارسل "تخطي" لتجاوزه:');
+
+            return;
+        }
+
+        if ($step === 'body') {
+            $body = in_array($normalized, ['تخطي', 'skip', '-'], true) ? null : $text;
+
+            if ($body !== null && mb_strlen($body) > 10000) {
+                $bot->sendMessage($chatId, 'النص طويل جدًا (بحد أقصى ١٠٠٠٠ حرف) 🙂 جرّب نص أقصر، أو ارسل "تخطي":');
+
+                return;
+            }
+
+            $data['body'] = $body;
+            $link->update(['pending_action' => ['action' => 'announce', 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+
+            $preview = "📢 <b>معاينة الإعلان</b>\n\n<b>".TelegramBotApi::escapeHtml((string) $data['title']).'</b>';
+
+            if (! empty($data['body'])) {
+                $preview .= "\n\n".TelegramBotApi::escapeHtml((string) $data['body']);
+            }
+
+            $preview .= "\n\n👥 سيظهر لكل الطلاب (إعلان عام).";
+
+            $bot->sendMessage($chatId, $preview, [[
+                ['text' => '✅ نشر الإعلان', 'callback_data' => 'announce:publish'],
+                ['text' => '❌ إلغاء', 'callback_data' => 'announce:cancel'],
+            ]]);
+
+            return;
+        }
+
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+    }
+
+    private function handleAnnounceCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('announce:'));
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link || ! $link->user || ! $link->user->isStaff()) {
+            $bot->answerCallbackQuery($callbackId, 'غير مخوّل.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+
+        if ($action === 'cancel') {
+            $link->update(['pending_action' => null]);
+            $bot->answerCallbackQuery($callbackId, 'تم الإلغاء.');
+            $bot->sendMessage($chatId, 'تم إلغاء نشر الإعلان.');
+
+            return;
+        }
+
+        if ($action === 'publish') {
+            if (($pending['step'] ?? null) !== 'confirm') {
+                $bot->answerCallbackQuery($callbackId);
+
+                return;
+            }
+
+            $announcementData = $pending['data'] ?? [];
+            $title = trim((string) ($announcementData['title'] ?? ''));
+
+            if ($title === '') {
+                $link->update(['pending_action' => null]);
+                $bot->answerCallbackQuery($callbackId, 'خطأ: العنوان مفقود، ابدأ من جديد.');
+
+                return;
+            }
+
+            Announcement::create([
+                'title' => $title,
+                'body' => $announcementData['body'] ?? null,
+                'active' => true,
+                'audience' => 'all',
+                'created_by' => $link->user_id,
+            ]);
+
+            $link->update(['pending_action' => null]);
+            $bot->answerCallbackQuery($callbackId, 'تم النشر ✅');
+            $bot->sendMessage($chatId, '✅ تم نشر الإعلان بنجاح، وهو ظاهر الآن لكل الطلاب بالموقع.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
     }
 }

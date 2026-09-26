@@ -169,6 +169,68 @@ class TelegramGpaCalculator
     }
 
     /**
+     * محاكي "ماذا لو" — نفس منطق gpa.js::requiredAverageForTarget()
+     * بالحرف: كم معدل لازم يحقق الطالب بباقي ساعات خطته حتى يوصل معدله
+     * التراكمي النهائي لهدف معيّن. Status: no-remaining (خلص كل
+     * الساعات)، invalid (هدف غير رقم صالح ٠-١٠٠)، already-met (وصل
+     * الهدف أصلًا)، impossible (مستحيل حتى بـ١٠٠ بكل الباقي)، ok
+     * (ممكن، needed = المعدل المطلوب بالساعات المتبقية).
+     *
+     * @return array{status: string, needed?: float}
+     */
+    public function requiredAverageForTarget(User $user, float $target): array
+    {
+        $stats = $this->summarize($user);
+
+        if (! $stats['has_grades']) {
+            return ['status' => 'no-grades'];
+        }
+
+        if ($stats['remaining_hours'] <= 0) {
+            return ['status' => 'no-remaining'];
+        }
+
+        if ($target < 0 || $target > 100) {
+            return ['status' => 'invalid'];
+        }
+
+        $totalHours = $stats['graded_hours'] + $stats['remaining_hours'];
+        $needed = ($target * $totalHours - $stats['weighted_sum']) / $stats['remaining_hours'];
+
+        if ($needed <= 0) {
+            return ['status' => 'already-met'];
+        }
+
+        if ($needed > 100) {
+            return ['status' => 'impossible', 'needed' => $needed];
+        }
+
+        return ['status' => 'ok', 'needed' => $needed];
+    }
+
+    /**
+     * نص جاهز لإرساله عبر TelegramBotApi::sendMessage لنتيجة محاكي "ماذا لو".
+     */
+    public function formatWhatIfForTelegram(User $user, float $target): string
+    {
+        $stats = $this->summarize($user);
+        $result = $this->requiredAverageForTarget($user, $target);
+        $targetFmt = $this->fmt($target);
+        $remainingHours = $stats['remaining_hours'] ?? 0;
+        $neededFmt = array_key_exists('needed', $result) ? $this->fmt($result['needed']) : '';
+
+        return match ($result['status']) {
+            'no-grades' => '📊 لسا ما سجّلت أي علامة — سجّل علاماتك الحالية أول بحاسبة "معدلي"، وبعدها جرّب المحاكي.',
+            'no-remaining' => '🎉 خلصت كل ساعات خطتك المتبقية — ما في مجال لمحاكاة "ماذا لو" (كل الساعات محسوبة أصلًا).',
+            'invalid' => '⚠️ اكتب رقم هدف صحيح بين ٠ و١٠٠.',
+            'already-met' => '✅ معدلك الحالي وصل الهدف أصلًا (أو أعلى منه) — تمام، كمّل هيك!',
+            'impossible' => "😬 حتى لو حصلت على ١٠٠ بكل الساعات المتبقية ({$remainingHours} ساعة)، ما رح توصل معدل {$targetFmt} بخطتك الحالية.",
+            'ok' => "🎯 لتوصل معدل <b>{$targetFmt}</b>، لازم يكون معدلك بالـ{$remainingHours} ساعة المتبقية <b>{$neededFmt}</b> على الأقل.",
+            default => 'تعذّر حساب هذا السيناريو.',
+        };
+    }
+
+    /**
      * النص الجاهز لإرساله عبر TelegramBotApi::sendMessage (HTML parse_mode).
      */
     public function formatForTelegram(User $user): string
