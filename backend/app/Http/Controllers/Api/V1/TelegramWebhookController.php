@@ -21,6 +21,7 @@ use App\Services\TelegramBotApi;
 use App\Services\TelegramContentNotifier;
 use App\Services\TelegramGpaCalculator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Exception\TransportException;
@@ -121,13 +122,14 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_MY_COURSES = '📖 مساقاتي الحالية';
     private const MAIN_MENU_FAVORITES = '⭐ مفضلاتي';
     private const MAIN_MENU_CONTACT = '📨 تواصل معنا';
+    private const MAIN_MENU_CONTRIBUTE = '📤 شارك ملف/مصدر';
 
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
         [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
-        [['text' => self::MAIN_MENU_CONTACT]],
+        [['text' => self::MAIN_MENU_CONTACT], ['text' => self::MAIN_MENU_CONTRIBUTE]],
         [['text' => self::MAIN_MENU_HELP]],
     ];
 
@@ -260,6 +262,8 @@ class TelegramWebhookController extends Controller
                 $this->handleContentCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'contact:')) {
                 $this->handleContactCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'contribute:')) {
+                $this->handleContributeCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -391,7 +395,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
                 self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
-                self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT,
+                self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT, self::MAIN_MENU_CONTRIBUTE,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -422,6 +426,8 @@ class TelegramWebhookController extends Controller
                 $this->handleMyCourseTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'contact')) {
                 $this->handleContactTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'contribute')) {
+                $this->handleContributeTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -488,6 +494,7 @@ class TelegramWebhookController extends Controller
                 "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية أو الأدوات الهندسية أو 🌳 شجرة المساقات الكاملة بضغطة وحدة)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة واللاحقة، مواضيع تحضيرية، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
                 "📖 مساقاتي الحالية — مساقاتك المسجَّلة فعليًا، مع أزرار إضافة/حذف مساق مباشرة (تتزامن مع الصفحة الشخصية بالموقع فورًا).\n".
                 "⭐ مفضلاتي — كل الملفات يلي حفظتها من أي مادة، بروابطها المباشرة، بمكان وحد.\n".
+                "📤 شارك ملف/مصدر — عندك ملف أو مصدر مفيد لمادة معيّنة؟ اختر المادة (أو ادخل من داخل تفاصيلها مباشرة) وبنوصلك برابط جاهز لبوت رفع الملفات ببياناتك ومادتك معبّاة تلقائيًا.\n".
                 "🔍 بحث — دور بكلمة وحدة عن مادة أو محتوى أو أداة بنفس الوقت.\n".
                 "🧰 القائمة الذكية — اختر أداة الذكاء الاصطناعي يلي بدك تشتغل فيها (مساعد أسئلة/مصحّح أكواد/مولّد أسئلة/تلخيص ملفات).\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
@@ -550,6 +557,19 @@ class TelegramWebhookController extends Controller
          */
         if (in_array($normalized, [self::MAIN_MENU_CONTACT, 'تواصل معنا', 'تواصل'], true)) {
             $this->startContactFlow($bot, $link, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "📤 شارك ملف/مصدر" — زر مستقل بالقائمة الرئيسية، بيسأل عن
+         * المادة أول شي (بعكس نفس الزر جوّا تفاصيل مادة محددة يلي ما
+         * بيحتاج سؤال). ما بيخزّن ولا يرفع أي شيء بنفسه إطلاقًا — فقط
+         * بيولّد رابط دخول جاهز لبوت الرفع الموجود مسبقًا (راجع
+         * generateContributionLink).
+         */
+        if (in_array($normalized, [self::MAIN_MENU_CONTRIBUTE, 'شارك ملف', 'مشاركة ملف'], true)) {
+            $this->startContributeFlow($bot, $link, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -2929,6 +2949,7 @@ class TelegramWebhookController extends Controller
             $keyboard[] = [['text' => "🧰 أدوات المادة ({$tools->count()})", 'callback_data' => 'hub:coursetools:'.$course->key]];
         }
 
+        $keyboard[] = [['text' => '📤 شارك ملف/مصدر لهاي المادة', 'callback_data' => 'contribute:course:'.$course->key]];
         $keyboard[] = [['text' => '🌐 فتح صفحة المادة بالموقع', 'url' => $siteLink]];
         $keyboard[] = [['text' => '🔙 رجوع للمساقات', 'callback_data' => 'hub:root']];
 
@@ -7062,4 +7083,213 @@ class TelegramWebhookController extends Controller
     
         $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
     }
+
+/*
+ * ============================================================
+ * "📤 شارك ملف/مصدر" — بلا أي منطق رفع/تخزين جديد إطلاقًا: نفس آلية
+ * telegram_contributions المستخدَمة أصلًا بزر الموقع (TelegramUploadController)
+ * بالضبط — نفس شكل الـpayload، نفس التوقيع HMAC، نفس الخدمة الخارجية
+ * (services.telegram_contributions.web_app_url) — لكن مُولَّدة من داخل
+ * بوت المساعد الأكاديمي مباشرة، فيوصل الطالب لبوت الرفع (@PTCHubFilesBot)
+ * برابط جاهز مسبوق ببياناته، بلا ما يغادر تيليجرام يدويًا عبر الموقع.
+ *
+ * مصدر حقيقة واحد فقط للمشاركة: أي تغيير مستقبلي على منطق الرفع
+ * (تحقق، صلاحية التوكن...) بمكان واحد بالباك-إند لكلا المسارين.
+ * ============================================================
+ */
+
+private function generateContributionLink(\App\Models\User $user, Course $course): array
+{
+    $webAppUrl = (string) config('services.telegram_contributions.web_app_url', '');
+    $sharedSecret = (string) config('services.telegram_contributions.shared_secret', '');
+
+    if ($webAppUrl === '' || $sharedSecret === '') {
+        return ['ok' => false, 'message' => 'إعدادات بوت رفع الملفات غير مكتملة حاليًا.'];
+    }
+
+    $studentName = trim(implode(' ', array_filter([
+        $user->first_name ?? null, $user->father_name ?? null, $user->last_name ?? null,
+    ])));
+
+    if ($studentName === '') {
+        $studentName = (string) $user->email;
+    }
+
+    $courseName = (string) ($course->name_ar ?: $course->name_en ?: $course->code ?: 'المادة');
+
+    $payloadData = [
+        'website_user_id' => (string) $user->id,
+        'student_name' => $studentName,
+        'student_email' => (string) $user->email,
+        'course_id' => (string) ($course->key ?? $course->id),
+        'course_code' => (string) ($course->code ?? ''),
+        'course_name' => $courseName,
+        'exp' => now()->addMinutes(5)->timestamp,
+    ];
+
+    $json = json_encode($payloadData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $payload = rtrim(strtr(base64_encode($json), '+/', '-_'), '=');
+    $signature = hash_hmac('sha256', $payload, $sharedSecret);
+
+    try {
+        $response = \Illuminate\Support\Facades\Http::timeout(15)
+            ->withOptions(['allow_redirects' => true])
+            ->get($webAppUrl, ['payload' => $payload, 'signature' => $signature, 'mode' => 'json']);
+
+        if (! $response->successful()) {
+            return ['ok' => false, 'message' => 'تعذّر الاتصال بخدمة تيليجرام حاليًا.'];
+        }
+
+        $result = $response->json();
+
+        if (! is_array($result) || ! ($result['ok'] ?? false)) {
+            return ['ok' => false, 'message' => (string) ($result['message'] ?? 'تعذّر إنشاء جلسة المشاركة.')];
+        }
+
+        $telegramUrl = $result['data']['url'] ?? null;
+
+        if (! is_string($telegramUrl) || ! str_starts_with($telegramUrl, 'https://t.me/')) {
+            return ['ok' => false, 'message' => 'رابط تيليجرام غير صالح.'];
+        }
+
+        return ['ok' => true, 'url' => $telegramUrl];
+    } catch (\Throwable $error) {
+        Log::error('تعذّر إنشاء رابط بوت رفع الملفات من داخل البوت.', ['error' => $error->getMessage()]);
+
+        return ['ok' => false, 'message' => 'تعذّر إنشاء جلسة المشاركة مع بوت رفع الملفات الآن.'];
+    }
+}
+
+private function sendContributionLinkForCourse(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user, Course $course): void
+{
+    $courseName = TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en));
+    $result = $this->generateContributionLink($user, $course);
+
+    if (! $result['ok']) {
+        $bot->sendMessage(
+            $chatId,
+            '⚠️ '.TelegramBotApi::escapeHtml((string) $result['message']),
+            [[['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]]]
+        );
+
+        return;
+    }
+
+    $bot->sendMessage(
+        $chatId,
+        "📤 <b>مشاركة ملف/مصدر لمادة {$courseName}</b>\n\n".
+        "اضغط الزر تحت ليفتحلك بوت رفع الملفات (@PTCHubFilesBot) مباشرة، وبياناتك ومادتك معبّاة تلقائيًا — كل يلي عليك ترفع الملف أو تكتب اقتراحك هناك.\n\n".
+        '⏱️ الرابط صالح لخمس دقائق فقط.',
+        [
+            [['text' => '📤 افتح بوت رفع الملفات', 'url' => $result['url']]],
+            [['text' => '🔙 رجوع لتفاصيل المادة', 'callback_data' => 'hub:course:'.$course->key]],
+        ]
+    );
+}
+
+/*
+ * زر مستقل بالقائمة الرئيسية (📤 شارك ملف/مصدر) — يسأل أول شي عن
+ * المادة (نفس أسلوب بحث "مساقاتي الحالية" بالضبط)، بعكس زر المادة
+ * المباشر يلي ما بيحتاج بحث لأنه أصلًا جوّا تفاصيل مادة محددة.
+ */
+private function startContributeFlow(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+{
+    $link->update(['pending_action' => ['action' => 'contribute_pick', 'step' => 'query', 'lecture_id' => null, 'data' => []]]);
+    $bot->sendMessage($chatId, "📤 <b>مشاركة ملف/مصدر</b>\n\nلأي مادة بدك تشارك ملف أو مصدر؟ اكتب اسمها أو رمزها (حرفين على الأقل)، أو اكتب \"إلغاء\":");
+}
+
+private function handleContributeCallback(TelegramBotApi $bot, array $callbackQuery): void
+{
+    $callbackId = (string) ($callbackQuery['id'] ?? '');
+    $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+    $data = (string) ($callbackQuery['data'] ?? '');
+    $rest = substr($data, strlen('contribute:'));
+
+    if (! $chatId) {
+        $bot->answerCallbackQuery($callbackId);
+
+        return;
+    }
+
+    $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+
+    if (! $link || ! $link->user) {
+        $bot->answerCallbackQuery($callbackId, 'حسابك غير مربوط.');
+
+        return;
+    }
+
+    $bot->answerCallbackQuery($callbackId);
+
+    [$action, $courseKey] = array_pad(explode(':', $rest, 2), 2, null);
+
+    if (! in_array($action, ['course', 'pick'], true) || ! $courseKey) {
+        return;
+    }
+
+    $course = Course::query()->where('key', $courseKey)->where('is_active', true)->first();
+
+    if (! $course) {
+        $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة أو غير مفعّلة حاليًا.', [[['text' => '🔙 رجوع', 'callback_data' => 'hub:root']]]);
+
+        return;
+    }
+
+    if ($action === 'pick') {
+        $link->update(['pending_action' => null]);
+    }
+
+    $this->sendContributionLinkForCourse($bot, $chatId, $link->user, $course);
+}
+
+private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+{
+    $normalized = trim($text);
+
+    if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+        $link->update(['pending_action' => null]);
+        $bot->sendMessage($chatId, 'تم الإلغاء.');
+
+        return;
+    }
+
+    $pending = $link->pending_action;
+
+    if (($pending['action'] ?? null) !== 'contribute_pick' || ($pending['step'] ?? null) !== 'query') {
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+
+        return;
+    }
+
+    if (mb_strlen($normalized) < 2) {
+        $bot->sendMessage($chatId, 'اكتب حرفين على الأقل 🙂');
+
+        return;
+    }
+
+    $courses = Course::query()
+        ->where('is_active', true)
+        ->where(function ($query) use ($normalized) {
+            $query->where('name_ar', 'like', "%{$normalized}%")
+                ->orWhere('name_en', 'like', "%{$normalized}%")
+                ->orWhere('code', 'like', "%{$normalized}%");
+        })
+        ->orderBy('name_ar')
+        ->limit(8)
+        ->get();
+
+    if ($courses->isEmpty()) {
+        $bot->sendMessage($chatId, '❌ ما لقيت مادة بهذا الاسم، جرّب اسم أو رمز مختلف (أو اكتب "إلغاء"):');
+
+        return;
+    }
+
+    $keyboard = [];
+    foreach ($courses as $course) {
+        $label = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+        $keyboard[] = [['text' => $label, 'callback_data' => 'contribute:pick:'.$course->key]];
+    }
+    $bot->sendMessage($chatId, '📚 اختر المادة يلي بدك تشارك إلها ملف/مصدر:', $keyboard);
+}
+
 }
