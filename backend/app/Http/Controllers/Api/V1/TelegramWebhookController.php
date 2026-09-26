@@ -1036,15 +1036,13 @@ class TelegramWebhookController extends Controller
         $this->startQuizLoop($bot, $aiAssistant, $link, $chatId, $normalized);
     }
 
+    /*
+     * ⚠ عمدًا بلا فحص remainingToday() هون — "مدار الأسئلة" مفتوح بلا حد
+     * يومي بطلب صريح من المستخدم (راجع تعليق generateQuizQuestion
+     * بـTelegramAiAssistant للتفاصيل الكاملة).
+     */
     private function startQuizLoop(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, TelegramLink $link, int|string $chatId, string $topic): void
     {
-        if ($aiAssistant->remainingToday($link->user) <= 0) {
-            $link->update(['pending_action' => null]);
-            $bot->sendMessage($chatId, 'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.');
-
-            return;
-        }
-
         try {
             $question = $aiAssistant->generateQuizQuestion($link->user, $topic, []);
         } catch (\Throwable $error) {

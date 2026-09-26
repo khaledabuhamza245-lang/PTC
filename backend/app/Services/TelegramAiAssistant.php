@@ -597,14 +597,16 @@ class TelegramAiAssistant
      * @return array{question: string, options: array<string,string>, correct: string}
      * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
      */
+    /*
+     * ⚠ "مدار الأسئلة" مقصود إنه بلا أي حد يومي — طلب صريح من المستخدم
+     * ("بدي إياه مفتوح") بعد ما لاحظ إنه بيتوقف عند 30 سؤال باليوم، وهو
+     * نفس رقم DAILY_LIMIT المشترك بين الموقع وباقي أدوات البوت (تلخيص/
+     * مساعد عام/مصحّح أكواد). عمدًا لا نتحقق من dailyUsageCount هون ولا
+     * نستدعي incrementDailyUsage() بآخر الدالة (تحت) — حتى توليد أسئلة
+     * لا نهائي ما يستهلك ولا يتأثر برصيد تلك الأدوات إطلاقًا.
+     */
     public function generateQuizQuestion(User $user, string $topic, array $askedQuestions = []): array
     {
-        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
-            throw new RuntimeException(
-                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
-            );
-        }
-
         $recentAsked = array_slice($askedQuestions, -20);
 
         $avoidance = $recentAsked === []
@@ -637,8 +639,6 @@ class TelegramAiAssistant
         if ($parsed === null) {
             throw new RuntimeException('تعذّر تجهيز السؤال بشكل صحيح، جرّب مرة أخرى.');
         }
-
-        $this->incrementDailyUsage($user->id);
 
         return $parsed;
     }
