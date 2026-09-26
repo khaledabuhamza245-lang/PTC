@@ -117,9 +117,17 @@ class TelegramWebhookController extends Controller
         [['text' => self::MAIN_MENU_HELP]],
     ];
 
-    // زر إضافي يظهر فقط لحسابات الإدارة (User::isStaff()) — راجع
+    // أزرار إضافية تظهر فقط لحسابات الإدارة (User::isStaff()) — راجع
     // buildMainMenuKeyboard().
     private const MAIN_MENU_ADMIN_ANNOUNCE = '📢 نشر إعلان';
+    private const MAIN_MENU_ADMIN_TOOLS = '🧰 إدارة الأدوات';
+
+    // تسميات حقول تعديل الأداة — نفس أعمدة Tool (Staff/ToolController::validated()).
+    private const ADMIN_TOOL_FIELD_LABELS = [
+        'name' => 'الاسم', 'type' => 'النوع', 'description' => 'الوصف',
+        'official_url' => 'الرابط الرسمي', 'explanation' => 'الشرح',
+        'video_url' => 'رابط فيديو الشرح', 'sort_order' => 'ترتيب الظهور',
+    ];
 
     // حجم صفحة قوائم "المساقات" (اختياريات/ملفات) — نفس فلسفة GPA_PAGE_SIZE.
     private const COURSE_HUB_PAGE_SIZE = 8;
@@ -194,6 +202,8 @@ class TelegramWebhookController extends Controller
                 $this->handleCourseHubCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'announce:')) {
                 $this->handleAnnounceCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'admtool:')) {
+                $this->handleAdminToolCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -323,7 +333,7 @@ class TelegramWebhookController extends Controller
             $mainMenuButtons = [
                 self::MAIN_MENU_PLAN, self::MAIN_MENU_GPA, self::MAIN_MENU_SCHEDULE,
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
-                self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE,
+                self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -344,6 +354,8 @@ class TelegramWebhookController extends Controller
                 $this->handleAnnounceTextInput($bot, $link, $chatId, $text);
             } elseif ($pendingAction === 'search') {
                 $this->handleSearchTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'admtool')) {
+                $this->handleAdminToolTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -461,6 +473,22 @@ class TelegramWebhookController extends Controller
             }
 
             $this->startAnnounceFlow($bot, $link, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "🧰 إدارة الأدوات" — نفس فحص الصلاحية الحقيقي أعلاه بالضبط،
+         * لا يعتمد على ظهور الزر بالواجهة فقط.
+         */
+        if ($normalized === self::MAIN_MENU_ADMIN_TOOLS) {
+            if (! $link->user->isStaff()) {
+                $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+                return response()->json(['ok' => true]);
+            }
+
+            $this->sendAdminToolMenu($bot, $chatId, 1);
 
             return response()->json(['ok' => true]);
         }
@@ -2366,7 +2394,10 @@ class TelegramWebhookController extends Controller
         $keyboard = self::MAIN_MENU_KEYBOARD;
 
         if ($user->isStaff()) {
-            $keyboard[] = [['text' => self::MAIN_MENU_ADMIN_ANNOUNCE]];
+            $keyboard[] = [
+                ['text' => self::MAIN_MENU_ADMIN_ANNOUNCE],
+                ['text' => self::MAIN_MENU_ADMIN_TOOLS],
+            ];
         }
 
         return $keyboard;
@@ -3420,5 +3451,576 @@ class TelegramWebhookController extends Controller
         }
 
         return $sent;
+    }
+
+    /*
+     * ============================================================
+     * "🧰 إدارة الأدوات" — أول وحدة من صلاحيات الإدارة الكاملة
+     * المؤجّلة بـstep90 (محتوى/أدوات/مساقات/خطة دراسية)، وأبسطها —
+     * نفس تحقق الصلاحية الحقيقي (User::isStaff() عبر telegram_chat_id
+     * المربوط فعليًا) المستخدم بميزة الإعلانات بالضبط. القواعد كلها
+     * منقولة حرفيًا من Staff/ToolController::validated(): type من
+     * Tool::TYPES، official_url إجباري إلا لو النوع "concept" (وحينها
+     * explanation هو الإجباري بدلًا منه)، description بحد أقصى ٣٠٠
+     * حرف، إلخ. ⚠️ ربط الأداة بمساقات معيّنة (course_ids) غير مدعوم
+     * من داخل البوت حاليًا — أداة جديدة تُنشأ بلا مساقات مرتبطة، ويبقى
+     * ربطها بالمساقات من لوحة تحكم الموقع فقط (تحسين مؤجَّل).
+     *
+     * تسلسل الإضافة (pending_action.action = 'admtool_add'): name →
+     * type (أزرار) → description → (official_url أو explanation حسب
+     * النوع) → video_url (اختياري) → confirm.
+     * تسلسل التعديل (action = 'admtool_edit'): field picker (أزرار) →
+     * قيمة جديدة (نص، أو أزرار مباشرة لو الحقل "type") → حفظ فوري.
+     * ============================================================
+     */
+    private function sendAdminToolMenu(TelegramBotApi $bot, int|string $chatId, int $page): void
+    {
+        $query = Tool::query()->orderBy('sort_order')->orderBy('name');
+        $total = (clone $query)->count();
+        $tools = $query->forPage($page, self::COURSE_HUB_PAGE_SIZE)->get(['id', 'name', 'type', 'is_active']);
+
+        $keyboard = [[['text' => '➕ إضافة أداة جديدة', 'callback_data' => 'admtool:new']]];
+
+        foreach ($tools as $tool) {
+            $typeLabel = self::INLINE_TOOL_TYPE_LABELS[$tool->type] ?? '';
+            $statusIcon = $tool->is_active ? '🟢' : '🔴';
+            $label = trim($statusIcon.' '.($typeLabel !== '' ? $typeLabel.' — ' : '').(string) $tool->name);
+            $keyboard[] = [['text' => $label, 'callback_data' => 'admtool:detail:'.$tool->id]];
+        }
+
+        $lastPage = max(1, (int) ceil($total / self::COURSE_HUB_PAGE_SIZE));
+        $pagerRow = [];
+
+        if ($page > 1) {
+            $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'admtool:list:'.($page - 1)];
+        }
+
+        if ($page < $lastPage) {
+            $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'admtool:list:'.($page + 1)];
+        }
+
+        if ($pagerRow !== []) {
+            $keyboard[] = $pagerRow;
+        }
+
+        $bot->sendMessage(
+            $chatId,
+            "🧰 <b>إدارة الأدوات</b> (صفحة {$page} من {$lastPage})\n\n🟢 مفعّلة / 🔴 معطّلة — اختر أداة لتعديلها أو حذفها، أو أضف أداة جديدة:",
+            $keyboard
+        );
+    }
+
+    private function sendAdminToolDetail(TelegramBotApi $bot, int|string $chatId, int $toolId): void
+    {
+        $tool = Tool::query()->find($toolId);
+
+        if (! $tool) {
+            $bot->sendMessage($chatId, '⚠️ هذه الأداة غير موجودة (يمكن اتحذفت).', [[['text' => '🔙 كل الأدوات', 'callback_data' => 'admtool:list:1']]]);
+
+            return;
+        }
+
+        $typeLabel = self::INLINE_TOOL_TYPE_LABELS[$tool->type] ?? $tool->type;
+        $lines = [
+            '🧰 <b>'.TelegramBotApi::escapeHtml((string) $tool->name).'</b>',
+            '🏷️ النوع: '.$typeLabel,
+            'الحالة: '.($tool->is_active ? '🟢 مفعّلة' : '🔴 معطّلة'),
+            '🔢 ترتيب الظهور: '.(int) $tool->sort_order,
+            '',
+            '📝 الوصف: '.TelegramBotApi::escapeHtml((string) $tool->description),
+        ];
+
+        if (! empty($tool->official_url)) {
+            $lines[] = '🌐 الرابط الرسمي: '.$tool->official_url;
+        }
+
+        if (! empty($tool->explanation)) {
+            $lines[] = '';
+            $lines[] = '💡 الشرح: '.TelegramBotApi::escapeHtml((string) $tool->explanation);
+        }
+
+        if (! empty($tool->video_url)) {
+            $lines[] = '🎬 فيديو شرح: '.$tool->video_url;
+        }
+
+        $keyboard = [
+            [
+                ['text' => '✏️ تعديل', 'callback_data' => 'admtool:edit:'.$tool->id],
+                ['text' => $tool->is_active ? '🔴 تعطيل' : '🟢 تفعيل', 'callback_data' => 'admtool:toggle:'.$tool->id],
+            ],
+            [['text' => '🗑️ حذف الأداة', 'callback_data' => 'admtool:delconfirm:'.$tool->id]],
+            [['text' => '🔙 كل الأدوات', 'callback_data' => 'admtool:list:1']],
+        ];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    private function sendAdminToolFieldPicker(TelegramBotApi $bot, int|string $chatId, int $toolId): void
+    {
+        $keyboard = [];
+        $row = [];
+
+        foreach (self::ADMIN_TOOL_FIELD_LABELS as $field => $label) {
+            $row[] = ['text' => $label, 'callback_data' => 'admtool:editfield:'.$toolId.':'.$field];
+
+            if (count($row) === 2) {
+                $keyboard[] = $row;
+                $row = [];
+            }
+        }
+
+        if ($row !== []) {
+            $keyboard[] = $row;
+        }
+
+        $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'admtool:detail:'.$toolId]];
+
+        $bot->sendMessage($chatId, '✏️ أي حقل بدك تعدّل؟', $keyboard);
+    }
+
+    private function isValidHttpUrl(string $value): bool
+    {
+        return (bool) preg_match('#^https?://#i', $value) && filter_var($value, FILTER_VALIDATE_URL) !== false;
+    }
+
+    private function handleAdminToolCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('admtool:'));
+        [$key, $arg] = array_pad(explode(':', $action, 2), 2, null);
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link || ! $link->user || ! $link->user->isStaff()) {
+            $bot->answerCallbackQuery($callbackId, 'غير مخوّل.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+        $pending = $link->pending_action;
+        $pendingData = $pending['data'] ?? [];
+
+        if ($key === 'list') {
+            $this->sendAdminToolMenu($bot, $chatId, max(1, (int) $arg));
+
+            return;
+        }
+
+        if ($key === 'detail') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminToolDetail($bot, $chatId, (int) $arg);
+
+            return;
+        }
+
+        if ($key === 'new') {
+            $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => 'name', 'lecture_id' => null, 'data' => []]]);
+            $bot->sendMessage($chatId, "🧰 <b>إضافة أداة جديدة</b>\n\nاكتب اسم الأداة (بحد أقصى ١٩٠ حرف)، أو اكتب \"إلغاء\":");
+
+            return;
+        }
+
+        if ($key === 'newtype') {
+            if (($pending['step'] ?? null) !== 'type' || ! in_array($arg, Tool::TYPES, true)) {
+                return;
+            }
+
+            $pendingData['type'] = $arg;
+            $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => 'description', 'lecture_id' => null, 'data' => $pendingData]]);
+            $bot->sendMessage($chatId, '📝 اكتب وصف مختصر للأداة (بحد أقصى ٣٠٠ حرف):');
+
+            return;
+        }
+
+        if ($key === 'edit') {
+            $this->sendAdminToolFieldPicker($bot, $chatId, (int) $arg);
+
+            return;
+        }
+
+        if ($key === 'editfield') {
+            [$toolId, $field] = array_pad(explode(':', (string) $arg, 2), 2, null);
+            $tool = Tool::query()->find((int) $toolId);
+
+            if (! $tool || ! array_key_exists($field, self::ADMIN_TOOL_FIELD_LABELS)) {
+                return;
+            }
+
+            if ($field === 'type') {
+                $keyboard = [];
+
+                foreach (Tool::TYPES as $type) {
+                    $keyboard[] = [[
+                        'text' => (self::INLINE_TOOL_TYPE_LABELS[$type] ?? $type).($tool->type === $type ? ' ✅' : ''),
+                        'callback_data' => 'admtool:settype:'.$tool->id.':'.$type,
+                    ]];
+                }
+
+                $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'admtool:edit:'.$tool->id]];
+                $bot->sendMessage($chatId, '🏷️ اختر النوع الجديد:', $keyboard);
+
+                return;
+            }
+
+            $link->update(['pending_action' => ['action' => 'admtool_edit', 'step' => $field, 'lecture_id' => null, 'data' => ['id' => $tool->id, 'field' => $field]]]);
+
+            $currentValue = TelegramBotApi::escapeHtml((string) ($tool->{$field} ?? '')) ?: '(فاضي)';
+            $nullable = in_array($field, ['official_url', 'explanation', 'video_url'], true);
+            $hint = $nullable ? "\nاكتب \"-\" لمسح القيمة الحالية (لو مسموح لهذا الحقل)." : '';
+
+            $bot->sendMessage(
+                $chatId,
+                '✏️ القيمة الحالية لـ"'.self::ADMIN_TOOL_FIELD_LABELS[$field]."\":\n{$currentValue}\n\nاكتب القيمة الجديدة:{$hint}"
+            );
+
+            return;
+        }
+
+        if ($key === 'settype') {
+            [$toolId, $type] = array_pad(explode(':', (string) $arg, 2), 2, null);
+            $tool = Tool::query()->find((int) $toolId);
+
+            if (! $tool || ! in_array($type, Tool::TYPES, true)) {
+                return;
+            }
+
+            $tool->update(['type' => $type]);
+            $bot->sendMessage($chatId, '✅ تم تحديث النوع.');
+            $this->sendAdminToolDetail($bot, $chatId, $tool->id);
+
+            return;
+        }
+
+        if ($key === 'toggle') {
+            $tool = Tool::query()->find((int) $arg);
+
+            if (! $tool) {
+                return;
+            }
+
+            $tool->update(['is_active' => ! $tool->is_active]);
+            $this->sendAdminToolDetail($bot, $chatId, $tool->id);
+
+            return;
+        }
+
+        if ($key === 'delconfirm') {
+            $tool = Tool::query()->find((int) $arg);
+
+            if (! $tool) {
+                return;
+            }
+
+            $bot->sendMessage(
+                $chatId,
+                '⚠️ متأكد تريد حذف أداة "'.TelegramBotApi::escapeHtml((string) $tool->name).'"؟ هذا الإجراء لا يمكن التراجع عنه.',
+                [[
+                    ['text' => '✅ نعم، احذف', 'callback_data' => 'admtool:delyes:'.$tool->id],
+                    ['text' => '❌ لا، رجوع', 'callback_data' => 'admtool:delno:'.$tool->id],
+                ]]
+            );
+
+            return;
+        }
+
+        if ($key === 'delno') {
+            $this->sendAdminToolDetail($bot, $chatId, (int) $arg);
+
+            return;
+        }
+
+        if ($key === 'delyes') {
+            $tool = Tool::query()->find((int) $arg);
+
+            if ($tool) {
+                $name = (string) $tool->name;
+                $tool->delete();
+                $bot->sendMessage($chatId, '🗑️ تم حذف أداة "'.TelegramBotApi::escapeHtml($name).'".');
+            }
+
+            $this->sendAdminToolMenu($bot, $chatId, 1);
+
+            return;
+        }
+
+        if ($key === 'cancel') {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+            $this->sendAdminToolMenu($bot, $chatId, 1);
+
+            return;
+        }
+
+        if ($key === 'create') {
+            if (($pending['step'] ?? null) !== 'confirm' || ($pending['action'] ?? null) !== 'admtool_add') {
+                return;
+            }
+
+            $nextSortOrder = ((int) Tool::query()->max('sort_order')) + 1;
+
+            $tool = Tool::create([
+                'name' => $pendingData['name'],
+                'type' => $pendingData['type'],
+                'description' => $pendingData['description'],
+                'official_url' => $pendingData['official_url'] ?? null,
+                'explanation' => $pendingData['explanation'] ?? null,
+                'video_url' => $pendingData['video_url'] ?? null,
+                'is_active' => true,
+                'sort_order' => $nextSortOrder,
+            ]);
+
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تمت إضافة الأداة بنجاح.');
+            $this->sendAdminToolDetail($bot, $chatId, $tool->id);
+
+            return;
+        }
+    }
+
+    private function handleAdminToolTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+            $this->sendAdminToolMenu($bot, $chatId, 1);
+
+            return;
+        }
+
+        if (! $link->user || ! $link->user->isStaff()) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $action = $pending['action'] ?? null;
+        $step = $pending['step'] ?? null;
+        $data = $pending['data'] ?? [];
+
+        if ($action === 'admtool_add') {
+            if ($step === 'name') {
+                if ($normalized === '' || mb_strlen($normalized) > 190) {
+                    $bot->sendMessage($chatId, 'اسم غير صالح 🙂 اكتب اسم الأداة (نص غير فاضي، بحد أقصى ١٩٠ حرف):');
+
+                    return;
+                }
+
+                $data['name'] = $normalized;
+                $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => 'type', 'lecture_id' => null, 'data' => $data]]);
+
+                $keyboard = [];
+
+                foreach (Tool::TYPES as $type) {
+                    $keyboard[] = [['text' => self::INLINE_TOOL_TYPE_LABELS[$type] ?? $type, 'callback_data' => 'admtool:newtype:'.$type]];
+                }
+
+                $bot->sendMessage($chatId, '🏷️ اختر نوع الأداة:', $keyboard);
+
+                return;
+            }
+
+            if ($step === 'description') {
+                if ($normalized === '' || mb_strlen($normalized) > 300) {
+                    $bot->sendMessage($chatId, 'وصف غير صالح 🙂 اكتب وصف مختصر (نص غير فاضي، بحد أقصى ٣٠٠ حرف):');
+
+                    return;
+                }
+
+                $data['description'] = $normalized;
+                $isConcept = ($data['type'] ?? null) === 'concept';
+                $nextStep = $isConcept ? 'explanation' : 'official_url';
+                $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => $nextStep, 'lecture_id' => null, 'data' => $data]]);
+
+                $bot->sendMessage(
+                    $chatId,
+                    $isConcept
+                        ? '💡 اكتب شرح المفهوم (بحد أقصى ٥٠٠٠ حرف):'
+                        : '🌐 اكتب الرابط الرسمي للأداة (لازم يبدأ بـ http:// أو https://):'
+                );
+
+                return;
+            }
+
+            if ($step === 'official_url') {
+                if (! $this->isValidHttpUrl($normalized) || mb_strlen($normalized) > 500) {
+                    $bot->sendMessage($chatId, 'رابط غير صالح 🙂 لازم يبدأ بـ http:// أو https:// (بحد أقصى ٥٠٠ حرف):');
+
+                    return;
+                }
+
+                $data['official_url'] = $normalized;
+                $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => 'video_url', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '🎬 اكتب رابط فيديو شرح (اختياري)، أو ارسل "تخطي":');
+
+                return;
+            }
+
+            if ($step === 'explanation') {
+                if ($normalized === '' || mb_strlen($normalized) > 5000) {
+                    $bot->sendMessage($chatId, 'شرح غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ٥٠٠٠ حرف):');
+
+                    return;
+                }
+
+                $data['explanation'] = $normalized;
+                $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => 'video_url', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '🎬 اكتب رابط فيديو شرح (اختياري)، أو ارسل "تخطي":');
+
+                return;
+            }
+
+            if ($step === 'video_url') {
+                if (in_array($normalized, ['تخطي', 'skip', '-'], true)) {
+                    $data['video_url'] = null;
+                } elseif ($this->isValidHttpUrl($normalized) && mb_strlen($normalized) <= 500) {
+                    $data['video_url'] = $normalized;
+                } else {
+                    $bot->sendMessage($chatId, 'رابط غير صالح 🙂 لازم يبدأ بـ http:// أو https://، أو ارسل "تخطي":');
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => 'admtool_add', 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+
+                $typeLabel = self::INLINE_TOOL_TYPE_LABELS[$data['type']] ?? $data['type'];
+                $preview = "🧰 <b>معاينة الأداة الجديدة</b>\n\n".
+                    '<b>'.TelegramBotApi::escapeHtml((string) $data['name'])."</b>\n".
+                    "🏷️ {$typeLabel}\n".
+                    '📝 '.TelegramBotApi::escapeHtml((string) $data['description']);
+
+                if (! empty($data['official_url'])) {
+                    $preview .= "\n🌐 ".$data['official_url'];
+                }
+
+                if (! empty($data['explanation'])) {
+                    $preview .= "\n💡 ".TelegramBotApi::escapeHtml((string) $data['explanation']);
+                }
+
+                if (! empty($data['video_url'])) {
+                    $preview .= "\n🎬 ".$data['video_url'];
+                }
+
+                $bot->sendMessage($chatId, $preview, [[
+                    ['text' => '✅ إضافة الأداة', 'callback_data' => 'admtool:create'],
+                    ['text' => '❌ إلغاء', 'callback_data' => 'admtool:cancel'],
+                ]]);
+
+                return;
+            }
+
+            $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+
+            return;
+        }
+
+        if ($action === 'admtool_edit') {
+            $tool = Tool::query()->find((int) ($data['id'] ?? 0));
+            $field = $data['field'] ?? null;
+
+            if (! $tool || ! $field) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, '⚠️ تعذّر إيجاد الأداة، ابدأ من جديد.');
+
+                return;
+            }
+
+            $isClear = in_array($normalized, ['-', 'تخطي', 'skip'], true) && in_array($field, ['official_url', 'explanation', 'video_url'], true);
+
+            if ($field === 'name') {
+                if ($normalized === '' || mb_strlen($normalized) > 190) {
+                    $bot->sendMessage($chatId, 'اسم غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ١٩٠ حرف):');
+
+                    return;
+                }
+
+                $tool->update(['name' => $normalized]);
+            } elseif ($field === 'description') {
+                if ($normalized === '' || mb_strlen($normalized) > 300) {
+                    $bot->sendMessage($chatId, 'وصف غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ٣٠٠ حرف):');
+
+                    return;
+                }
+
+                $tool->update(['description' => $normalized]);
+            } elseif ($field === 'official_url') {
+                if ($isClear) {
+                    if ($tool->type !== 'concept') {
+                        $bot->sendMessage($chatId, 'ما بقدر أمسح الرابط الرسمي — إجباري لكل الأنواع ما عدا "مفهوم". غيّر النوع أول، أو اكتب رابط صالح:');
+
+                        return;
+                    }
+
+                    $tool->update(['official_url' => null]);
+                } else {
+                    if (! $this->isValidHttpUrl($normalized) || mb_strlen($normalized) > 500) {
+                        $bot->sendMessage($chatId, 'رابط غير صالح 🙂 لازم يبدأ بـ http:// أو https:// (بحد أقصى ٥٠٠ حرف):');
+
+                        return;
+                    }
+
+                    $tool->update(['official_url' => $normalized]);
+                }
+            } elseif ($field === 'explanation') {
+                if ($isClear) {
+                    if ($tool->type === 'concept') {
+                        $bot->sendMessage($chatId, 'ما بقدر أمسح الشرح — إجباري لنوع "مفهوم". غيّر النوع أول، أو اكتب شرح:');
+
+                        return;
+                    }
+
+                    $tool->update(['explanation' => null]);
+                } else {
+                    if ($normalized === '' || mb_strlen($normalized) > 5000) {
+                        $bot->sendMessage($chatId, 'شرح غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ٥٠٠٠ حرف):');
+
+                        return;
+                    }
+
+                    $tool->update(['explanation' => $normalized]);
+                }
+            } elseif ($field === 'video_url') {
+                if ($isClear) {
+                    $tool->update(['video_url' => null]);
+                } else {
+                    if (! $this->isValidHttpUrl($normalized) || mb_strlen($normalized) > 500) {
+                        $bot->sendMessage($chatId, 'رابط غير صالح 🙂 لازم يبدأ بـ http:// أو https:// (بحد أقصى ٥٠٠ حرف)، أو ارسل "-" لمسحه:');
+
+                        return;
+                    }
+
+                    $tool->update(['video_url' => $normalized]);
+                }
+            } elseif ($field === 'sort_order') {
+                if (! preg_match('/^\d{1,5}$/', $normalized) || (int) $normalized > 65535) {
+                    $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم صحيح بين ٠ و٦٥٥٣٥:');
+
+                    return;
+                }
+
+                $tool->update(['sort_order' => (int) $normalized]);
+            }
+
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تم الحفظ.');
+            $this->sendAdminToolDetail($bot, $chatId, $tool->id);
+
+            return;
+        }
     }
 }
