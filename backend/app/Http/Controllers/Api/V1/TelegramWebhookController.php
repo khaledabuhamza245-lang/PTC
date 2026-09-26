@@ -2987,7 +2987,14 @@ class TelegramWebhookController extends Controller
         ?array $photos,
         ?array $document
     ): void {
-        @set_time_limit(300);
+        /*
+         * رُفع من 300 لـ450 (جلسة سادسة، جزء 4) بعد ما فعّلنا
+         * continueOnTruncation بـTelegramAiAssistant::generate() (إصلاح
+         * "التلخيص مقطوع منتصف جملة") — أسوأ سيناريو الآن حتى 3 جولات
+         * تلخيص متتالية (مسار inline: حتى 120ث لكل جولة = 360ث) بدل
+         * جولة واحدة بس، فلازم هامش وقت سكربت أعلى يستوعبها.
+         */
+        @set_time_limit(450);
 
         if (is_array($photos) && $photos !== []) {
             $fileId = (string) end($photos)['file_id'];

@@ -170,6 +170,15 @@ class TelegramAiAssistant
             ? ['inline_data' => ['mime_type' => $mimeType, 'data' => $fileData]]
             : ['file_data' => ['mime_type' => $mimeType, 'file_uri' => $fileData]];
 
+        /*
+         * ⚠ إصلاح "التلخيص مقطوع" (جلسة سادسة، جزء 4): كانت هذي أول دالة
+         * بالملف ما تمرّر maxOutputTokens ولا continueOnTruncation إطلاقًا،
+         * فتقع تلقائيًا على افتراضي callGemini (1500 توكن، بلا أي "كمّل")
+         * — قليل جدًا لملخّص فصل دراسي كامل (شفنا انقطاعًا فعليًا بمنتصف
+         * جملة مع طالب حقيقي). رفعناها لـ4000 (نفس explainCode) + فعّلنا
+         * continueOnTruncation (نفس آلية debugCode/optimizeCode بالضبط) —
+         * حتى لو تجاوز المحتوى حتى الـ4000، يكمل تلقائيًا حتى 3 جولات.
+         */
         return $this->callGemini(
             $systemInstruction,
             [
@@ -178,7 +187,9 @@ class TelegramAiAssistant
             ],
             tooLargeMessage: 'هذا الملف كبير جدًا على المساعد يقرأه دفعة وحدة. جرّب صفحة أو جزء أصغر.',
             emptyMessage: 'ما قدر المساعد يطلع بردّ لهذا الملف، جرّب صورة أوضح.',
+            maxOutputTokens: 4000,
             timeoutSeconds: $inline ? 120 : 90,
+            continueOnTruncation: true,
             forcedApiKey: $inline ? null : $forcedApiKey,
             allowOpenRouter: false
         );
