@@ -1274,13 +1274,16 @@ class TelegramWebhookController extends Controller
         }
 
         /*
-         * ٦٠ ثانية غير كافية إطلاقًا لمسار "ورشة الأكواد" على ملف كبير:
-         * فحص/تحسين ينفّذان نداءي Gemini متتاليين (ملاحظات + كود كامل)
-         * والثاني وحده قد يستغرق حتى ~110 ثانية (راجع timeoutSeconds
-         * بـTelegramAiAssistant::debugCode()/optimizeCode()). سقف أعلى
-         * هون احترازي فقط — لا يجبر الطلب يطول، بس يمنع قتله باكرًا.
+         * فحص/تحسين ينفّذان نداءي Gemini على الأقل (ملاحظات + تعديلات)،
+         * والثاني قد يتكرر تلقائيًا حتى 3 مرات لو الرد انقطع بحد الطول
+         * (continueOnTruncation بـcallGemini) — يعني حتى 4 نداءات شبكة
+         * بمجموعها بأسوأ الحالات (~45 + 4×60 ثانية). سقف أعلى هون
+         * احترازي فقط — لا يجبر الطلب يطول، بس يمنع قتله باكرًا؛ آمِن
+         * الآن أكتر من قبل بما إنه اتصال الويبهوك نفسه يُقفَل فورًا
+         * (fastcgi_finish_request تحت) فوقت المعالجة الإضافي ما بيأثر
+         * على تسليم الرد لتيليجرام.
          */
-        @set_time_limit(240);
+        @set_time_limit(300);
 
         $user = $link->user;
 
@@ -1346,7 +1349,7 @@ class TelegramWebhookController extends Controller
         string $mode = 'debug'
     ): void {
         // راجع تعليق سقف الوقت المطابق بـrouteFreeTextToAssistant أعلاه.
-        @set_time_limit(240);
+        @set_time_limit(300);
 
         if ($aiAssistant->remainingToday($user) <= 0) {
             $bot->sendMessage(
@@ -1424,13 +1427,21 @@ class TelegramWebhookController extends Controller
     }
 
     /*
-     * ملاحظات محطة كود (فحص/تحسين) كرسالة نصية قصيرة + نسخة الكود
-     * الناتجة كملف منفصل (sendDocument) — بدل نص طويل يعمل سكرول
-     * بالمحادثة، بناءً على طلب صريح من الطالب. يُستدعى من
-     * sendCodeToolResult() لمحطتي "فحص وتصحيح" و"تحسين الأداء" (شارح
-     * المنطق لا يمر من هون أصلًا — رد نصي فقط، بلا ملف).
+     * "تقرير المراجعة الذكية" — بدل الرجوع لملف كامل بلا أي إشارة لوين
+     * تغيّر شي بالضبط (النسخة القديمة)، صار Gemini يرجّع قائمة
+     * "تعديلات" (مقطع قبل/بعد + سبب — راجع TelegramAiAssistant::debugCode/
+     * optimizeCode/applyCodeEdits) والبوت يبني منها تقريرًا مرقّمًا
+     * يوريه الطالب بالضبط شو تغيّر ووين ولِيش، قبل ما يستلم الملف
+     * النهائي كاملًا. هذا كمان يفيد الطالب تعليميًا لا بس تصليحيًا:
+     * كل تعديل مشروح لحاله زي مراجعة كود حقيقية بين مبرمجين.
      *
-     * @param array{notes: string, fixed_code: string} $result
+     * status لكل تعديل (راجع applyCodeEdits بالتفصيل): applied (تطابق
+     * مؤكَّد) | applied_fuzzy (تطابق بعد تجاهل فروقات مسافات) |
+     * ambiguous (طُبِّق على أول تطابق من عدة، يستاهل مراجعة الطالب) |
+     * failed (تعذّر تحديد مكانه تلقائيًا — يُعرض للطالب ليطبّقه يدويًا،
+     * ولا يُطبَّق بالملف حتى ما نخاطر بمكان غلط).
+     *
+     * @param array{notes: string, fixed_code: string, edits: array<int, array{reason: string, old: string, new: string, status: string}>, no_changes: bool} $result
      */
     private function sendDebugResult(
         TelegramBotApi $bot,
@@ -1438,11 +1449,24 @@ class TelegramWebhookController extends Controller
         array $result,
         string $filename,
         string $titleLine = '🛠️ <b>ملاحظات الفحص</b>',
-        string $fileCaption = '📄 الكود بعد المراجعة'
+        string $fileCaption = '📄 الكود بعد المراجعة',
+        string $appliedIcon = '✅'
     ): void {
         $notes = trim($result['notes']);
         $safeNotes = $notes !== '' ? TelegramBotApi::escapeHtml($notes) : 'ما في ملاحظات إضافية.';
         $bot->sendMessage($chatId, "{$titleLine}\n\n{$safeNotes}");
+
+        if ($result['no_changes'] ?? false) {
+            $bot->sendMessage($chatId, '✨ الكود سليم كما هو — ما احتاج أي تعديل فعلي.');
+
+            return;
+        }
+
+        $edits = $result['edits'] ?? [];
+
+        if ($edits !== []) {
+            $this->sendCodeEditsReport($bot, $chatId, $edits, $appliedIcon);
+        }
 
         $fixedCode = $result['fixed_code'];
 
@@ -1461,12 +1485,76 @@ class TelegramWebhookController extends Controller
     }
 
     /*
+     * يبني تقرير التعديلات المرقّم ويرسله مجزَّءًا لرسائل ≤3500 حرف
+     * (بلا تقطيع أي تعديل لنصفين بين رسالتين) — عدد التعديلات غير
+     * محدود سلفًا (ملف فيه عشرات الأخطاء ممكن يعطي عشرات التعديلات).
+     */
+    private function sendCodeEditsReport(TelegramBotApi $bot, int|string $chatId, array $edits, string $appliedIcon): void
+    {
+        $statusIcon = [
+            'applied' => $appliedIcon,
+            'applied_fuzzy' => $appliedIcon,
+            'ambiguous' => '⚠️',
+            'failed' => '❌',
+        ];
+
+        $statusNote = [
+            'applied' => '',
+            'applied_fuzzy' => ' <i>(تطابق تقريبي بالمسافات — تأكد منه بالملف)</i>',
+            'ambiguous' => ' <i>(طُبِّق على أول موضع مشابه — راجعه بالملف)</i>',
+            'failed' => ' <i>— تعذّر تحديد مكانه تلقائيًا، طبّقه يدويًا من هون</i>',
+        ];
+
+        $count = count($edits);
+        $blocks = ["🧬 <b>تقرير المراجعة الذكية</b> — {$count} " . ($count === 1 ? 'تعديل' : 'تعديلات')];
+
+        foreach ($edits as $index => $edit) {
+            $num = $index + 1;
+            $status = $edit['status'];
+            $icon = $statusIcon[$status] ?? '•';
+            $note = $statusNote[$status] ?? '';
+            $reasonText = trim($edit['reason']) !== '' ? $edit['reason'] : 'تحسين بلا وصف';
+            $reason = TelegramBotApi::escapeHtml($reasonText);
+            $before = TelegramBotApi::escapeHtml($this->truncateForPreview($edit['old']));
+            $after = TelegramBotApi::escapeHtml($this->truncateForPreview($edit['new']));
+
+            $blocks[] = "🔧 <b>تعديل #{$num}</b> {$icon} {$reason}{$note}\n" .
+                "🔻 قبل:\n<code>{$before}</code>\n" .
+                "🔺 بعد:\n<code>{$after}</code>";
+        }
+
+        /*
+         * ⚠ sendChunkedMessage() الموجودة أصلًا بالملف (لقسم محتوى
+         * المادة بالضبط) تعمل بنفس الفكرة تمامًا (تجميع "أسطر" برسائل
+         * ≤٣٥٠٠ حرف بلا تقطيع سطر لنصفين) فأعدنا استخدامها هون بدل
+         * تكرارها — كل عنصر بـ$blocks هون "سطر" منطقي (تعديل كامل
+         * بأسطره الداخلية)، فبيتعامل معه صح.
+         */
+        $this->sendChunkedMessage($bot, $chatId, $blocks);
+    }
+
+    /*
+     * معاينة مختصرة لمقطع كود بتقرير التعديلات — القيمة الكاملة أصلًا
+     * مطبَّقة بالملف النهائي، فهون بس للقراءة السريعة لا كمرجع دقيق.
+     */
+    private function truncateForPreview(string $text, int $limit = 300): string
+    {
+        $trimmed = trim($text);
+
+        if (mb_strlen($trimmed) <= $limit) {
+            return $trimmed;
+        }
+
+        return mb_substr($trimmed, 0, $limit) . ' …';
+    }
+
+    /*
      * نقطة دخول موحّدة لثلاث محطات "ورشة الأكواد" — تستقبل الكود مرة
      * وحدة وتوزّعه حسب المحطة المختارة حاليًا (mode) على الدالة
      * المناسبة بـTelegramAiAssistant، وتُخرج الرد بالشكل المناسب لكل
-     * محطة (نص فقط لشارح المنطق، نص+ملف للفحص والتحسين). يُستدعى من
-     * مسار النص الحر (routeFreeTextToAssistant) ومسار رفع الملف
-     * (replyWithCodeFileDebug) كليهما.
+     * محطة (نص فقط لشارح المنطق، نص+تقرير تعديلات+ملف للفحص والتحسين).
+     * يُستدعى من مسار النص الحر (routeFreeTextToAssistant) ومسار رفع
+     * الملف (replyWithCodeFileDebug) كليهما.
      */
     private function sendCodeToolResult(
         TelegramBotApi $bot,
@@ -1490,10 +1578,11 @@ class TelegramWebhookController extends Controller
             $this->sendDebugResult(
                 $bot,
                 $chatId,
-                ['notes' => $result['notes'], 'fixed_code' => $result['optimized_code']],
+                $result,
                 'optimized_' . $baseFilename,
                 '⚡ <b>ملاحظات تحسين الأداء</b>',
-                '📄 النسخة بعد التحسين'
+                '📄 النسخة بعد التحسين',
+                '⚡'
             );
 
             return;

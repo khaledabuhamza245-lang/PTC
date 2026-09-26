@@ -133,21 +133,46 @@ class TelegramAiAssistant
     // عام (لا private) حتى يقدر TelegramWebhookController يتحقق من حجم ملف الكود قبل ما يحمّله أصلًا.
     public const MAX_CODE_FILE_SIZE = 300 * 1024; // 300KB — كافٍ لأي ملف كود طالب فعلي (html/css/js/php...).
 
+    // ناتج نداء "التعديلات" — أصغر بكثير من نداء "الملف كامل" القديم (تناسبي مع حجم التغيير لا حجم الملف).
+    private const EDIT_OUTPUT_TOKENS = 8192;
+
+    /*
+     * فواصل نص فريدة لصيغة "التعديلات" التي نطلبها من Gemini (بدل
+     * الملف كامل) — ≡ (IDENTICAL TO، U+2261) عمليًا غير موجود بأي كود
+     * حقيقي، فاختيارها هون يقلّل تقريبًا لصفر احتمال تصادمها مع محتوى
+     * الكود نفسه (بعكس مثلًا ``` أو {{ }} الشائعة ببعض اللغات).
+     */
+    private const EDIT_MARK_START = '≡≡EDIT≡≡';
+    private const EDIT_MARK_REASON = '≡≡REASON≡≡';
+    private const EDIT_MARK_OLD = '≡≡OLD≡≡';
+    private const EDIT_MARK_NEW = '≡≡NEW≡≡';
+    private const EDIT_MARK_END = '≡≡END≡≡';
+    private const EDIT_MARK_NOCHANGES = '≡≡NOCHANGES≡≡';
+
     /*
      * وضع "مصحّح أكواد" بالقائمة الذكية — الطالب يبعت كود كنص عادي أو
-     * كملف (html/css/js/php...)، والمساعد يرجّع جوابين منفصلين:
-     * ملاحظات نصية قصيرة + الكود المعدَّل كاملًا (كملف — راجع
-     * sendDebugResult بالـwebhook).
+     * كملف (html/css/js/php...)، والمساعد يرجّع: ملاحظات نصية قصيرة +
+     * قائمة "تعديلات" (مقطع أصلي بالضبط ← مقطع بديل + سبب) تُطبَّق
+     * برمجيًا على الكود الأصلي (راجع applyCodeEdits) بدل ما نطلب من
+     * Gemini يرجّع الملف كامل من جديد.
+     *
+     * ليش هذا أفضل من "أرجعلي الملف كامل" (النسخة السابقة): حجم رد
+     * Gemini صار متناسبًا مع حجم *التغيير* لا حجم *الملف* — ملف ٩٠
+     * كيلوبايت بفيه ٣ أخطاء بسيطة يحتاج رد بضع مئات كلمة بس، مش رد
+     * بحجم الملف كامل. هذا يقلّل احتمال القطع (truncation) بشكل جذري
+     * حتى بلا حاجة لرفع maxOutputTokens لأرقام ضخمة، ويخلي كل تعديل
+     * قابل للمراجعة لحاله (زي أدوات مراجعة الكود الاحترافية) بدل ما
+     * يضطر الطالب يقارن ملفين كاملين سطر بسطر. وكخط دفاع أخير لو صار
+     * رد ضخم استثنائيًا (كود فيه عشرات الأخطاء)، callGemini(...,
+     * continueOnTruncation: true) بيطلب تلقائيًا من الموديل "كمّل" لو
+     * انقطع فعليًا بسبب حد الطول، بدل ما يرجع نص مبتور صامت.
      *
      * جرّبنا أول نسخة بطلب JSON منظّم من Gemini بنداء واحد (responseSchema)
      * لفصل الحقلين، لكنها فشلت عمليًا (رد فاضي/غير قابل للتحليل) —
-     * فرجعنا لنداءين نصّيين عاديين منفصلين تمامًا، بنفس أسلوب
-     * callGemini() الموثوق المستخدم أصلًا بباقي الأدوات (summarizeFile/
-     * askText/generateQuiz) — أبسط وأكثر ثباتًا، بس كلفته نداء Gemini
-     * إضافي واحد لكل استخدام (يُحتسب كاستهلاك واحد من السقف اليومي
-     * رغم النداءين، عبر incrementDailyUsage() مرة واحدة بالنهاية).
+     * فاعتمدنا صيغة نصية بفواصل فريدة (EDIT_MARK_*) نحللها بـregex،
+     * بنفس فلسفة generateQuizQuestion()/parseQuizQuestion().
      *
-     * @return array{notes: string, fixed_code: string}
+     * @return array{notes: string, fixed_code: string, edits: array<int, array{reason: string, old: string, new: string, status: string}>, no_changes: bool}
      * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
      */
     public function debugCode(User $user, string $code): array
@@ -165,56 +190,216 @@ class TelegramAiAssistant
             'حدد الأخطاء البرمجية أو المنطقية إن وجدت بوضوح ' .
             'ونقطة نقطة، أو قول بصراحة إنه الكود سليم مع اقتراح تحسينات بسيطة إن وجدت (تسمية متغيرات، ' .
             'كفاءة...). جاوب بالعربية الفصحى البسيطة، بدون تنسيق Markdown، وبدون كتابة الكود كاملًا ' .
-            'بردّك (فقط اشرح الملاحظات — الكود المعدَّل رح يُطلب منك بشكل منفصل).';
+            'بردّك (فقط اشرح الملاحظات — التعديلات رح تُطلب منك بشكل منفصل).';
 
         $notes = $this->callGemini($notesInstruction, [
             ['text' => "حلّل هذا الكود:\n\n" . $code],
         ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يحلل هذا الكود، جرّب تبعته مرة ثانية.');
 
-        $codeInstruction =
-            'أنت مساعد برمجي. الطالب رح يبعتلك كود برمجي. رجّع فقط وحصرًا الكود كاملًا بعد تصحيح أي ' .
-            'أخطاء برمجية أو منطقية فيه — لو الكود أصلًا سليم رجّعه كما هو بدون أي تغيير. ' .
-            'ممنوع تكتب أي شرح أو مقدمة أو خاتمة أو علامات Markdown مثل ```، فقط الكود نفسه.';
-
-        $fixedCode = $this->callGemini(
-            $codeInstruction,
-            [['text' => $code]],
+        $editsText = $this->callGemini(
+            $this->editsInstruction('صحّح أي أخطاء برمجية أو منطقية بالكود'),
+            [['text' => "الكود:\n\n" . $code]],
             tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.',
-            emptyMessage: 'ما قدر المساعد يطلع بنسخة معدّلة من هذا الكود، جرّب مرة أخرى.',
-            maxOutputTokens: 32768,
-            timeoutSeconds: 110
+            emptyMessage: 'ما قدر المساعد يجهّز التعديلات لهذا الكود، جرّب مرة أخرى.',
+            maxOutputTokens: self::EDIT_OUTPUT_TOKENS,
+            timeoutSeconds: 60,
+            continueOnTruncation: true
         );
 
         $this->incrementDailyUsage($user->id);
 
-        $fixedCode = $this->stripMarkdownCodeFence($fixedCode);
-
-        return [
-            'notes' => trim($notes) . $this->possibleTruncationNotice($code, $fixedCode),
-            'fixed_code' => $fixedCode,
-        ];
+        return $this->buildEditsResult(trim($notes), $code, $editsText);
     }
 
     /*
-     * تحذير احترازي عند شبهة قطع الرد — لا يقين مؤكَّد (ما فينا نعرف
-     * فعليًا وين توقّف الرد)، لكن ملف كبير رجع أقصر بشكل ملحوظ من
-     * الأصل مؤشر معقول إنه اصطدم بحد الإخراج رغم رفعه لـ32768. الطاقم
-     * يقارن بنفسه بدل ما يفاجَأ لاحقًا بملف مبتور صامت.
+     * تعليمة نظام موحّدة لطلب "التعديلات" (تُستخدم من debugCode()
+     * وoptimizeCode() بفرق جملة واحدة فقط تصف نوع المراجعة المطلوبة)
+     * — تشرح لـGemini صيغة الفواصل بالضبط وتطلب حرفية تامة بمقطع
+     * "القبل" حتى تنجح applyCodeEdits() بالبحث والاستبدال الدقيق.
      */
-    private function possibleTruncationNotice(string $originalCode, string $resultCode): string
+    private function editsInstruction(string $goal): string
     {
-        $originalLength = mb_strlen(trim($originalCode));
-        $resultLength = mb_strlen(trim($resultCode));
+        return
+            "أنت مساعد برمجي خبير. مهمتك: {$goal}. رجّع تعديلاتك **حصرًا** بهذه الصيغة النصية، بلا " .
+            "أي شرح أو مقدمة أو خاتمة أو علامات Markdown، وكرّر الكتلة لكل تعديل مستقل:\n\n" .
+            self::EDIT_MARK_START . "\n" .
+            self::EDIT_MARK_REASON . " <سبب التعديل بجملة قصيرة بالعربية>\n" .
+            self::EDIT_MARK_OLD . "\n<المقطع الأصلي من الكود بالضبط حرفيًا — بلا أي تغيير حتى بمسافة أو سطر جديد، منسوخ تمامًا كما هو بالكود المرسَل>\n" .
+            self::EDIT_MARK_NEW . "\n<المقطع البديل بعد التعديل>\n" .
+            self::EDIT_MARK_END . "\n\n" .
+            'كرّر هذه الكتلة لكل تعديل منفصل بالترتيب اللي يظهر فيه بالكود. اجعل "المقطع الأصلي" أصغر ما يمكن ' .
+            'ويكفي فقط لتحديد مكان التعديل بدقة (سطر أو بضعة أسطر متجاورة، لا الملف كامل ولا دالة كاملة إلا لو ' .
+            'التعديل يطال الدالة كلها فعلًا). لو الكود ما يحتاج أي تعديل إطلاقًا، لا تكتب أي كتلة ورجّع فقط ' .
+            'الكلمة ' . self::EDIT_MARK_NOCHANGES . ' بلا أي شيء آخر.';
+    }
 
-        if ($originalLength < 3000 || $resultLength <= 0) {
-            return '';
+    /*
+     * يحوّل رد Gemini النصي (صيغة EDIT_MARK_*) لقائمة تعديلات، يطبّقها
+     * على الكود الأصلي، ويبني نتيجة موحّدة تُستهلَك من الـwebhook.
+     * فرّقنا بين null (رد ما اتبع الصيغة إطلاقًا — خطأ فعلي) و[] (اتّبع
+     * الصيغة وقال صراحة "لا تعديلات") حتى ما نخلط رد فاشل بكود سليم.
+     */
+    private function buildEditsResult(string $notes, string $originalCode, string $editsText): array
+    {
+        $parsedEdits = $this->parseCodeEdits($editsText);
+
+        if ($parsedEdits === null) {
+            throw new RuntimeException('تعذّر فهم التعديلات المقترحة بصيغة واضحة، جرّب مرة أخرى.');
         }
 
-        if ($resultLength < $originalLength * 0.6) {
-            return "\n\n⚠️ ملاحظة: الملف الأصلي كبير نسبيًا، والنسخة الناتجة أقصر منه بوضوح — احتمال إنها غير مكتملة بسبب حد حجم رد النموذج. قارن آخر سطر بالملف مع الأصل، ولو ناقصة جزّئ الملف لأجزاء أصغر وأرسل كل جزء لحاله.";
+        if ($parsedEdits === []) {
+            return [
+                'notes' => $notes,
+                'fixed_code' => $originalCode,
+                'edits' => [],
+                'no_changes' => true,
+            ];
         }
 
-        return '';
+        $applied = $this->applyCodeEdits($originalCode, $parsedEdits);
+
+        return [
+            'notes' => $notes,
+            'fixed_code' => $applied['final_code'],
+            'edits' => $applied['edits'],
+            'no_changes' => false,
+        ];
+    }
+
+    /**
+     * @return array<int, array{reason: string, old: string, new: string}>|null
+     */
+    private function parseCodeEdits(string $text): ?array
+    {
+        $trimmed = trim($text);
+
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (str_contains($trimmed, self::EDIT_MARK_NOCHANGES)) {
+            return [];
+        }
+
+        if (! str_contains($trimmed, self::EDIT_MARK_START)) {
+            return null;
+        }
+
+        $pattern = '/' . preg_quote(self::EDIT_MARK_START, '/') . '\s*'
+            . preg_quote(self::EDIT_MARK_REASON, '/') . '\s*(?<reason>.*?)\s*'
+            . preg_quote(self::EDIT_MARK_OLD, '/') . '\n(?<old>.*?)\n'
+            . preg_quote(self::EDIT_MARK_NEW, '/') . '\n(?<new>.*?)\n'
+            . preg_quote(self::EDIT_MARK_END, '/') . '/us';
+
+        if (! preg_match_all($pattern, $text, $matches, PREG_SET_ORDER) || $matches === []) {
+            return null;
+        }
+
+        // stripMarkdownCodeFence احتياطي هون: أحيانًا يحيط النموذج مقطع OLD/NEW بعلامات ```
+        // رغم تعليمة "بلا Markdown" — إزالتها هون تمنع فشل applyCodeEdits() بحثًا حرفيًا بلا داعٍ.
+        return array_map(fn (array $m): array => [
+            'reason' => trim($m['reason']),
+            'old' => $this->stripMarkdownCodeFence($m['old']),
+            'new' => $this->stripMarkdownCodeFence($m['new']),
+        ], $matches);
+    }
+
+    /**
+     * يطبّق كل تعديل بالبحث عن مقطعه الأصلي حرفيًا بالكود، مع محاولة
+     * احتياطية بتجاهل فروقات المسافات/الأسطر لو الحرفي ما طابق (مثلًا
+     * لو Gemini غيّر مسافة بسيطة بالنسخ)، وبدون أي تخمين لو ما لقى
+     * تطابقًا إطلاقًا — أفضل تعديل "يتعذّر تطبيقه" ويُعرض للطالب صراحة
+     * من تعديل يُطبَّق بمكان غلط بصمت.
+     *
+     * status لكل تعديل: applied (تطابق حرفي وحيد) | ambiguous (تطابق
+     * حرفي أكتر من مرة، طُبِّق على أول واحد) | applied_fuzzy (تطابق
+     * بعد تجاهل فروقات المسافات) | failed (ما انطبق).
+     *
+     * @param array<int, array{reason: string, old: string, new: string}> $edits
+     * @return array{final_code: string, edits: array<int, array{reason: string, old: string, new: string, status: string}>}
+     */
+    private function applyCodeEdits(string $code, array $edits): array
+    {
+        $finalCode = $code;
+        $applied = [];
+
+        foreach ($edits as $edit) {
+            $old = $edit['old'];
+            $new = $edit['new'];
+            $reason = $edit['reason'];
+
+            if (trim($old) === '') {
+                $applied[] = ['reason' => $reason, 'old' => $old, 'new' => $new, 'status' => 'failed'];
+
+                continue;
+            }
+
+            $count = substr_count($finalCode, $old);
+
+            if ($count === 1) {
+                $finalCode = str_replace($old, $new, $finalCode);
+                $applied[] = ['reason' => $reason, 'old' => $old, 'new' => $new, 'status' => 'applied'];
+
+                continue;
+            }
+
+            if ($count > 1) {
+                $pos = strpos($finalCode, $old);
+                $finalCode = substr_replace($finalCode, $new, $pos, strlen($old));
+                $applied[] = ['reason' => $reason, 'old' => $old, 'new' => $new, 'status' => 'ambiguous'];
+
+                continue;
+            }
+
+            $fuzzy = $this->findFuzzyMatch($finalCode, $old);
+
+            if ($fuzzy !== null) {
+                [$start, $length] = $fuzzy;
+                $finalCode = substr_replace($finalCode, $new, $start, $length);
+                $applied[] = ['reason' => $reason, 'old' => $old, 'new' => $new, 'status' => 'applied_fuzzy'];
+
+                continue;
+            }
+
+            $applied[] = ['reason' => $reason, 'old' => $old, 'new' => $new, 'status' => 'failed'];
+        }
+
+        return ['final_code' => $finalCode, 'edits' => $applied];
+    }
+
+    /*
+     * مطابقة متسامحة: تقسّم المقطع المطلوب لقطع مفصولة بمسافات/أسطر،
+     * وتبني نمطًا يقبل أي عدد/نوع فراغات بينها بالكود الفعلي. الإزاحة
+     * (offset) من preg_match ببايتات دائمًا (حتى مع معدِّل /u)، ونفس
+     * الشيء لـsubstr_replace/strlen — يعني الحسبة متّسقة رغم UTF-8.
+     *
+     * @return array{0: int, 1: int}|null [موقع البداية بالبايت، طول التطابق بالبايت]
+     */
+    private function findFuzzyMatch(string $haystack, string $needle): ?array
+    {
+        $trimmed = trim($needle);
+
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $pieces = preg_split('/\s+/u', $trimmed) ?: [];
+        $pieces = array_values(array_filter($pieces, static fn (string $p): bool => $p !== ''));
+
+        if ($pieces === []) {
+            return null;
+        }
+
+        $pattern = '/' . implode('\s+', array_map(
+            static fn (string $p): string => preg_quote($p, '/'),
+            $pieces
+        )) . '/us';
+
+        if (! preg_match($pattern, $haystack, $m, PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+
+        return [$m[0][1], strlen($m[0][0])];
     }
 
     /*
@@ -272,11 +457,12 @@ class TelegramAiAssistant
 
     /*
      * "تحسين الأداء" — تفريع تاني عن المصحّح، لكن الهدف هون كفاءة
-     * وجودة الكود لا تصحيح خطأ (الكود مفروض أصلًا شغّال). نفس نمط
-     * debugCode() بنداءين (ملاحظات + كود كامل)، لكن بتعليمة مختلفة
-     * تمامًا تركّز على الأداء، القراءة، وتسمية العناصر.
+     * وجودة الكود لا تصحيح خطأ (الكود مفروض أصلًا شغّال). نفس أسلوب
+     * "تعديلات" debugCode() بالضبط (راجع تعليقها للتفصيل الكامل)، بس
+     * بتعليمة مختلفة تمامًا تركّز على الأداء، القراءة، وتسمية العناصر
+     * بدل تصحيح الأخطاء.
      *
-     * @return array{notes: string, optimized_code: string}
+     * @return array{notes: string, fixed_code: string, edits: array<int, array{reason: string, old: string, new: string, status: string}>, no_changes: bool}
      * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
      */
     public function optimizeCode(User $user, string $code): array
@@ -292,34 +478,25 @@ class TelegramAiAssistant
             'أخطاء وظيفية بالضرورة). ركّز حصرًا على تحسينات الأداء والكفاءة والقراءة: تعقيد زمني/مكاني ' .
             'أفضل، تكرار كود ممكن تفاديه، تسمية متغيرات ودوال أوضح، وبنية أنظف. اذكر كل اقتراح بنقطة ' .
             'مستقلة مع سبب مختصر ليش هو تحسين. جاوب بالعربية الفصحى البسيطة، بدون تنسيق Markdown، ' .
-            'وبدون كتابة الكود كاملًا بردّك (فقط الملاحظات — النسخة المحسَّنة رح تُطلب بشكل منفصل).';
+            'وبدون كتابة الكود كاملًا بردّك (فقط الملاحظات — التعديلات رح تُطلب منك بشكل منفصل).';
 
         $notes = $this->callGemini($notesInstruction, [
             ['text' => "راجع كفاءة هذا الكود واقترح تحسينات:\n\n" . $code],
         ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يحلل كفاءة هذا الكود، جرّب تبعته مرة ثانية.');
 
-        $codeInstruction =
-            'أنت مهندس برمجيات خبير. الطالب رح يبعتلك كود برمجي شغّال. رجّع فقط وحصرًا نسخة محسَّنة ' .
-            'من نفس الكود بنفس السلوك الوظيفي تمامًا، لكن بأداء وقراءة أفضل (تسمية، تعقيد، تكرار...). ' .
-            'ممنوع تكتب أي شرح أو مقدمة أو خاتمة أو علامات Markdown مثل ```، فقط الكود نفسه.';
-
-        $optimizedCode = $this->callGemini(
-            $codeInstruction,
-            [['text' => $code]],
+        $editsText = $this->callGemini(
+            $this->editsInstruction('حسّن أداء وقراءة الكود بلا تغيير سلوكه الوظيفي (تسمية، تعقيد، تكرار...)'),
+            [['text' => "الكود:\n\n" . $code]],
             tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.',
-            emptyMessage: 'ما قدر المساعد يطلع بنسخة محسَّنة من هذا الكود، جرّب مرة أخرى.',
-            maxOutputTokens: 32768,
-            timeoutSeconds: 110
+            emptyMessage: 'ما قدر المساعد يجهّز تحسينات لهذا الكود، جرّب مرة أخرى.',
+            maxOutputTokens: self::EDIT_OUTPUT_TOKENS,
+            timeoutSeconds: 60,
+            continueOnTruncation: true
         );
 
         $this->incrementDailyUsage($user->id);
 
-        $optimizedCode = $this->stripMarkdownCodeFence($optimizedCode);
-
-        return [
-            'notes' => trim($notes) . $this->possibleTruncationNotice($code, $optimizedCode),
-            'optimized_code' => $optimizedCode,
-        ];
+        return $this->buildEditsResult(trim($notes), $code, $editsText);
     }
 
     /*
@@ -441,13 +618,24 @@ class TelegramAiAssistant
      * عند حد الخرج لا لأي خلل بمنطق إرسال الملف نفسه. نداءا الكود
      * الكامل بـdebugCode()/optimizeCode() يمرّران قيمة أعلى بكثير.
      */
+    /*
+     * $continueOnTruncation: خط الدفاع الأخير ضد رد ينقطع فعليًا بسبب
+     * حد $maxOutputTokens (finishReason === 'MAX_TOKENS') — بدل ما
+     * نكتفي برفع الرقم ونأمل إنه يكفي، لو انقطع فعليًا نضيف رد الموديل
+     * الجزئي كدور "model" ونطلب منه "كمّل من حيث توقفت" بدور "user"
+     * جديد، ونلزّق النصين. أصبح هذا مأمونًا الآن بعد إغلاق اتصال
+     * الويبهوك فورًا (fastcgi_finish_request بالكونترولر) — الوقت
+     * الإضافي ما بيأثر على تسليم الرد لتيليجرام. سقف 3 جولات يمنع حلقة
+     * لا نهائية لو الموديل استمر يقطع ردّه لأي سبب.
+     */
     private function callGemini(
         string $systemInstruction,
         array $parts,
         string $tooLargeMessage,
         string $emptyMessage,
         int $maxOutputTokens = 1500,
-        int $timeoutSeconds = 45
+        int $timeoutSeconds = 45,
+        bool $continueOnTruncation = false
     ): string {
         $apiKey = config('services.gemini.key');
 
@@ -455,42 +643,66 @@ class TelegramAiAssistant
             throw new RuntimeException('المساعد الذكي غير مفعّل حاليًا على الخادم.');
         }
 
-        $response = Http::timeout($timeoutSeconds)
-            ->withHeaders(['x-goog-api-key' => $apiKey])
-            ->post(
-                'https://generativelanguage.googleapis.com/v1beta/models/'
-                    . AiAssistantController::GEMINI_MODEL . ':generateContent',
-                [
-                    'systemInstruction' => ['parts' => [['text' => $systemInstruction]]],
-                    'contents' => [[
-                        'role' => 'user',
-                        'parts' => $parts,
-                    ]],
-                    'generationConfig' => ['maxOutputTokens' => $maxOutputTokens, 'temperature' => 0.6],
-                ]
-            );
+        $contents = [['role' => 'user', 'parts' => $parts]];
+        $accumulated = '';
+        $maxRounds = $continueOnTruncation ? 3 : 1;
 
-        if ($response->status() === 429) {
-            throw new RuntimeException('المساعد الذكي مزدحم حاليًا، جرّب بعد شوي.');
+        for ($round = 1; $round <= $maxRounds; $round++) {
+            $response = Http::timeout($timeoutSeconds)
+                ->withHeaders(['x-goog-api-key' => $apiKey])
+                ->post(
+                    'https://generativelanguage.googleapis.com/v1beta/models/'
+                        . AiAssistantController::GEMINI_MODEL . ':generateContent',
+                    [
+                        'systemInstruction' => ['parts' => [['text' => $systemInstruction]]],
+                        'contents' => $contents,
+                        'generationConfig' => ['maxOutputTokens' => $maxOutputTokens, 'temperature' => 0.6],
+                    ]
+                );
+
+            if ($response->status() === 429) {
+                if ($accumulated !== '') {
+                    break;
+                }
+
+                throw new RuntimeException('المساعد الذكي مزدحم حاليًا، جرّب بعد شوي.');
+            }
+
+            if (! $response->successful()) {
+                report(new RuntimeException('Telegram AI Gemini call failed: ' . $response->body()));
+
+                if ($accumulated !== '') {
+                    break;
+                }
+
+                $tooLarge = $response->status() === 400
+                    && str_contains($response->body(), 'exceeds the maximum number of tokens');
+
+                throw new RuntimeException($tooLarge ? $tooLargeMessage : 'تعذّر تحليل الطلب حاليًا، جرّب مرة أخرى بعد شوي.');
+            }
+
+            $candidate = $response->json('candidates.0') ?? [];
+            $chunkParts = $candidate['content']['parts'] ?? [];
+            $chunkText = collect($chunkParts)->pluck('text')->filter()->implode('');
+            $finishReason = $candidate['finishReason'] ?? null;
+
+            $accumulated .= $chunkText;
+
+            if (! $continueOnTruncation || $finishReason !== 'MAX_TOKENS' || $round === $maxRounds) {
+                break;
+            }
+
+            $contents[] = ['role' => 'model', 'parts' => [['text' => $chunkText]]];
+            $contents[] = ['role' => 'user', 'parts' => [
+                ['text' => 'تابع بالضبط من حيث توقفت، بلا إعادة أي جزء سبق إرساله، وبلا أي مقدمة أو تعليق إضافي.'],
+            ]];
         }
 
-        if (! $response->successful()) {
-            report(new RuntimeException('Telegram AI Gemini call failed: ' . $response->body()));
-
-            $tooLarge = $response->status() === 400
-                && str_contains($response->body(), 'exceeds the maximum number of tokens');
-
-            throw new RuntimeException($tooLarge ? $tooLargeMessage : 'تعذّر تحليل الطلب حاليًا، جرّب مرة أخرى بعد شوي.');
-        }
-
-        $responseParts = $response->json('candidates.0.content.parts') ?? [];
-        $text = collect($responseParts)->pluck('text')->filter()->implode('');
-
-        if (! $text) {
+        if (! $accumulated) {
             throw new RuntimeException($emptyMessage);
         }
 
-        return $text;
+        return $accumulated;
     }
 
     /*
