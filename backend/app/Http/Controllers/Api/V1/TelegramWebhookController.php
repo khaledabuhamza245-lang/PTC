@@ -274,6 +274,8 @@ class TelegramWebhookController extends Controller
                 $this->handleContributeCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'toolsnav:')) {
                 $this->handleToolsNavCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'quizloop:')) {
+                $this->handleQuizLoopCallback($bot, $aiAssistant, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -438,6 +440,8 @@ class TelegramWebhookController extends Controller
                 $this->handleContactTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'contribute')) {
                 $this->handleContributeTextInput($bot, $link, $chatId, $text);
+            } elseif ($pendingAction === 'quizloop') {
+                $this->handleQuizLoopTextInput($bot, $aiAssistant, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -766,22 +770,25 @@ class TelegramWebhookController extends Controller
             return;
         }
 
+        /*
+         * "📝 مولّد أسئلة" لم يعد يرمي دفعة ٥ أسئلة ثابتة — صار مدارًا
+         * مستمرًا (سؤال بعد سؤال بلا حد مسبق) يوقفه الطالب بنفسه، بربط
+         * مباشر بمواد الخطة الفعلية بدل قائمة مواضيع عامة جاهزة. راجع
+         * startQuizPick()/sendQuizQuestionCard() تحت.
+         */
+        if ($mode === 'quiz') {
+            $this->startQuizPick($bot, $link, $chatId);
+
+            return;
+        }
+
         $confirmations = [
             'chat' => "💬 <b>غرفة الأسئلة الأكاديمية</b>\n\n".
                 "اسأل بأي مجال بتخصصك — من دارة منطقية لغاية بنية بيانات — وبوصلك جواب واضح ومباشر.\n\n".
                 '✍️ اكتب سؤالك الآن، أو ابعت صورة/PDF ورح يتلخّص لك مباشرة بغض النظر عن المحطة الحالية.',
-            'quiz' => "📝 <b>محطة المراجعة السريعة</b>\n\n".
-                "اختر موضوع جاهز من الأزرار تحت، أو اكتب أي عنوان دراسي تحب تراجعه، وبتوصلك ٥ أسئلة اختيار من متعدد فورًا (مع الإجابات بالنهاية).\n\n".
-                '🔁 خلصت جولة وبدك وحدة جديدة؟ اكتب موضوع تاني وبس.',
             'summarize' => "📄 <b>ملخّص بضغطة</b>\n\n".
                 'ابعتلي صورة صفحة أو ملف PDF، وبرجّعلك خلاصة نقاطها الأساسية جاهزة للمذاكرة — هاي شغّالة دايمًا بغض النظر عن المحطة المختارة.',
         ];
-
-        if ($mode === 'quiz') {
-            $bot->sendMessage($chatId, $confirmations[$mode], $this->buildQuizSubjectKeyboard());
-
-            return;
-        }
 
         $bot->sendMessage($chatId, $confirmations[$mode]);
     }
@@ -868,8 +875,270 @@ class TelegramWebhookController extends Controller
     }
 
     /*
-     * لوحة أزرار بمواضيع جاهزة لمولّد الأسئلة (self::QUIZ_SUBJECTS)،
-     * صفين بكل سطر — بديل اختياري عن كتابة الموضوع كنص حر.
+     * ============================================================
+     * "📝 مولّد أسئلة" — المدار المستمر: سؤال واحد بكل مرة، بلا عدد
+     * محدَّد مسبقًا، يستمر لحد ما الطالب نفسه يضغط "إنهاء الاختبار".
+     * الموضوع يُشتق من مادة فعلية بالخطة (بحث بالاسم/الرمز) أو أي نص
+     * حر يكتبه الطالب — لا قائمة مواضيع عامة جاهزة. حالة الجولة
+     * (الموضوع، الأسئلة السابقة لتفادي التكرار، النتيجة) محفوظة كاملة
+     * بـpending_action['data'] طول الجولة، وتُمسح فقط عند "إنهاء".
+     * ============================================================
+     */
+    private function startQuizPick(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $link->update(['pending_action' => ['action' => 'quizloop', 'step' => 'pick', 'lecture_id' => null, 'data' => []]]);
+
+        $bot->sendMessage(
+            $chatId,
+            "🧭 <b>مدار الأسئلة</b>\n\n".
+            "بيولّدلك سؤال اختيار من متعدد بكل مرة، ويكمل معك سؤال بعد سؤال بلا أسئلة مكرَّرة، لحد ما تقرر توقّفه بنفسك.\n\n".
+            "📘 اكتب اسم مادة أو رمزها من خطتك (زي \"شبكات\" أو \"CMP0210\") وبنربطلك الأسئلة فيها،\n".
+            'أو ✍️ اكتب أي موضوع دراسي حر مباشرة وبنبلش فيه فورًا.'
+        );
+    }
+
+    private function sendQuizQuestionCard(TelegramBotApi $bot, int|string $chatId, string $topic, array $question, int $questionNumber, int $correct, int $total): void
+    {
+        $safeTopic = TelegramBotApi::escapeHtml($topic);
+        $safeQuestion = TelegramBotApi::escapeHtml($question['question']);
+
+        $lines = [
+            "🧭 <b>مدار الأسئلة</b> — {$safeTopic}",
+            "سؤال رقم {$questionNumber}" . ($total > 0 ? " · رصيدك الحالي: {$correct} من {$total}" : ''),
+            '',
+            "❓ {$safeQuestion}",
+            '',
+        ];
+
+        foreach ($question['options'] as $letter => $optionText) {
+            $lines[] = "{$letter}) " . TelegramBotApi::escapeHtml($optionText);
+        }
+
+        $keyboard = [
+            [
+                ['text' => 'اخترت أ', 'callback_data' => 'quizloop:answer:أ'],
+                ['text' => 'اخترت ب', 'callback_data' => 'quizloop:answer:ب'],
+            ],
+            [
+                ['text' => 'اخترت ج', 'callback_data' => 'quizloop:answer:ج'],
+                ['text' => 'اخترت د', 'callback_data' => 'quizloop:answer:د'],
+            ],
+            [['text' => '🏁 إنهاء الاختبار', 'callback_data' => 'quizloop:end']],
+        ];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    /*
+     * يبحث عن مادة مطابقة بالاسم/الرمز؛ ولو ما لقى شي بيعتبر النص
+     * نفسه موضوعًا حرًا ويبلّش فيه مباشرة — بلا خطوة تأكيد إضافية،
+     * حتى يبقى البدء بضغطة/كتابة وحدة بس.
+     */
+    private function resolveQuizTopicAndStart(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if ($normalized === '') {
+            $bot->sendMessage($chatId, 'اكتب اسم مادة أو موضوعًا دراسيًا 🙂');
+
+            return;
+        }
+
+        if (mb_strlen($normalized) >= 2) {
+            $course = Course::query()
+                ->where('is_active', true)
+                ->where(function ($query) use ($normalized) {
+                    $query->where('name_ar', 'like', "%{$normalized}%")
+                        ->orWhere('name_en', 'like', "%{$normalized}%")
+                        ->orWhere('code', 'like', "%{$normalized}%");
+                })
+                ->orderBy('name_ar')
+                ->first();
+
+            if ($course) {
+                $this->startQuizLoop($bot, $aiAssistant, $link, $chatId, (string) ($course->name_ar ?: $course->name_en ?: $course->code));
+
+                return;
+            }
+        }
+
+        $this->startQuizLoop($bot, $aiAssistant, $link, $chatId, $normalized);
+    }
+
+    private function startQuizLoop(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, TelegramLink $link, int|string $chatId, string $topic): void
+    {
+        if ($aiAssistant->remainingToday($link->user) <= 0) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'وصلت الحد الأقصى للأسئلة اليوم (' . \App\Http\Controllers\Api\V1\AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.');
+
+            return;
+        }
+
+        try {
+            $question = $aiAssistant->generateQuizQuestion($link->user, $topic, []);
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException ? $error->getMessage() : 'تعذّر توليد سؤال الآن، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, "⚠️ {$friendly}");
+
+            return;
+        }
+
+        $link->update(['pending_action' => [
+            'action' => 'quizloop',
+            'step' => 'active',
+            'lecture_id' => null,
+            'data' => [
+                'topic' => $topic,
+                'asked' => [$question['question']],
+                'current' => $question,
+                'correct' => 0,
+                'total' => 0,
+            ],
+        ]]);
+
+        $this->sendQuizQuestionCard($bot, $chatId, $topic, $question, 1, 0, 0);
+    }
+
+    private function handleQuizLoopTextInput(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء الاختبار.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $step = $pending['step'] ?? null;
+
+        if ($step === 'pick') {
+            $this->resolveQuizTopicAndStart($bot, $aiAssistant, $link, $chatId, $normalized);
+
+            return;
+        }
+
+        // step === 'active': التفاعل هون بالأزرار فقط — راجع handleQuizLoopCallback.
+        $bot->sendMessage($chatId, 'جاوب بالأزرار يلي فوق 👆 أو اضغط "🏁 إنهاء الاختبار"، أو اكتب "إلغاء".');
+    }
+
+    private function handleQuizLoopCallback(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $rest = substr($data, strlen('quizloop:'));
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+
+        if (! $link || ! $link->user) {
+            $bot->answerCallbackQuery($callbackId, 'حسابك غير مربوط.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+
+        if (($pending['action'] ?? null) !== 'quizloop' || ($pending['step'] ?? null) !== 'active') {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $data2 = $pending['data'] ?? [];
+        $current = $data2['current'] ?? null;
+
+        if ($rest === 'end') {
+            $bot->answerCallbackQuery($callbackId);
+            $link->update(['pending_action' => null]);
+
+            $correct = (int) ($data2['correct'] ?? 0);
+            $total = (int) ($data2['total'] ?? 0);
+
+            $summary = $total > 0
+                ? "🏁 <b>خلصت الجولة!</b>\n\nأجبت صح على {$correct} من {$total} سؤال."
+                : "🏁 <b>خلصت الجولة</b> بلا ما تجاوب على أي سؤال بعد.";
+
+            $bot->sendMessage($chatId, $summary, [
+                [['text' => '🔁 مدار جديد', 'callback_data' => 'toolsnav:quiznew']],
+                [['text' => '🏠 القائمة الرئيسية', 'callback_data' => 'toolsnav:home']],
+            ]);
+
+            return;
+        }
+
+        if (! in_array($rest, ['أ', 'ب', 'ج', 'د'], true) || ! is_array($current)) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        $isCorrect = $rest === $current['correct'];
+        $correct = (int) ($data2['correct'] ?? 0) + ($isCorrect ? 1 : 0);
+        $total = (int) ($data2['total'] ?? 0) + 1;
+
+        $correctText = TelegramBotApi::escapeHtml($current['correct'] . ') ' . $current['options'][$current['correct']]);
+        $feedback = $isCorrect
+            ? "✅ إجابة صحيحة! ({$correct}/{$total})"
+            : "❌ مش هي — الصحيحة كانت {$correctText}. ({$correct}/{$total})";
+
+        $bot->sendMessage($chatId, $feedback);
+
+        $topic = (string) ($data2['topic'] ?? '');
+
+        try {
+            $nextQuestion = $aiAssistant->generateQuizQuestion($link->user, $topic, $data2['asked'] ?? []);
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException ? $error->getMessage() : 'تعذّر توليد السؤال التالي، جرّب "🔁 مدار جديد" بعد شوي.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, "⚠️ {$friendly}\n\nنتيجتك النهائية: {$correct} من {$total}.");
+
+            return;
+        }
+
+        $asked = $data2['asked'] ?? [];
+        $asked[] = $nextQuestion['question'];
+
+        $link->update(['pending_action' => [
+            'action' => 'quizloop',
+            'step' => 'active',
+            'lecture_id' => null,
+            'data' => [
+                'topic' => $topic,
+                'asked' => $asked,
+                'current' => $nextQuestion,
+                'correct' => $correct,
+                'total' => $total,
+            ],
+        ]]);
+
+        $this->sendQuizQuestionCard($bot, $chatId, $topic, $nextQuestion, $total + 1, $correct, $total);
+    }
+
+    /*
+     * ⚠ أثر ما قبل "مدار الأسئلة" — دفعة الخمسة أسئلة الثابتة القديمة
+     * (self::QUIZ_SUBJECTS / generateQuiz()) ما عاد أي زر يستدعيها، لكن
+     * بقيت هون بلا حذف تفاديًا لأي مسار قديم متبقٍّ يعتمد عليها.
      */
     private function buildQuizSubjectKeyboard(): array
     {
@@ -965,7 +1234,14 @@ class TelegramWebhookController extends Controller
             return;
         }
 
-        @set_time_limit(60);
+        /*
+         * ٦٠ ثانية غير كافية إطلاقًا لمسار "ورشة الأكواد" على ملف كبير:
+         * فحص/تحسين ينفّذان نداءي Gemini متتاليين (ملاحظات + كود كامل)
+         * والثاني وحده قد يستغرق حتى ~110 ثانية (راجع timeoutSeconds
+         * بـTelegramAiAssistant::debugCode()/optimizeCode()). سقف أعلى
+         * هون احترازي فقط — لا يجبر الطلب يطول، بس يمنع قتله باكرًا.
+         */
+        @set_time_limit(240);
 
         $user = $link->user;
 
@@ -1019,7 +1295,8 @@ class TelegramWebhookController extends Controller
         array $document,
         string $mode = 'debug'
     ): void {
-        @set_time_limit(60);
+        // راجع تعليق سقف الوقت المطابق بـrouteFreeTextToAssistant أعلاه.
+        @set_time_limit(240);
 
         if ($aiAssistant->remainingToday($user) <= 0) {
             $bot->sendMessage(

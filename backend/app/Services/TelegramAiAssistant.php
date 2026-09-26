@@ -176,16 +176,45 @@ class TelegramAiAssistant
             'أخطاء برمجية أو منطقية فيه — لو الكود أصلًا سليم رجّعه كما هو بدون أي تغيير. ' .
             'ممنوع تكتب أي شرح أو مقدمة أو خاتمة أو علامات Markdown مثل ```، فقط الكود نفسه.';
 
-        $fixedCode = $this->callGemini($codeInstruction, [
-            ['text' => $code],
-        ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يطلع بنسخة معدّلة من هذا الكود، جرّب مرة أخرى.');
+        $fixedCode = $this->callGemini(
+            $codeInstruction,
+            [['text' => $code]],
+            tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.',
+            emptyMessage: 'ما قدر المساعد يطلع بنسخة معدّلة من هذا الكود، جرّب مرة أخرى.',
+            maxOutputTokens: 32768,
+            timeoutSeconds: 110
+        );
 
         $this->incrementDailyUsage($user->id);
 
+        $fixedCode = $this->stripMarkdownCodeFence($fixedCode);
+
         return [
-            'notes' => $notes,
-            'fixed_code' => $this->stripMarkdownCodeFence($fixedCode),
+            'notes' => trim($notes) . $this->possibleTruncationNotice($code, $fixedCode),
+            'fixed_code' => $fixedCode,
         ];
+    }
+
+    /*
+     * تحذير احترازي عند شبهة قطع الرد — لا يقين مؤكَّد (ما فينا نعرف
+     * فعليًا وين توقّف الرد)، لكن ملف كبير رجع أقصر بشكل ملحوظ من
+     * الأصل مؤشر معقول إنه اصطدم بحد الإخراج رغم رفعه لـ32768. الطاقم
+     * يقارن بنفسه بدل ما يفاجَأ لاحقًا بملف مبتور صامت.
+     */
+    private function possibleTruncationNotice(string $originalCode, string $resultCode): string
+    {
+        $originalLength = mb_strlen(trim($originalCode));
+        $resultLength = mb_strlen(trim($resultCode));
+
+        if ($originalLength < 3000 || $resultLength <= 0) {
+            return '';
+        }
+
+        if ($resultLength < $originalLength * 0.6) {
+            return "\n\n⚠️ ملاحظة: الملف الأصلي كبير نسبيًا، والنسخة الناتجة أقصر منه بوضوح — احتمال إنها غير مكتملة بسبب حد حجم رد النموذج. قارن آخر سطر بالملف مع الأصل، ولو ناقصة جزّئ الملف لأجزاء أصغر وأرسل كل جزء لحاله.";
+        }
+
+        return '';
     }
 
     /*
@@ -228,9 +257,13 @@ class TelegramAiAssistant
             'ووضّح وظيفة كل جزء وليش مكتوب هيك. ما تدقق على الأخطاء ولا تقترح تعديلات — بس اشرح كيف ' .
             'الكود شغّال حاليًا، حتى لو فيه خطأ. جاوب بالعربية الفصحى البسيطة، بدون تنسيق Markdown.';
 
-        $text = $this->callGemini($systemInstruction, [
-            ['text' => "اشرحلي منطق هذا الكود:\n\n" . $code],
-        ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يشرح هذا الكود، جرّب تبعته مرة ثانية.');
+        $text = $this->callGemini(
+            $systemInstruction,
+            [['text' => "اشرحلي منطق هذا الكود:\n\n" . $code]],
+            tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.',
+            emptyMessage: 'ما قدر المساعد يشرح هذا الكود، جرّب تبعته مرة ثانية.',
+            maxOutputTokens: 4000
+        );
 
         $this->incrementDailyUsage($user->id);
 
@@ -270,15 +303,22 @@ class TelegramAiAssistant
             'من نفس الكود بنفس السلوك الوظيفي تمامًا، لكن بأداء وقراءة أفضل (تسمية، تعقيد، تكرار...). ' .
             'ممنوع تكتب أي شرح أو مقدمة أو خاتمة أو علامات Markdown مثل ```، فقط الكود نفسه.';
 
-        $optimizedCode = $this->callGemini($codeInstruction, [
-            ['text' => $code],
-        ], tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.', emptyMessage: 'ما قدر المساعد يطلع بنسخة محسَّنة من هذا الكود، جرّب مرة أخرى.');
+        $optimizedCode = $this->callGemini(
+            $codeInstruction,
+            [['text' => $code]],
+            tooLargeMessage: 'الكود طويل جدًا، جرّب تبعت جزء أصغر منه.',
+            emptyMessage: 'ما قدر المساعد يطلع بنسخة محسَّنة من هذا الكود، جرّب مرة أخرى.',
+            maxOutputTokens: 32768,
+            timeoutSeconds: 110
+        );
 
         $this->incrementDailyUsage($user->id);
 
+        $optimizedCode = $this->stripMarkdownCodeFence($optimizedCode);
+
         return [
-            'notes' => $notes,
-            'optimized_code' => $this->stripMarkdownCodeFence($optimizedCode),
+            'notes' => trim($notes) . $this->possibleTruncationNotice($code, $optimizedCode),
+            'optimized_code' => $optimizedCode,
         ];
     }
 
@@ -312,15 +352,110 @@ class TelegramAiAssistant
         return $text;
     }
 
-    private function callGemini(string $systemInstruction, array $parts, string $tooLargeMessage, string $emptyMessage): string
+    /*
+     * محرّك "الاختبار المستمر" — سؤال واحد بكل نداء (لا خمسة دفعة
+     * وحدة زي generateQuiz() فوق) حتى يقدر الطالب يوقف وقت ما بدو،
+     * ونتفادى تكرار نفس السؤال بتمرير نصوص الأسئلة السابقة ($askedQuestions)
+     * ليتجنبها الموديل صراحةً. صيغة رد نصية بسيطة بعلامات ثابتة
+     * (مش JSON responseSchema — جُرِّب سابقًا مع debugCode وفشل عمليًا،
+     * راجع تعليق debugCode) نحللها بـregex بدل انتظار بنية منظّمة.
+     *
+     * @param string[] $askedQuestions نصوص أسئلة سابقة بنفس الجلسة (تُقصّ لآخر ٢٠ فقط قبل الإرسال لتبقى الحمولة معقولة).
+     * @return array{question: string, options: array<string,string>, correct: string}
+     * @throws RuntimeException برسالة عربية جاهزة للعرض على الطالب مباشرة.
+     */
+    public function generateQuizQuestion(User $user, string $topic, array $askedQuestions = []): array
     {
+        if ($this->dailyUsageCount($user->id) >= AiAssistantController::DAILY_LIMIT) {
+            throw new RuntimeException(
+                'وصلت الحد الأقصى للأسئلة اليوم (' . AiAssistantController::DAILY_LIMIT . '). سيتجدّد تلقائيًا الساعة ١٢ منتصف الليل.'
+            );
+        }
+
+        $recentAsked = array_slice($askedQuestions, -20);
+
+        $avoidance = $recentAsked === []
+            ? ''
+            : "أسئلة سبق طرحها بهذه الجلسة، تجنّب تكرارها أو إعادة صياغتها بشكل قريب:\n- "
+                . implode("\n- ", $recentAsked) . "\n\n";
+
+        $systemInstruction =
+            'أنت مولّد أسئلة مراجعة لطلاب هندسة أنظمة الحاسوب. الطالب رح يبعتلك اسم مادة أو موضوع دراسي. ' .
+            'ولّد سؤال اختيار من متعدد واحد فقط (4 خيارات)، أصيل ومختلف في صياغته وزاويته كل مرة — ' .
+            'نوّع بين تعريف مفهوم، تطبيق عملي، مقارنة، أو تحليل سيناريو قصير، حسب ما يناسب الموضوع. ' .
+            'اكتب الرد بالضبط بهذا الشكل ولا شيء غيره (بلا Markdown ولا نجوم ولا شرح إضافي):' . "\n\n" .
+            "السؤال: <نص السؤال>\n" .
+            "أ) <الخيار الأول>\n" .
+            "ب) <الخيار الثاني>\n" .
+            "ج) <الخيار الثالث>\n" .
+            "د) <الخيار الرابع>\n" .
+            'الإجابة: <حرف واحد من أ/ب/ج/د>';
+
+        $text = $this->callGemini(
+            $systemInstruction,
+            [['text' => $avoidance . 'ولّد سؤالًا عن: ' . $topic]],
+            tooLargeMessage: 'اسم الموضوع طويل جدًا، جرّب تختصره.',
+            emptyMessage: 'ما قدر المساعد يولّد سؤالًا لهذا الموضوع، جرّب صياغة مختلفة.',
+            maxOutputTokens: 900
+        );
+
+        $parsed = $this->parseQuizQuestion($text);
+
+        if ($parsed === null) {
+            throw new RuntimeException('تعذّر تجهيز السؤال بشكل صحيح، جرّب مرة أخرى.');
+        }
+
+        $this->incrementDailyUsage($user->id);
+
+        return $parsed;
+    }
+
+    /**
+     * @return array{question: string, options: array<string,string>, correct: string}|null
+     */
+    private function parseQuizQuestion(string $text): ?array
+    {
+        $pattern = '/السؤال\s*[:：]\s*(?<q>.+?)\s*\n+\s*أ\)\s*(?<a>.+?)\s*\n+\s*ب\)\s*(?<b>.+?)\s*\n+\s*ج\)\s*(?<c>.+?)\s*\n+\s*د\)\s*(?<d>.+?)\s*\n+\s*الإجابة\s*[:：]\s*(?<correct>[أبجد])/us';
+
+        if (! preg_match($pattern, $text, $m)) {
+            return null;
+        }
+
+        return [
+            'question' => trim($m['q']),
+            'options' => [
+                'أ' => trim($m['a']),
+                'ب' => trim($m['b']),
+                'ج' => trim($m['c']),
+                'د' => trim($m['d']),
+            ],
+            'correct' => $m['correct'],
+        ];
+    }
+
+    /*
+     * $maxOutputTokens الافتراضي (1500) كافٍ لملاحظات/شرح/سؤال واحد،
+     * لكنه غير كافٍ إطلاقًا لإرجاع "الكود كاملًا" لملف حقيقي كبير
+     * (مثل admin.html) — كان هذا السبب الفعلي وراء شكوى الطاقم إنه
+     * الملف المرجَّع من debugCode/optimizeCode "مش كامل": الرد يُقطَع
+     * عند حد الخرج لا لأي خلل بمنطق إرسال الملف نفسه. نداءا الكود
+     * الكامل بـdebugCode()/optimizeCode() يمرّران قيمة أعلى بكثير.
+     */
+    private function callGemini(
+        string $systemInstruction,
+        array $parts,
+        string $tooLargeMessage,
+        string $emptyMessage,
+        int $maxOutputTokens = 1500,
+        int $timeoutSeconds = 45
+    ): string {
         $apiKey = config('services.gemini.key');
 
         if (! $apiKey) {
             throw new RuntimeException('المساعد الذكي غير مفعّل حاليًا على الخادم.');
         }
 
-        $response = Http::timeout(45)
+        $response = Http::timeout($timeoutSeconds)
             ->withHeaders(['x-goog-api-key' => $apiKey])
             ->post(
                 'https://generativelanguage.googleapis.com/v1beta/models/'
@@ -331,7 +466,7 @@ class TelegramAiAssistant
                         'role' => 'user',
                         'parts' => $parts,
                     ]],
-                    'generationConfig' => ['maxOutputTokens' => 1500, 'temperature' => 0.6],
+                    'generationConfig' => ['maxOutputTokens' => $maxOutputTokens, 'temperature' => 0.6],
                 ]
             );
 
