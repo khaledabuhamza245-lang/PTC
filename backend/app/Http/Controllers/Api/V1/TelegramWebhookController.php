@@ -125,6 +125,15 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_ADMIN_ANNOUNCE = '📢 نشر إعلان';
     private const MAIN_MENU_ADMIN_TOOLS = '🧰 إدارة الأدوات';
     private const MAIN_MENU_ADMIN_CONTENT = '📚 إدارة المحتوى';
+    private const MAIN_MENU_ADMIN_COURSES = '🎓 إدارة المساقات';
+
+    // نفس ٣ قيم CourseFile... لا، نفس ٣ قيم Course::course_type — لكن
+    // الطاقم من داخل البوت لا يختار إلا بين إجباري/اختياري (placeholder
+    // نوع داخلي قديم غير مطروح هون).
+    private const ADMIN_COURSE_TYPE_LABELS = [
+        'required' => 'إجباري',
+        'elective' => 'اختياري',
+    ];
 
     // تسميات حقول تعديل الأداة — نفس أعمدة Tool (Staff/ToolController::validated()).
     private const ADMIN_TOOL_FIELD_LABELS = [
@@ -232,6 +241,8 @@ class TelegramWebhookController extends Controller
                 $this->handleAdminToolCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'admcontent:')) {
                 $this->handleAdminContentCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'admcourse:')) {
+                $this->handleAdminCourseCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -362,7 +373,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_PLAN, self::MAIN_MENU_GPA, self::MAIN_MENU_SCHEDULE,
                 self::MAIN_MENU_COURSES, self::MAIN_MENU_SEARCH, self::MAIN_MENU_TOOLS,
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
-                self::MAIN_MENU_ADMIN_CONTENT,
+                self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -387,6 +398,8 @@ class TelegramWebhookController extends Controller
                 $this->handleAdminToolTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'admcontent')) {
                 $this->handleAdminContentTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'admcourse')) {
+                $this->handleAdminCourseTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -536,6 +549,26 @@ class TelegramWebhookController extends Controller
             }
 
             $this->startAdminContentFlow($bot, $link, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        /*
+         * "🎓 إدارة المساقات" — نفس فحص الصلاحية الحقيقي أعلاه بالضبط.
+         * إضافة مادة جديدة للخطة، أو تعديل مادة موجودة — نفس منطق
+         * Staff/CourseController بالضبط (المفتاح، الصفحة المشتقة،
+         * الترتيب)، فأي مادة تُضاف/تُعدَّل هون تظهر تلقائيًا بكل مكان
+         * يقرأ من جدول courses (قوائم السنوات، الاختياريات، صفحة
+         * المادة، والخطة الدراسية بالصفحة الشخصية) بلا أي خطوة إضافية.
+         */
+        if ($normalized === self::MAIN_MENU_ADMIN_COURSES) {
+            if (! $link->user->isStaff()) {
+                $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+                return response()->json(['ok' => true]);
+            }
+
+            $this->sendAdminCoursesMenu($bot, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -2447,6 +2480,7 @@ class TelegramWebhookController extends Controller
             ];
             $keyboard[] = [
                 ['text' => self::MAIN_MENU_ADMIN_CONTENT],
+                ['text' => self::MAIN_MENU_ADMIN_COURSES],
             ];
         }
 
@@ -5330,6 +5364,695 @@ class TelegramWebhookController extends Controller
             } else {
                 $this->sendAdminContentFileDetail($bot, $chatId, $id);
             }
+    
+            return;
+        }
+    
+        $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+    }
+
+    /*
+     * ============================================================
+     * "🎓 إدارة المساقات" — إضافة مادة جديدة للخطة الدراسية أو تعديل
+     * مادة موجودة، بنفس منطق Staff/CourseController بالضبط (توليد
+     * المفتاح "key"، اشتقاق الصفحة "page" من السنة/النوع، ترتيب الإدخال
+     * الافتراضي، فحص التكرار مع سلة المحذوفات). لا مسار منفصل: الكتابة
+     * على نفس جدول courses الذي يقرأ منه كل مكان بالموقع (dynamic-courses.js
+     * بصفحات السنوات/الاختياريات، صفحة المادة، وPlanCalculator بالخطة
+     * الدراسية بالصفحة الشخصية) — فالمادة المضافة/المعدَّلة تظهر تلقائيًا
+     * بكل هذي الأماكن بمجرد الحفظ، بلا أي خطوة إضافية.
+     *
+     * الفصل بالواجهة هون "الأول/الثاني ضمن السنة" (كما طلب الطاقم) بينما
+     * عمود semester بالقاعدة رقم عالمي ١..٨ (فصلا السنة N هما 2N-1 وN2) —
+     * التحويل بالدالتين adminCourseGlobalSemester/adminCourseLocalSemester
+     * أدناه، نفس الصيغة المستخدمة أصلًا بالواجهة (dynamic-courses.js).
+     * ============================================================
+     */
+    
+    private function sendAdminCoursesMenu(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $keyboard = [
+            [['text' => '➕ إضافة مادة جديدة للخطة', 'callback_data' => 'admcourse:addnew']],
+            [['text' => '✏️ تعديل مادة موجودة', 'callback_data' => 'admcourse:searchagain']],
+        ];
+    
+        $bot->sendMessage($chatId, '🎓 <b>إدارة المساقات والخطة الدراسية</b>', $keyboard);
+    }
+    
+    private function adminCourseGlobalSemester(int $year, int $local): int
+    {
+        return ($year - 1) * 2 + $local;
+    }
+    
+    /** @return array{0:int,1:int} [السنة, الفصل ضمنها (١ أو ٢)] */
+    private function adminCourseLocalSemester(int $semester): array
+    {
+        $year = (int) max(1, min(4, ceil($semester / 2)));
+        $local = $semester - ($year - 1) * 2;
+    
+        return [$year, $local < 1 ? 1 : $local];
+    }
+    
+    private function adminCourseMakeKey(string $code): string
+    {
+        $clean = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '', $code) ?: \Illuminate\Support\Str::random(8));
+    
+        return 'c_'.$clean;
+    }
+    
+    /*
+     * نفس Staff/CourseController::pageFor() بالضبط — الصفحة تُشتقّ ولا
+     * تُدخَل يدويًا، لأنه dynamic-courses.js يرشّح المواد بمطابقة page
+     * حرفيًا مع اسم الصفحة الحالية.
+     */
+    private function adminCoursePageFor(int $year, string $courseType): string
+    {
+        if ($courseType === 'elective') {
+            return 'electives.html';
+        }
+    
+        return 'year'.max(1, min(4, $year)).'.html';
+    }
+    
+    private function adminCourseNextSortOrder(int $year, int $semester): int
+    {
+        return ((int) Course::query()->where('year', $year)->where('semester', $semester)->max('sort_order')) + 1;
+    }
+    
+    private function sendAdminCourseDetail(TelegramBotApi $bot, int|string $chatId, int $courseId): void
+    {
+        $course = Course::query()->withTrashed()->find($courseId);
+    
+        if (! $course) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة.');
+    
+            return;
+        }
+    
+        if ($course->trashed()) {
+            $bot->sendMessage($chatId, '⚠️ هذه المادة بسلة المحذوفات بالموقع — التعديل/الاسترجاع من البوت غير متاح حاليًا، استخدم لوحة الموقع.');
+    
+            return;
+        }
+    
+        [$year, $local] = $this->adminCourseLocalSemester((int) $course->semester);
+        $typeLabel = self::ADMIN_COURSE_TYPE_LABELS[$course->course_type] ?? $course->course_type;
+    
+        $lines = [
+            '🎓 <b>'.TelegramBotApi::escapeHtml((string) $course->name_ar).'</b>',
+            '🏷️ الرمز: '.TelegramBotApi::escapeHtml((string) $course->code),
+        ];
+    
+        if (! empty($course->name_en)) {
+            $lines[] = '🇬🇧 '.TelegramBotApi::escapeHtml((string) $course->name_en);
+        }
+    
+        $lines[] = '📅 السنة '.$year.' — الفصل '.($local === 1 ? 'الأول' : 'الثاني');
+        $lines[] = '⏱️ الساعات المعتمدة: '.($course->credit_hours ?? '—');
+        $lines[] = '📚 النوع: '.$typeLabel;
+        $lines[] = $course->is_active ? '🟢 مفعّلة (ظاهرة للطلاب)' : '🔴 معطّلة (مخفية عن الطلاب)';
+    
+        if (! empty($course->description)) {
+            $lines[] = '📝 '.TelegramBotApi::escapeHtml((string) $course->description);
+        }
+    
+        $keyboard = [
+            [
+                ['text' => '✏️ تعديل', 'callback_data' => 'admcourse:editfields:'.$course->id],
+                ['text' => $course->is_active ? '🔴 تعطيل' : '🟢 تفعيل', 'callback_data' => 'admcourse:toggleactive:'.$course->id],
+            ],
+            [['text' => '🗑️ حذف (نقل لسلة المحذوفات)', 'callback_data' => 'admcourse:delconfirm:'.$course->id]],
+            [['text' => '🔍 بحث عن مادة أخرى', 'callback_data' => 'admcourse:searchagain']],
+        ];
+    
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+    
+    private function sendAdminCourseFieldPicker(TelegramBotApi $bot, int|string $chatId, int $courseId): void
+    {
+        $labels = [
+            'code' => 'الرمز', 'name_ar' => 'الاسم بالعربية', 'name_en' => 'الاسم بالإنجليزية',
+            'credit_hours' => 'الساعات المعتمدة', 'placement' => 'السنة والفصل',
+            'course_type' => 'النوع', 'description' => 'الوصف',
+        ];
+    
+        $keyboard = [];
+    
+        foreach ($labels as $field => $label) {
+            $keyboard[] = [['text' => $label, 'callback_data' => 'admcourse:editfield:'.$courseId.':'.$field]];
+        }
+    
+        $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'admcourse:detail:'.$courseId]];
+    
+        $bot->sendMessage($chatId, 'اختر الحقل يلي بدك تعدّله:', $keyboard);
+    }
+    
+    private function handleAdminCourseCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('admcourse:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+    
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+    
+            return;
+        }
+    
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+    
+        if (! $link || ! $link->user || ! $link->user->isStaff()) {
+            $bot->answerCallbackQuery($callbackId, 'غير مخوّل.');
+    
+            return;
+        }
+    
+        $bot->answerCallbackQuery($callbackId);
+    
+        if ($key === 'searchagain') {
+            $link->update(['pending_action' => ['action' => 'admcourse_search', 'step' => 'query', 'lecture_id' => null, 'data' => []]]);
+            $bot->sendMessage($chatId, '🔍 اكتب اسم المادة أو رمزها (أو اكتب "إلغاء"):');
+    
+            return;
+        }
+    
+        if ($key === 'addnew') {
+            $link->update(['pending_action' => ['action' => 'admcourse_add', 'step' => 'code', 'lecture_id' => null, 'data' => []]]);
+            $bot->sendMessage($chatId, "➕ <b>إضافة مادة جديدة للخطة</b>\n\n🏷️ اكتب رمز المادة (مثال: CS101):");
+    
+            return;
+        }
+    
+        if ($key === 'detail') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminCourseDetail($bot, $chatId, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'editfields') {
+            $this->sendAdminCourseFieldPicker($bot, $chatId, (int) ($parts[1] ?? 0));
+    
+            return;
+        }
+    
+        if ($key === 'editfield') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $field = $parts[2] ?? '';
+            $course = Course::query()->find($courseId);
+    
+            if (! $course) {
+                $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة.');
+    
+                return;
+            }
+    
+            $textFields = ['code', 'name_ar', 'name_en', 'description', 'credit_hours'];
+    
+            if (in_array($field, $textFields, true)) {
+                $link->update(['pending_action' => [
+                    'action' => 'admcourse_edit', 'step' => $field, 'lecture_id' => null,
+                    'data' => ['id' => $courseId],
+                ]]);
+    
+                $prompts = [
+                    'code' => '🏷️ اكتب الرمز الجديد:',
+                    'name_ar' => '🇵🇸 اكتب الاسم الجديد بالعربية:',
+                    'name_en' => '🇬🇧 اكتب الاسم الجديد بالإنجليزية (أو "-" لمسحه):',
+                    'description' => '📝 اكتب الوصف الجديد (أو "-" لمسحه):',
+                    'credit_hours' => '⏱️ اكتب عدد الساعات المعتمدة الجديد (رقم بين ٠ و٢٠):',
+                ];
+                $bot->sendMessage($chatId, $prompts[$field]);
+    
+                return;
+            }
+    
+            if ($field === 'course_type') {
+                $keyboard = [];
+                foreach (self::ADMIN_COURSE_TYPE_LABELS as $typeKey => $label) {
+                    $keyboard[] = [['text' => $label, 'callback_data' => 'admcourse:setval:'.$courseId.':course_type:'.$typeKey]];
+                }
+                $bot->sendMessage($chatId, '📚 اختر النوع الجديد:', $keyboard);
+    
+                return;
+            }
+    
+            if ($field === 'placement') {
+                $link->update(['pending_action' => [
+                    'action' => 'admcourse_edit_placement', 'step' => 'year', 'lecture_id' => null,
+                    'data' => ['id' => $courseId],
+                ]]);
+                $bot->sendMessage($chatId, '📅 اختر السنة الجديدة:', [
+                    [
+                        ['text' => 'السنة ١', 'callback_data' => 'admcourse:placeyear:'.$courseId.':1'],
+                        ['text' => 'السنة ٢', 'callback_data' => 'admcourse:placeyear:'.$courseId.':2'],
+                    ],
+                    [
+                        ['text' => 'السنة ٣', 'callback_data' => 'admcourse:placeyear:'.$courseId.':3'],
+                        ['text' => 'السنة ٤', 'callback_data' => 'admcourse:placeyear:'.$courseId.':4'],
+                    ],
+                ]);
+    
+                return;
+            }
+    
+            return;
+        }
+    
+        if ($key === 'placeyear') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $year = (int) ($parts[2] ?? 0);
+            $pending = $link->pending_action;
+    
+            if (($pending['action'] ?? null) !== 'admcourse_edit_placement' || ($pending['step'] ?? null) !== 'year') {
+                return;
+            }
+    
+            $data = $pending['data'] ?? [];
+            $data['year'] = $year;
+            $link->update(['pending_action' => ['action' => 'admcourse_edit_placement', 'step' => 'semester', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, 'وأي فصل ضمن السنة '.$year.'؟', [[
+                ['text' => 'الفصل الأول', 'callback_data' => 'admcourse:placesem:'.$courseId.':1'],
+                ['text' => 'الفصل الثاني', 'callback_data' => 'admcourse:placesem:'.$courseId.':2'],
+            ]]);
+    
+            return;
+        }
+    
+        if ($key === 'placesem') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $local = (int) ($parts[2] ?? 0);
+            $pending = $link->pending_action;
+    
+            if (($pending['action'] ?? null) !== 'admcourse_edit_placement' || ($pending['step'] ?? null) !== 'semester') {
+                return;
+            }
+    
+            $course = Course::query()->find($courseId);
+    
+            if (! $course) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة.');
+    
+                return;
+            }
+    
+            $year = (int) ($pending['data']['year'] ?? $course->year);
+            $semester = $this->adminCourseGlobalSemester($year, $local);
+    
+            $course->update([
+                'year' => $year,
+                'semester' => $semester,
+                'page' => $this->adminCoursePageFor($year, (string) $course->course_type),
+            ]);
+    
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تم نقل المادة للسنة '.$year.' — الفصل '.($local === 1 ? 'الأول' : 'الثاني').'.');
+            $this->sendAdminCourseDetail($bot, $chatId, $courseId);
+    
+            return;
+        }
+    
+        if ($key === 'setval') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $field = $parts[2] ?? '';
+            $value = $parts[3] ?? null;
+            $course = Course::query()->find($courseId);
+    
+            if (! $course || $value === null) {
+                $bot->sendMessage($chatId, '⚠️ تعذّر التحديث.');
+    
+                return;
+            }
+    
+            if ($field === 'course_type') {
+                $course->update([
+                    'course_type' => $value,
+                    'page' => $this->adminCoursePageFor((int) $course->year, $value),
+                ]);
+            }
+    
+            $bot->sendMessage($chatId, '✅ تم الحفظ.');
+            $this->sendAdminCourseDetail($bot, $chatId, $courseId);
+    
+            return;
+        }
+    
+        if ($key === 'toggleactive') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $course = Course::query()->find($courseId);
+    
+            if (! $course) {
+                $bot->sendMessage($chatId, '⚠️ هذه المادة غير موجودة.');
+    
+                return;
+            }
+    
+            $course->update(['is_active' => ! $course->is_active]);
+            $this->sendAdminCourseDetail($bot, $chatId, $courseId);
+    
+            return;
+        }
+    
+        if ($key === 'delconfirm') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $bot->sendMessage($chatId, '⚠️ متأكد إنك بدك تحذف هذه المادة؟ (حذف ناعم — قابل للاسترجاع من لوحة الموقع فقط حاليًا)', [[
+                ['text' => '✅ نعم، احذف', 'callback_data' => 'admcourse:delyes:'.$courseId],
+                ['text' => '❌ لا، رجوع', 'callback_data' => 'admcourse:detail:'.$courseId],
+            ]]);
+    
+            return;
+        }
+    
+        if ($key === 'delyes') {
+            $courseId = (int) ($parts[1] ?? 0);
+            $course = Course::query()->find($courseId);
+    
+            if ($course) {
+                $course->delete();
+                $bot->sendMessage($chatId, '🗑️ تم حذف المادة (نقلها لسلة المحذوفات).');
+            }
+    
+            return;
+        }
+    
+        if ($key === 'wizyear') {
+            $year = (int) ($parts[1] ?? 0);
+            $pending = $link->pending_action;
+    
+            if (($pending['action'] ?? null) !== 'admcourse_add' || ($pending['step'] ?? null) !== 'year') {
+                return;
+            }
+    
+            $data = $pending['data'] ?? [];
+            $data['year'] = $year;
+            $link->update(['pending_action' => ['action' => 'admcourse_add', 'step' => 'semester', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, 'وأي فصل ضمن السنة '.$year.'؟', [[
+                ['text' => 'الفصل الأول', 'callback_data' => 'admcourse:wizsem:1'],
+                ['text' => 'الفصل الثاني', 'callback_data' => 'admcourse:wizsem:2'],
+            ]]);
+    
+            return;
+        }
+    
+        if ($key === 'wizsem') {
+            $local = (int) ($parts[1] ?? 0);
+            $pending = $link->pending_action;
+    
+            if (($pending['action'] ?? null) !== 'admcourse_add' || ($pending['step'] ?? null) !== 'semester') {
+                return;
+            }
+    
+            $data = $pending['data'] ?? [];
+            $data['semester_local'] = $local;
+            $link->update(['pending_action' => ['action' => 'admcourse_add', 'step' => 'type', 'lecture_id' => null, 'data' => $data]]);
+    
+            $keyboard = [];
+            foreach (self::ADMIN_COURSE_TYPE_LABELS as $typeKey => $label) {
+                $keyboard[] = [['text' => $label, 'callback_data' => 'admcourse:wiztype:'.$typeKey]];
+            }
+            $bot->sendMessage($chatId, '📚 اختر نوع المادة:', $keyboard);
+    
+            return;
+        }
+    
+        if ($key === 'wiztype') {
+            $type = $parts[1] ?? '';
+            $pending = $link->pending_action;
+    
+            if (($pending['action'] ?? null) !== 'admcourse_add' || ($pending['step'] ?? null) !== 'type') {
+                return;
+            }
+    
+            $data = $pending['data'] ?? [];
+            $data['course_type'] = $type;
+            $link->update(['pending_action' => ['action' => 'admcourse_add', 'step' => 'description', 'lecture_id' => null, 'data' => $data]]);
+            $bot->sendMessage($chatId, '📝 اكتب وصف المادة (اختياري)، أو ارسل "تخطي":');
+    
+            return;
+        }
+    
+        if ($key === 'wizcreate') {
+            $this->handleAdminCourseCreate($bot, $link, $chatId);
+    
+            return;
+        }
+    
+        if ($key === 'wizcancel') {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+            $this->sendAdminCoursesMenu($bot, $chatId);
+    
+            return;
+        }
+    }
+    
+    /*
+     * تنفيذ الإنشاء الفعلي — نفس منطق Staff/CourseController@store بالضبط:
+     * توليد المفتاح من الرمز، فحص التكرار (بما فيه المحذوف ناعمًا)، اشتقاق
+     * الصفحة، وترتيب افتراضي آخر الفصل.
+     */
+    private function handleAdminCourseCreate(TelegramBotApi $bot, TelegramLink $link, int|string $chatId): void
+    {
+        $pending = $link->pending_action;
+        $data = $pending['data'] ?? [];
+    
+        $key = $this->adminCourseMakeKey((string) $data['code']);
+        $existing = Course::query()->withTrashed()->where('key', $key)->first();
+    
+        if ($existing) {
+            if ($existing->trashed()) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, '⚠️ يوجد مساق بنفس الرمز بسلة المحذوفات بالموقع — استرجعه من لوحة الموقع بدل إضافة رمز مكرر، أو استخدم رمز مختلف.');
+    
+                return;
+            }
+    
+            $link->update(['pending_action' => ['action' => 'admcourse_add', 'step' => 'code', 'lecture_id' => null, 'data' => []]]);
+            $bot->sendMessage($chatId, '⚠️ يوجد مساق آخر بنفس الرمز أو المفتاح فعلًا. اكتب رمزًا مختلفًا:');
+    
+            return;
+        }
+    
+        $year = (int) $data['year'];
+        $semester = $this->adminCourseGlobalSemester($year, (int) $data['semester_local']);
+        $courseType = (string) $data['course_type'];
+    
+        $course = Course::create([
+            'key' => $key,
+            'code' => $data['code'],
+            'name_ar' => $data['name_ar'],
+            'name_en' => $data['name_en'] ?? null,
+            'year' => $year,
+            'semester' => $semester,
+            'credit_hours' => $data['credit_hours'] ?? null,
+            'course_type' => $courseType,
+            'description' => $data['description'] ?? null,
+            'page' => $this->adminCoursePageFor($year, $courseType),
+            'is_active' => true,
+            'sort_order' => $this->adminCourseNextSortOrder($year, $semester),
+        ]);
+    
+        $link->update(['pending_action' => null]);
+        $bot->sendMessage($chatId, '✅ تمت إضافة المادة للخطة، وهي ظاهرة الآن تلقائيًا بصفحة سنتها وبالخطة الدراسية لأي طالب يطابق سنته وفصله.');
+        $this->sendAdminCourseDetail($bot, $chatId, $course->id);
+    }
+    
+    private function handleAdminCourseTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+    
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+            $this->sendAdminCoursesMenu($bot, $chatId);
+    
+            return;
+        }
+    
+        if (! $link->user || ! $link->user->isStaff()) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+    
+            return;
+        }
+    
+        $pending = $link->pending_action;
+        $action = $pending['action'] ?? null;
+        $step = $pending['step'] ?? null;
+        $data = $pending['data'] ?? [];
+    
+        if ($action === 'admcourse_search' && $step === 'query') {
+            if (mb_strlen($normalized) < 2) {
+                $bot->sendMessage($chatId, 'اكتب حرفين على الأقل 🙂');
+    
+                return;
+            }
+    
+            $courses = Course::query()
+                ->where(function ($query) use ($normalized) {
+                    $query->where('name_ar', 'like', "%{$normalized}%")
+                        ->orWhere('name_en', 'like', "%{$normalized}%")
+                        ->orWhere('code', 'like', "%{$normalized}%");
+                })
+                ->orderBy('name_ar')
+                ->limit(8)
+                ->get();
+    
+            if ($courses->isEmpty()) {
+                $bot->sendMessage($chatId, '❌ ما لقيت مادة بهذا الاسم، جرّب اسم أو رمز مختلف (أو اكتب "إلغاء"):');
+    
+                return;
+            }
+    
+            $keyboard = [];
+            foreach ($courses as $course) {
+                $icon = $course->is_active ? '🟢' : '🔴';
+                $label = $icon.' '.(string) ($course->name_ar ?? $course->name_en ?? $course->code);
+                $keyboard[] = [['text' => $label, 'callback_data' => 'admcourse:detail:'.$course->id]];
+            }
+            $bot->sendMessage($chatId, '📚 اختر المادة:', $keyboard);
+    
+            return;
+        }
+    
+        if ($action === 'admcourse_add') {
+            if ($step === 'code') {
+                if ($normalized === '' || mb_strlen($normalized) > 50) {
+                    $bot->sendMessage($chatId, 'رمز غير صالح 🙂 اكتب رمزًا غير فاضٍ (بحد أقصى ٥٠ حرف):');
+    
+                    return;
+                }
+    
+                $data['code'] = $normalized;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'name_ar', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '🇵🇸 اكتب اسم المادة بالعربية:');
+    
+                return;
+            }
+    
+            if ($step === 'name_ar') {
+                if ($normalized === '' || mb_strlen($normalized) > 190) {
+                    $bot->sendMessage($chatId, 'اسم غير صالح 🙂 اكتب نص غير فاضٍ (بحد أقصى ١٩٠ حرف):');
+    
+                    return;
+                }
+    
+                $data['name_ar'] = $normalized;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'name_en', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '🇬🇧 اكتب اسم المادة بالإنجليزية (اختياري)، أو ارسل "تخطي":');
+    
+                return;
+            }
+    
+            if ($step === 'name_en') {
+                $data['name_en'] = in_array($normalized, ['تخطي', 'skip', '-'], true) ? null : $normalized;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'credit_hours', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '⏱️ اكتب عدد الساعات المعتمدة (رقم بين ٠ و٢٠)، أو ارسل "تخطي":');
+    
+                return;
+            }
+    
+            if ($step === 'credit_hours') {
+                if (in_array($normalized, ['تخطي', 'skip', '-'], true)) {
+                    $data['credit_hours'] = null;
+                } elseif (preg_match('/^\d{1,2}$/', $normalized) && (int) $normalized <= 20) {
+                    $data['credit_hours'] = (int) $normalized;
+                } else {
+                    $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم صحيح بين ٠ و٢٠، أو ارسل "تخطي":');
+    
+                    return;
+                }
+    
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'year', 'lecture_id' => null, 'data' => $data]]);
+                $bot->sendMessage($chatId, '📅 اختر السنة:', [
+                    [
+                        ['text' => 'السنة ١', 'callback_data' => 'admcourse:wizyear:1'],
+                        ['text' => 'السنة ٢', 'callback_data' => 'admcourse:wizyear:2'],
+                    ],
+                    [
+                        ['text' => 'السنة ٣', 'callback_data' => 'admcourse:wizyear:3'],
+                        ['text' => 'السنة ٤', 'callback_data' => 'admcourse:wizyear:4'],
+                    ],
+                ]);
+    
+                return;
+            }
+    
+            if ($step === 'description') {
+                $data['description'] = in_array($normalized, ['تخطي', 'skip', '-'], true) ? null : $normalized;
+                $link->update(['pending_action' => ['action' => $action, 'step' => 'confirm', 'lecture_id' => null, 'data' => $data]]);
+    
+                $typeLabel = self::ADMIN_COURSE_TYPE_LABELS[$data['course_type']] ?? $data['course_type'];
+                $preview = "🎓 <b>معاينة المادة الجديدة</b>\n\n".
+                    '<b>'.TelegramBotApi::escapeHtml((string) $data['name_ar']).'</b>'.
+                    (! empty($data['name_en']) ? ' / '.TelegramBotApi::escapeHtml((string) $data['name_en']) : '').
+                    "\n🏷️ ".TelegramBotApi::escapeHtml((string) $data['code']).
+                    "\n📅 السنة {$data['year']} — الفصل ".($data['semester_local'] == 1 ? 'الأول' : 'الثاني').
+                    "\n⏱️ الساعات: ".($data['credit_hours'] ?? '—').
+                    "\n📚 النوع: {$typeLabel}".
+                    (! empty($data['description']) ? "\n📝 ".TelegramBotApi::escapeHtml((string) $data['description']) : '');
+    
+                $bot->sendMessage($chatId, $preview, [[
+                    ['text' => '✅ إضافة المادة', 'callback_data' => 'admcourse:wizcreate'],
+                    ['text' => '❌ إلغاء', 'callback_data' => 'admcourse:wizcancel'],
+                ]]);
+    
+                return;
+            }
+    
+            $bot->sendMessage($chatId, 'استخدم الأزرار يلي فوق 🙂 أو اكتب "إلغاء" لإيقاف العملية.');
+    
+            return;
+        }
+    
+        if ($action === 'admcourse_edit') {
+            $courseId = (int) ($data['id'] ?? 0);
+            $course = Course::query()->find($courseId);
+    
+            if (! $course) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, '⚠️ تعذّر إيجاد المادة، ابدأ من جديد.');
+    
+                return;
+            }
+    
+            if ($step === 'code') {
+                if ($normalized === '' || mb_strlen($normalized) > 50) {
+                    $bot->sendMessage($chatId, 'رمز غير صالح 🙂 اكتب رمزًا غير فاضٍ (بحد أقصى ٥٠ حرف):');
+    
+                    return;
+                }
+                $course->update(['code' => $normalized]);
+            } elseif ($step === 'name_ar') {
+                if ($normalized === '' || mb_strlen($normalized) > 190) {
+                    $bot->sendMessage($chatId, 'اسم غير صالح 🙂 اكتب نص غير فاضٍ (بحد أقصى ١٩٠ حرف):');
+    
+                    return;
+                }
+                $course->update(['name_ar' => $normalized]);
+            } elseif ($step === 'name_en') {
+                $isClear = in_array($normalized, ['-', 'تخطي', 'skip'], true);
+                $course->update(['name_en' => $isClear ? null : $normalized]);
+            } elseif ($step === 'description') {
+                $isClear = in_array($normalized, ['-', 'تخطي', 'skip'], true);
+                $course->update(['description' => $isClear ? null : $normalized]);
+            } elseif ($step === 'credit_hours') {
+                if (preg_match('/^\d{1,2}$/', $normalized) && (int) $normalized <= 20) {
+                    $course->update(['credit_hours' => (int) $normalized]);
+                } else {
+                    $bot->sendMessage($chatId, 'رقم غير صالح 🙂 اكتب رقم صحيح بين ٠ و٢٠:');
+    
+                    return;
+                }
+            }
+    
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '✅ تم الحفظ.');
+            $this->sendAdminCourseDetail($bot, $chatId, $courseId);
     
             return;
         }
