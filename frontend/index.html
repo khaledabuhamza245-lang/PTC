@@ -72,7 +72,20 @@
       console.warn("Unable to load theme:", error);
     }
   </script>
+<!-- تُحمَّل دومًا (بلا أثر خارج تيليجرام) — تيليجرام يضيف بيانات الإطلاق
+     (initData) لأي صفحة تُفتح كـweb_app عبر hash فقط بالرابط الأول
+     (index.html)، وبما إنه ptc-fast-auth-guard تحته بيحوّل لـlogin.html
+     بـlocation.replace (بيفقد الـhash تلقائيًا لأي رابط جديد)، لازم نحفظ
+     "كنا داخل تطبيق تيليجرام المصغّر" بـsessionStorage **قبل** التحويل،
+     وإلا login.html ما رح يقدر يكتشف هذا أبدًا (راجع initGoogleSignIn
+     بـlogin.html لسبب الحاجة لهذا الكشف). -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script id="ptc-fast-auth-guard">
+try{
+  if(window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initData){
+    sessionStorage.setItem('ptc_tg_miniapp','1');
+  }
+}catch(_){}
 try{if(!(localStorage.getItem('ptc_api_token')||sessionStorage.getItem('ptc_api_token')))location.replace('login.html');}catch(_){location.replace('login.html');}
 </script>
 </head>

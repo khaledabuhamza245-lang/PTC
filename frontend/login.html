@@ -643,7 +643,21 @@ window.addEventListener('ptc-auth-change',()=>{
  */
 function isInsideTelegramMiniApp(){
   try{
-    return !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
+    if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData){
+      sessionStorage.setItem('ptc_tg_miniapp','1');
+      return true;
+    }
+  }catch(e){}
+  /*
+   * الفحص الحي (initData) وحده لا يكفي هون: الطالب غالبًا يوصل
+   * login.html عبر تحويل location.replace من index.html (حارس تسجيل
+   * الدخول "ptc-fast-auth-guard")، وlocation.replace لرابط جديد يفقد
+   * الـhash تلقائيًا — أي initData تكون فارغة بلحظة تحميل هذه الصفحة
+   * حتى لو كنا فعليًا داخل تطبيق تيليجرام المصغّر. index.html يحفظ
+   * العلم بـsessionStorage **قبل** التحويل تحديدًا لهذا السبب.
+   */
+  try{
+    return sessionStorage.getItem('ptc_tg_miniapp') === '1';
   }catch(e){ return false; }
 }
 
