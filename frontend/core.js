@@ -2999,6 +2999,49 @@ const QuranAudio=(function(){
 })();
 
 
+/* ============================================================
+   بالجوال (≤820px، نفس نقطة تحوّل قائمة "☰" لقائمة منسدلة أصلًا)
+   شريط الأيقونات العلوي صار مزدحمًا (وضع ليلي/بحث/تثبيت/تيليجرام/
+   جرس) — الوضع الليلي/النهاري وتثبيت التطبيق تحديدًا لهما بديل نصّي
+   واضح بقائمة الحساب أصلًا (PTCPWAInstall.triggerFromMenu) أو بإمكان
+   تكرارهما بسهولة، فننقلهما لداخل قائمة "☰" بالجوال فقط (CSS بالأسفل
+   يُخفي زرّيهما الأصليين بشريط الأيقونات ≤820px، ويُظهر هذين البديلين
+   بنفس المدى فقط) — البحث وأيقونة تيليجرام تبقيان بشريط الأيقونات
+   كما هي، لم تُطلَب إزاحتهما. */
+(function(){
+  function buildItems(){
+    const nav=document.querySelector('.nav-links');
+    if(!nav || nav.querySelector('.nav-links-utility')) return;
+
+    const themeBtn=document.createElement('button');
+    themeBtn.type='button';
+    themeBtn.className='nav-drop-btn nav-links-utility';
+    themeBtn.innerHTML=`<span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span> الوضع الليلي / النهاري`;
+    themeBtn.addEventListener('click',()=>{
+      if(typeof toggleTheme==='function') toggleTheme();
+      if(typeof closeMobileNav==='function') closeMobileNav();
+    });
+
+    const installBtn=document.createElement('button');
+    installBtn.type='button';
+    installBtn.className='nav-drop-btn nav-links-utility';
+    installBtn.innerHTML=`<span class="nav-ic">${(typeof ic==='function') ? ic('download',18) : ''}</span> تثبيت التطبيق`;
+    installBtn.addEventListener('click',()=>{
+      if(typeof closeMobileNav==='function') closeMobileNav();
+      window.PTCPWAInstall && window.PTCPWAInstall.triggerFromMenu();
+    });
+
+    nav.appendChild(themeBtn);
+    nav.appendChild(installBtn);
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',buildItems);
+  } else {
+    buildItems();
+  }
+})();
+
 
 const isLocalHost=['localhost','127.0.0.1','::1'].includes(location.hostname);
 if('serviceWorker' in navigator && location.protocol!=='file:' && !isLocalHost){
