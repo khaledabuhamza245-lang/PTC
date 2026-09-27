@@ -436,16 +436,28 @@ const PTCPlanView = (function () {
           isPlaceholder(courseIn)
           && electiveCtx
         ) {
+          /*
+           * كانت المطابقة تشترط تساوي تامّ مع الفصل الحالي فقط
+           * (===)، فأي خانة اختيارية بفصل سابق (وصله الطالب وتجاوزه
+           * فعليًا) تبقى مقفلة للأبد بمجرد ما يتقدّم الطالب لفصل
+           * لاحق — يمنعه هذا من اختيار/تسجيل حالة مادة اختيارية
+           * أنجزها فعلًا بفصل ماضٍ (مثال: طالب سنة رابعة فصل ثانٍ
+           * ما بيقدر يلمس خانة اختيارية بالفصل الأول سنة أولى).
+           * الإصلاح: تُحسب رقم الفصل العالمي لهذه الخانة بنفس معادلة
+           * الباك إند (كتعليق أعلى)، وتُعتبر «مفتوحة» إذا كانت بفصل
+           * تم الوصول إليه فعلًا (<=) لا فقط الفصل الحالي بالضبط.
+           */
+          const placeholderPlanSemester =
+            (Number(courseIn.year) && Number(courseIn.semester))
+              ? ((Number(courseIn.year) - 1) * 2)
+                + Number(courseIn.semester)
+              : 0;
+
           const isUnlocked =
-            electiveCtx.currentYear
-            &&
-            electiveCtx.currentPlanSemester
-            &&
-            Number(courseIn.year)
-              === electiveCtx.currentYear
-            &&
-            Number(courseIn.semester)
-              === electiveCtx.currentPlanSemester;
+            Boolean(electiveCtx.currentPlanSemester)
+            && Boolean(placeholderPlanSemester)
+            && placeholderPlanSemester
+              <= electiveCtx.currentPlanSemester;
 
           if (!isUnlocked) {
             lockedHtml = `
