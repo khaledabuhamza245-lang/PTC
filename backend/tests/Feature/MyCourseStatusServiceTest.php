@@ -212,4 +212,82 @@ class MyCourseStatusServiceTest extends TestCase
             throw $e;
         }
     }
+
+    /**
+     * hasOpenElectiveSlot() (خطوة ١٠٢، لدعم الاختياريات ببوت تيليجرام)
+     * يطابق شرط attach() بالضبط: true فقط إن وُجد صفّ placeholder
+     * بسنة الطالب وفصله العالمي المُعلَن حاليًا تحديدًا.
+     */
+    public function test_has_open_elective_slot_true_only_when_a_matching_placeholder_exists(): void
+    {
+        $term = Term::create([
+            'code' => 't1', 'label' => 'الفصل الأول', 'academic_year' => '2025-2026', 'semester' => 1,
+        ]);
+
+        $user = User::factory()->create(['year' => 1, 'current_term_id' => $term->id]);
+
+        $this->assertFalse($this->service()->hasOpenElectiveSlot($user));
+
+        $this->course('PH 100', ['course_type' => 'placeholder', 'year' => 1, 'semester' => 1]);
+
+        $this->assertTrue($this->service()->hasOpenElectiveSlot($user));
+    }
+
+    /** بلا سنة/فصل مُعلَنين للطالب، لا توجد خانة مفتوحة إطلاقًا. */
+    public function test_has_open_elective_slot_is_false_without_a_declared_year_or_term(): void
+    {
+        $user = User::factory()->create(['year' => null, 'current_term_id' => null]);
+        $this->course('PH 100', ['course_type' => 'placeholder', 'year' => 1, 'semester' => 1]);
+
+        $this->assertFalse($this->service()->hasOpenElectiveSlot($user));
+    }
+
+    /**
+     * updateFields() (خطوة ١٠٢، مُستخرَجة من MyCourseController::update()
+     * بعد توحيد المتحكّم ليستدعي الخدمة بدل تكرار جسمه): تحديث جزئي
+     * لأي مجموعة حقول مطابق حرفيًا للسلوك الأصلي.
+     */
+    public function test_update_fields_applies_only_the_provided_keys(): void
+    {
+        $term = Term::create([
+            'code' => 't1', 'label' => 'الفصل الأول', 'academic_year' => '2025-2026', 'semester' => 1,
+        ]);
+        $otherTerm = Term::create([
+            'code' => 't2', 'label' => 'الفصل الثاني', 'academic_year' => '2025-2026', 'semester' => 2,
+        ]);
+
+        $user = User::factory()->create();
+        $course = $this->course('AAA 100');
+        $user->myCourses()->attach($course->id, ['status' => 'registered', 'term_id' => $term->id]);
+
+        $result = $this->service()->updateFields($user, $course, ['grade' => 'A']);
+
+        $this->assertSame('registered', $result['status']);
+        $this->assertSame('A', $result['grade']);
+        $this->assertSame($term->id, $result['term_id']);
+
+        $result = $this->service()->updateFields($user, $course, ['status' => 'completed', 'term_id' => $otherTerm->id]);
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertNotNull($result['completed_at']);
+        $this->assertSame($otherTerm->id, $result['term_id']);
+        $this->assertSame('A', $result['grade']);
+    }
+
+    /** updateFields() على مساق غير مسجَّل يرمي 404، تمامًا مثل abort_unless() السابقة. */
+    public function test_update_fields_on_an_unregistered_course_throws_404(): void
+    {
+        $user = User::factory()->create();
+        $course = $this->course('AAA 100');
+
+        $this->expectException(CourseStatusException::class);
+
+        try {
+            $this->service()->updateFields($user, $course, ['status' => 'completed']);
+        } catch (CourseStatusException $e) {
+            $this->assertSame(404, $e->status);
+
+            throw $e;
+        }
+    }
 }

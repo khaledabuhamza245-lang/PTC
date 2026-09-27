@@ -1993,6 +1993,21 @@ class TelegramWebhookController extends Controller
      *   plan:s:{courseId}:{code} → ضبط الحالة فعليًا، code = c/r/d/n
      *   plan:by:{year}       → "منجز الكل" لسنة كاملة (فصليها معًا)
      *   plan:bt:{year}:{sem} → "منجز الكل" لفصل واحد
+     *   plan:e               → قائمة المساقات الاختيارية (خطوة ١٠٢)
+     *   plan:ea              → المساقات الاختيارية المتاحة للاختيار الآن
+     *
+     * ملاحظة (خطوة ١٠٢): المساقات الاختيارية غير مرتبطة بسنة/فصل محدد
+     * بالخطة أصلًا (year/semester على صفّها بجدول courses مجرد تصنيف
+     * داخلي قديم، ليس موقعًا حقيقيًا — راجع خطوة ١٣ بمشروع التوثيق)،
+     * فهي بقسم "plan:e" منفصل تمامًا عن شجرة سنة→فصل، تمامًا كما هو
+     * موثَّق بخطة خطوة ٩٠. مادة اختيارية مُختارة أصلًا (لها صف
+     * my_courses) تُعدَّل حالتها عبر نفس plan:c/plan:s المستخدمة
+     * للمواد الإجبارية (فقط تحقّق النوع تغيّر ليقبل 'elective' أيضًا)؛
+     * زر "اختيار مادة جديدة" لا يظهر إلا إن وُجدت خانة مفتوحة فعليًا
+     * (MyCourseStatusService::hasOpenElectiveSlot — نفس شرط attach()
+     * الموجود أصلًا)، والإضافة الفعلية تمرّ عبر نفس ensureStatus() التي
+     * تستدعي attach() فتتحقق من الشرط مجددًا من طرف الخادم بغضّ النظر
+     * عمّا أظهرته الواجهة، فلا يمكن الالتفاف عليه بـcallback_data مزوَّر.
      * ======================================================================
      */
     private const PLAN_STATUS_EMOJI = ['completed' => '✅', 'registered' => '⏳', 'dropped' => '🔴', 'none' => '⚪'];
@@ -2062,7 +2077,7 @@ class TelegramWebhookController extends Controller
                 case 'c':
                     $course = Course::find((int) ($parts[1] ?? 0));
 
-                    if (! $course || $course->course_type !== 'required') {
+                    if (! $course || ! in_array($course->course_type, ['required', 'elective'], true)) {
                         $bot->answerCallbackQuery($callbackId, 'المادة غير موجودة أو غير مدعومة من البوت حاليًا.');
 
                         return;
@@ -2074,12 +2089,26 @@ class TelegramWebhookController extends Controller
 
                     return;
 
+                case 'e':
+                    $bot->answerCallbackQuery($callbackId);
+                    [$text, $keyboard] = $this->renderPlanElectivesView($user, $planCalculator, $courseStatusService);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 'ea':
+                    $bot->answerCallbackQuery($callbackId);
+                    [$text, $keyboard] = $this->renderPlanElectiveAvailableView($user, $planCalculator);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
                 case 's':
                     $course = Course::find((int) ($parts[1] ?? 0));
                     $code = (string) ($parts[2] ?? '');
                     $status = self::PLAN_CODE_STATUS[$code] ?? null;
 
-                    if (! $course || $course->course_type !== 'required' || ! $status) {
+                    if (! $course || ! in_array($course->course_type, ['required', 'elective'], true) || ! $status) {
                         $bot->answerCallbackQuery($callbackId, 'طلب غير صالح.');
 
                         return;
@@ -2207,6 +2236,94 @@ class TelegramWebhookController extends Controller
             $rows[] = [['text' => 'لا توجد سنوات بعد', 'callback_data' => 'plan:years']];
         }
 
+        $rows[] = [['text' => '📗 المساقات الاختيارية', 'callback_data' => 'plan:e']];
+
+        return [$text, $rows];
+    }
+
+    /**
+     * قسم المساقات الاختيارية — منفصل عن شجرة سنة→فصل عمدًا لأنها غير
+     * مرتبطة بموقع ثابت بالخطة (راجع تعليق الثوابت أعلاه). يعرض ما
+     * اختاره الطالب فعلًا (بحالته الحالية، قابل للتعديل)، وزر اختيار
+     * مادة جديدة فقط إن وُجدت خانة مفتوحة فعلًا الآن.
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function renderPlanElectivesView(\App\Models\User $user, PlanCalculator $planCalculator, MyCourseStatusService $courseStatusService): array
+    {
+        $statuses = $planCalculator->statusMap($user);
+
+        $electives = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'elective')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        $chosen = $electives->filter(fn (Course $c) => isset($statuses[$c->key]));
+
+        $text = "📗 <b>المساقات الاختيارية</b>\n\n".
+            "هذه المواد غير مرتبطة بسنة أو فصل محدد بالخطة — تُختار عند توفّر خانة مفتوحة.\n\n".
+            "✅ منجز · ⏳ جارٍ · 🔴 منسحب\n\n";
+
+        $rows = [];
+
+        foreach ($chosen as $course) {
+            $status = $statuses[$course->key]['status'] ?? 'none';
+            $emoji = self::PLAN_STATUS_EMOJI[$status] ?? '⚪';
+            $name = mb_strlen($course->name_ar) > 38 ? mb_substr($course->name_ar, 0, 37).'…' : $course->name_ar;
+
+            $rows[] = [['text' => "{$emoji} {$name}", 'callback_data' => "plan:c:{$course->id}"]];
+        }
+
+        if (! $chosen->count()) {
+            $text .= 'لم تختر أي مادة اختيارية بعد.';
+        }
+
+        if ($courseStatusService->hasOpenElectiveSlot($user)) {
+            $rows[] = [['text' => '➕ اختيار مادة اختيارية جديدة', 'callback_data' => 'plan:ea']];
+        } else {
+            $text .= "\nℹ️ ما في خانة اختيارية مفتوحة إلك حاليًا بفصلك الدراسي المُعلَن.";
+        }
+
+        $rows[] = [['text' => '🏠 كل السنوات', 'callback_data' => 'plan:years']];
+
+        return [$text, $rows];
+    }
+
+    /**
+     * المساقات الاختيارية التي لم يختَرها الطالب بعد — تُعرض فقط عند
+     * الضغط على "اختيار مادة اختيارية جديدة" (زر لا يظهر أصلًا بلا
+     * خانة مفتوحة، وحتى لو وصل الطلب بأي شكل آخر فـensureStatus()
+     * تستدعي attach() التي تتحقق من الشرط مجددًا من طرف الخادم).
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function renderPlanElectiveAvailableView(\App\Models\User $user, PlanCalculator $planCalculator): array
+    {
+        $statuses = $planCalculator->statusMap($user);
+
+        $available = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'elective')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->reject(fn (Course $c) => isset($statuses[$c->key]));
+
+        $rows = [];
+
+        foreach ($available as $course) {
+            $name = mb_strlen($course->name_ar) > 38 ? mb_substr($course->name_ar, 0, 37).'…' : $course->name_ar;
+            $rows[] = [['text' => $name, 'callback_data' => "plan:c:{$course->id}"]];
+        }
+
+        $text = $available->count()
+            ? "➕ <b>اختيار مادة اختيارية جديدة</b>\n\nاضغط على مادة لاختيارها لخانتك المفتوحة حاليًا:"
+            : 'لا توجد مساقات اختيارية متاحة للاختيار حاليًا.';
+
+        $rows[] = [['text' => '⬅️ المساقات الاختيارية', 'callback_data' => 'plan:e']];
+
         return [$text, $rows];
     }
 
@@ -2317,7 +2434,16 @@ class TelegramWebhookController extends Controller
         $current = $statuses[$course->key]['status'] ?? 'none';
         $currentLabel = self::PLAN_STATUS_LABEL[$current] ?? 'متبقٍ';
 
-        $localSemester = (($course->semester - 1) % 2) + 1;
+        if ($course->course_type === 'elective') {
+            // المساقات الاختيارية غير مرتبطة بموقع سنة/فصل حقيقي (راجع
+            // تعليق الثوابت أعلاه) فرجوعها لقسمها الخاص لا لشجرة الفصول.
+            $backCallback = 'plan:e';
+            $backLabel = '⬅️ المساقات الاختيارية';
+        } else {
+            $localSemester = (($course->semester - 1) % 2) + 1;
+            $backCallback = "plan:t:{$course->year}:{$localSemester}";
+            $backLabel = '⬅️ مواد الفصل';
+        }
 
         $text = '📖 <b>'.TelegramBotApi::escapeHtml($course->name_ar)."</b>\n".
             TelegramBotApi::escapeHtml($course->code)."\n\n".
@@ -2334,7 +2460,7 @@ class TelegramWebhookController extends Controller
                 ['text' => '⚪ متبقٍ'.($current === 'none' ? ' ✓' : ''), 'callback_data' => "plan:s:{$course->id}:n"],
             ],
             [
-                ['text' => '⬅️ مواد الفصل', 'callback_data' => "plan:t:{$course->year}:{$localSemester}"],
+                ['text' => $backLabel, 'callback_data' => $backCallback],
             ],
         ];
 

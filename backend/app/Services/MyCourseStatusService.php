@@ -37,19 +37,8 @@ class MyCourseStatusService
             throw new CourseStatusException('هذا المساق غير متاح.', 404);
         }
 
-        if ($course->course_type === 'elective') {
-            $planSemester = $this->currentPlanSemester($user);
-
-            $hasOpenSlot = $planSemester && Course::query()
-                ->where('is_active', true)
-                ->where('course_type', 'placeholder')
-                ->where('year', (int) $user->year)
-                ->where('semester', $planSemester)
-                ->exists();
-
-            if (! $hasOpenSlot) {
-                throw new CourseStatusException('ما في خانة اختيارية متاحة إلك بفصلك الدراسي الحالي.', 422);
-            }
+        if ($course->course_type === 'elective' && ! $this->hasOpenElectiveSlot($user)) {
+            throw new CourseStatusException('ما في خانة اختيارية متاحة إلك بفصلك الدراسي الحالي.', 422);
         }
 
         $existing = DB::table('my_courses')
@@ -144,6 +133,73 @@ class MyCourseStatusService
     }
 
     /**
+     * تحديث جزئي لحقول (status/term_id/grade) لمساق مسجَّل أصلًا —
+     * مطابق حرفيًا لمنطق MyCourseController::update() قبل التوحيد
+     * (خطوة ١٠٢). يفترض أن قيمة status (إن وُجدت) مُتحقَّق من صحتها
+     * مسبقًا من طرف المستدعي (المتحكّم يستخدم Illuminate\Validation\Rule::in
+     * قبل استدعاء هذه الدالة) فلا يعيد التحقق منها هنا؛ هذا يخالف
+     * setStatus() عمدًا التي تتحقق بنفسها لأن مستدعيها (البوت) لا يمرّ
+     * بطبقة تحقّق HTTP منفصلة.
+     *
+     * @param  array{status?: string, term_id?: ?int, grade?: ?string}  $data
+     * @return array{key: string, status: string, term_id: ?int, grade: ?string, completed_at: ?string}
+     */
+    public function updateFields(User $user, Course $course, array $data): array
+    {
+        $existing = DB::table('my_courses')
+            ->where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->first();
+
+        if (! $existing) {
+            throw new CourseStatusException('المساق غير مسجَّل لهذا الطالب.', 404);
+        }
+
+        $pivot = [];
+
+        foreach (['term_id', 'grade'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $pivot[$field] = $data[$field];
+            }
+        }
+
+        if (array_key_exists('status', $data)) {
+            $pivot['status'] = $data['status'];
+
+            $pivot['completed_at'] = $data['status'] === 'completed'
+                ? ($existing->completed_at ?: now())
+                : null;
+        }
+
+        if ($pivot) {
+            /*
+             * أي تغيير يدوي من الطالب نحفظه manual
+             * حتى لا تأتي المزامنة وتغير قراره لاحقًا.
+             */
+            $pivot['source'] = 'manual';
+            $pivot['updated_at'] = now();
+
+            DB::table('my_courses')
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->update($pivot);
+        }
+
+        $updated = DB::table('my_courses')
+            ->where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->first();
+
+        return [
+            'key' => $course->key,
+            'status' => $updated->status,
+            'term_id' => $updated->term_id,
+            'grade' => $updated->grade,
+            'completed_at' => $updated->completed_at,
+        ];
+    }
+
+    /**
      * إضافة المساق إن لم يكن مسجَّلًا ثم ضبط حالته مباشرة — اختصار
      * يستخدمه البوت لأن أزراره لا تفرّق بين "مساق جديد" و"مساق مسجَّل
      * أصلًا": الطالب يضغط ✅/⏳/🔴 فقط، بغضّ النظر عن كونه أول تعديل
@@ -199,6 +255,26 @@ class MyCourseStatusService
                 ->where('course_id', $course->id)
                 ->delete();
         }
+    }
+
+    /**
+     * هل يوجد خانة اختيارية (placeholder) مفتوحة الآن للطالب — أي هل
+     * فصله الدراسي المُعلَن حاليًا يقابله سلوت اختياري بالكتالوج؟
+     * نفس شرط attach() بالضبط، مُستخرَج هنا كدالة عامة قابلة لإعادة
+     * الاستخدام (خطوة ١٠٢): بوت تيليجرام يحتاجها لعرض/إخفاء زر
+     * "اختيار مادة اختيارية جديدة" قبل حتى محاولة الإضافة، بدل تكرار
+     * نفس الاستعلام بمكان ثالث.
+     */
+    public function hasOpenElectiveSlot(User $user): bool
+    {
+        $planSemester = $this->currentPlanSemester($user);
+
+        return (bool) ($planSemester && Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'placeholder')
+            ->where('year', (int) $user->year)
+            ->where('semester', $planSemester)
+            ->exists());
     }
 
     /**

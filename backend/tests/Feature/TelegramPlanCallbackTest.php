@@ -173,6 +173,112 @@ class TelegramPlanCallbackTest extends TestCase
         $this->assertSame(0, DB::table('my_courses')->where('user_id', $user->id)->count());
     }
 
+    /**
+     * قسم المساقات الاختيارية (خطوة ١٠٢): مادة مُختارة أصلًا تظهر بحالتها
+     * الحالية، وزر "اختيار مادة جديدة" يظهر فقط إن وُجدت خانة مفتوحة.
+     */
+    public function test_electives_menu_lists_chosen_electives_and_shows_pick_button_only_when_slot_open(): void
+    {
+        $term = \App\Models\Term::create([
+            'code' => 't1', 'label' => 'الفصل الأول', 'academic_year' => '2025-2026', 'semester' => 1,
+        ]);
+        $user = $this->linkedUser(555020);
+        $user->update(['year' => 1, 'current_term_id' => $term->id]);
+
+        $chosen = $this->course('ELEC 100', ['course_type' => 'elective']);
+        $user->myCourses()->attach($chosen->id, ['status' => 'registered']);
+
+        $this->postCallback(555020, 20, 'plan:e')->assertOk();
+
+        // لا توجد خانة مفتوحة (لا يوجد placeholder لسنة1/فصل1) فزر
+        // الاختيار الجديد يجب ألا يظهر ضمن لوحة الأزرار المُرسلة، بينما
+        // المادة المُختارة أصلًا تظهر كزر قابل للضغط.
+        $editCall = collect(Http::recorded())
+            ->first(fn ($pair) => str_contains($pair[0]->url(), 'editMessageText'));
+
+        $this->assertNotNull($editCall);
+        $keyboard = json_decode($editCall[0]->data()['reply_markup'] ?? '{}', true);
+        $flatCallbacks = collect($keyboard['inline_keyboard'] ?? [])->flatten(1)->pluck('callback_data');
+
+        $this->assertTrue($flatCallbacks->contains("plan:c:{$chosen->id}"));
+        $this->assertFalse($flatCallbacks->contains('plan:ea'));
+    }
+
+    /** الآن نضيف placeholder مطابقًا فيظهر زر الاختيار الجديد. */
+    public function test_electives_menu_shows_pick_button_when_a_matching_placeholder_exists(): void
+    {
+        $term = \App\Models\Term::create([
+            'code' => 't1', 'label' => 'الفصل الأول', 'academic_year' => '2025-2026', 'semester' => 1,
+        ]);
+        $user = $this->linkedUser(555021);
+        $user->update(['year' => 1, 'current_term_id' => $term->id]);
+
+        $this->course('PH 100', ['course_type' => 'placeholder', 'year' => 1, 'semester' => 1]);
+
+        $this->postCallback(555021, 21, 'plan:e')->assertOk();
+
+        $editCall = collect(Http::recorded())
+            ->first(fn ($pair) => str_contains($pair[0]->url(), 'editMessageText'));
+
+        $keyboard = json_decode($editCall[0]->data()['reply_markup'] ?? '{}', true);
+        $flatCallbacks = collect($keyboard['inline_keyboard'] ?? [])->flatten(1)->pluck('callback_data');
+
+        $this->assertTrue($flatCallbacks->contains('plan:ea'));
+    }
+
+    /**
+     * اختيار مادة اختيارية متاحة عبر plan:c ثم plan:s فعليًا يُلحقها
+     * ويضبط حالتها — نفس مسار ensureStatus()←attach() الذي يتحقق من
+     * الخانة المفتوحة من طرف الخادم بغضّ النظر عمّا أظهرته الواجهة.
+     */
+    public function test_picking_an_available_elective_then_setting_its_status_attaches_it(): void
+    {
+        $term = \App\Models\Term::create([
+            'code' => 't1', 'label' => 'الفصل الأول', 'academic_year' => '2025-2026', 'semester' => 1,
+        ]);
+        $user = $this->linkedUser(555022);
+        $user->update(['year' => 1, 'current_term_id' => $term->id]);
+
+        $this->course('PH 100', ['course_type' => 'placeholder', 'year' => 1, 'semester' => 1]);
+        $elective = $this->course('ELEC 200', ['course_type' => 'elective']);
+
+        $this->postCallback(555022, 22, "plan:s:{$elective->id}:r")->assertOk();
+
+        $row = DB::table('my_courses')->where('user_id', $user->id)->where('course_id', $elective->id)->first();
+
+        $this->assertNotNull($row);
+        $this->assertSame('registered', $row->status);
+    }
+
+    /**
+     * بلا خانة مفتوحة، محاولة اختيار مادة اختيارية جديدة تُرفض بلا أي
+     * كتابة بقاعدة البيانات — attach() يتحقق من الشرط دائمًا، بغضّ
+     * النظر عن الزر الذي وصل منه الطلب.
+     */
+    public function test_setting_status_for_an_elective_with_no_open_slot_is_rejected_with_no_write(): void
+    {
+        $user = $this->linkedUser(555023);
+        $user->update(['year' => 1]);
+
+        $elective = $this->course('ELEC 300', ['course_type' => 'elective']);
+
+        $this->postCallback(555023, 23, "plan:s:{$elective->id}:r")->assertOk();
+
+        $this->assertSame(0, DB::table('my_courses')->where('user_id', $user->id)->count());
+    }
+
+    /** مادة اختيارية مُختارة أصلًا تُفتح عبر plan:c بلا أي مانع. */
+    public function test_opening_an_already_chosen_elective_via_c_shows_its_edit_view(): void
+    {
+        $user = $this->linkedUser(555024);
+        $elective = $this->course('ELEC 400', ['course_type' => 'elective']);
+        $user->myCourses()->attach($elective->id, ['status' => 'completed']);
+
+        $this->postCallback(555024, 24, "plan:c:{$elective->id}")->assertOk();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'editMessageText'));
+    }
+
     public function test_wrong_webhook_secret_is_rejected_with_403_and_no_write(): void
     {
         $course = $this->course('AAA 100');
