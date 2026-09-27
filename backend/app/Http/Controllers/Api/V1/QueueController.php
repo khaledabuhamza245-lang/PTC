@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Queue;
  */
 class QueueController extends Controller
 {
-    private const MAX_SECONDS = 45;
+    private const MAX_SECONDS = 30;
 
     public function processPending(Request $request)
     {
@@ -74,7 +74,7 @@ class QueueController extends Controller
             $worker = app('queue.worker');
 
             $options = new WorkerOptions;
-            $options->maxTries = 1;
+            $options->maxTries = 2;
             $options->timeout = 20;
             $options->sleep = 0;
 

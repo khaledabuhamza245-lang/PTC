@@ -23,15 +23,21 @@ use Illuminate\Queue\SerializesModels;
  * هالمهام بتتخزن بجدول jobs وتُعالَج بالخلفية دفعة دفعة — فيتحرر الطلب
  * الأصلي فورًا بدل ما ينتظر عشرات نداءات HTTP الخارجية لتيليجرام.
  *
- * tries=1 عمدًا: فشل إرسال لطالب واحد (حظر البوت، رقم محادثة محذوف...)
- * حالة متوقعة وليست عابرة — لا داعي لإعادة المحاولة تلقائيًا، ونلتقطها
- * بأنفسنا بلا رمي استثناء يوقف باقي المهام بالطابور.
+ * tries=2 (محاولتين): فشل اتصال عابر (Timeout، انقطاع شبكة مؤقت لحظة
+ * الإرسال) بيستاهل فرصة ثانية تلقائية بعد فترة قصيرة (backoff) بدل ما
+ * تُفقد الرسالة نهائيًا من أول عثرة. ما في try/catch داخلي هون عمدًا —
+ * أي استثناء بيهرب لآلية إعادة المحاولة القياسية بلارافيل، وبعد فشل
+ * المحاولتين (حالات دائمة فعليًا: حظر البوت، رقم محادثة محذوف...) لارافيل
+ * بينقل المهمة تلقائيًا لجدول failed_jobs — فهذا الجدول نفسه يصير سجل
+ * "رسائل ما وصلت" جاهز للمراجعة، بدل ما تُبتلع الأخطاء بصمت.
  */
 class SendTelegramMessage implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 1;
+    public int $tries = 2;
+
+    public int $backoff = 15;
 
     public int $timeout = 20;
 
@@ -44,10 +50,6 @@ class SendTelegramMessage implements ShouldQueue
 
     public function handle(TelegramBotApi $bot): void
     {
-        try {
-            $bot->sendMessage($this->chatId, $this->text, $this->keyboard);
-        } catch (\Throwable $error) {
-            report($error);
-        }
+        $bot->sendMessage($this->chatId, $this->text, $this->keyboard);
     }
 }
