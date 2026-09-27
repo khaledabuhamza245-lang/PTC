@@ -141,11 +141,22 @@ class TelegramWebhookController extends Controller
     // calc_* (سابقة pending_action.action) بالأسفل.
     private const MAIN_MENU_CALC = '🧮 حاسبة الهندسة السريعة';
 
+    // ميزتان جديدتان (جلسة سابعة، جزء 1) من الـ6 أفكار المقترحة سابقًا:
+    // "🌐 التطبيق المصغّر" يفتح الموقع الحالي فعليًا بنافذة Web App
+    // مدمجة جوّا تيليجرام (بدل بناء موقع مصغّر منفصل مكرِّر — قرار
+    // المستخدم بعد نقاش التكلفة/الفائدة)، و"🙋 مساعدة الطلاب" نظام
+    // أسئلة وأجوبة لكل مادة (بث فوري لطلاب المادة + أرشيف دائم قابل
+    // للتصفح — دمج فكرتي "سؤال يُبث" و"دفتر أسئلة/أجوبة" اللي اقترحهم
+    // المستخدم بنفس الوقت).
+    private const MAIN_MENU_MINIAPP = '🌐 التطبيق المصغّر';
+    private const MAIN_MENU_PEER_HELP = '🙋 مساعدة الطلاب';
+
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
         [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
+        [['text' => self::MAIN_MENU_PEER_HELP], ['text' => self::MAIN_MENU_MINIAPP]],
         [['text' => self::MAIN_MENU_CONTACT], ['text' => self::MAIN_MENU_CONTRIBUTE]],
         [['text' => self::MAIN_MENU_HELP], ['text' => self::MAIN_MENU_CALC]],
     ];
@@ -376,6 +387,8 @@ class TelegramWebhookController extends Controller
                 $this->handleQuizLoopCallback($bot, $aiAssistant, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'calc:')) {
                 $this->handleCalcCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'qa:')) {
+                $this->handleQaCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -530,7 +543,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_HELP, self::MAIN_MENU_ADMIN_ANNOUNCE, self::MAIN_MENU_ADMIN_TOOLS,
                 self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
                 self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT, self::MAIN_MENU_CONTRIBUTE,
-                self::MAIN_MENU_CALC,
+                self::MAIN_MENU_CALC, self::MAIN_MENU_MINIAPP, self::MAIN_MENU_PEER_HELP,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -567,6 +580,8 @@ class TelegramWebhookController extends Controller
                 $this->handleQuizLoopTextInput($bot, $aiAssistant, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'calc_')) {
                 $this->handleCalcTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'qa_')) {
+                $this->handleQaTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -656,6 +671,19 @@ class TelegramWebhookController extends Controller
         if (in_array($normalized, [self::MAIN_MENU_CALC, 'حاسبة', 'حاسبة الهندسة', 'calc'], true)) {
             $link->update(['pending_action' => null]);
             $this->sendCalcMainMenu($bot, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_MINIAPP, 'التطبيق المصغر', 'miniapp', 'app'], true)) {
+            $this->sendMiniAppCard($bot, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_PEER_HELP, 'مساعدة الطلاب', 'اسأل', 'qa'], true)) {
+            $link->update(['pending_action' => null]);
+            $this->sendQaMainMenu($bot, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -9363,4 +9391,478 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
         return round($hz, 4).' Hz';
     }
 
+    /*
+     * =====================================================================
+     * 🌐 التطبيق المصغّر (Mini App) — جلسة سابعة، جزء 1
+     * =====================================================================
+     * قرار مدروس بدل بناء موقع مصغّر منفصل: نفتح الموقع الحالي الشغّال
+     * فعليًا بزر (يُفتح داخل متصفّح تيليجرام المدمج) — صفر ازدواجية،
+     * أسرع، وأضمن. لو المستخدم يضبط لاحقًا Web App domain عبر BotFather
+     * (/setdomain)، يكفي تغيير المفتاح 'url' إلى 'web_app' => ['url'=>...]
+     * هون بس ليصير تجربة Web App كاملة (بلا شريط عنوان متصفح).
+     */
+    private function sendMiniAppCard(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $url = rtrim((string) config('app.frontend_url'), '/').'/';
+
+        $bot->sendMessage(
+            $chatId,
+            "🌐 <b>التطبيق المصغّر</b>\n\n".
+            'افتح موقع دليل الطالب كامل المزايا (تصفح المساقات، الملفات، لوحة حسابك...) من غير ما تطلع من تيليجرام:',
+            [
+                [['text' => '🚀 فتح الموقع', 'url' => $url]],
+            ]
+        );
+    }
+
+    /*
+     * =====================================================================
+     * 🙋 مساعدة الطلاب (Peer Help / أسئلة وأجوبة لكل مادة) — جلسة سابعة، جزء 1
+     * =====================================================================
+     * سؤال يطرحه طالب بمادة هو مسجَّل فيها فعليًا (my_courses.status=
+     * registered) يُبَث فورًا لبقية طلاب نفس المادة المرتبطين بالبوت،
+     * ويُخزَّن دائمًا بأرشيف قابل للتصفح لكل مادة (يفيد دفعات لاحقة
+     * تاخد نفس المادة). هويّة السائل/المجيب الحقيقية تُخزَّن بقاعدة
+     * البيانات دائمًا لكن تُعرض للطلاب الآخرين بشكل عام ("طالب") فقط.
+     */
+    private function sendQaMainMenu(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $bot->sendMessage(
+            $chatId,
+            "🙋 <b>مساعدة الطلاب</b>\n\nاسأل زملاءك بمادة أنت مسجَّل فيها، أو تصفّح أسئلة/أجوبة سابقة لأي مادة (مفيدة جدًا وقت المذاكرة).",
+            [
+                [['text' => '❓ اطرح سؤال جديد', 'callback_data' => 'qa:ask']],
+                [['text' => '📚 تصفّح أسئلة مادة', 'callback_data' => 'qa:browse']],
+            ]
+        );
+    }
+
+    private function qaRegisteredCourses(int $userId)
+    {
+        return \App\Models\User::query()->findOrFail($userId)
+            ->myCourses()
+            ->wherePivot('status', 'registered')
+            ->orderBy('name_ar')
+            ->get();
+    }
+
+    private function qaCourseButtonLabel(Course $course): string
+    {
+        return mb_substr(trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en)), 0, 40);
+    }
+
+    private function handleQaCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('qa:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        switch ($key) {
+            case 'menu':
+                $link->update(['pending_action' => null]);
+                $this->sendQaMainMenu($bot, $chatId);
+
+                return;
+
+            case 'cancel':
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+                return;
+
+            case 'ask':
+                $link->update(['pending_action' => null]);
+                $courses = $this->qaRegisteredCourses($link->user_id);
+
+                if ($courses->isEmpty()) {
+                    $bot->sendMessage(
+                        $chatId,
+                        'لسا ما عندك أي مادة مسجَّلة بـ"📖 مساقاتي الحالية" — سجّل موادك الحالية أولًا حتى تقدر تسأل وتوصل زملاءك بنفس المادة.'
+                    );
+
+                    return;
+                }
+
+                $rows = [];
+                foreach ($courses as $course) {
+                    $rows[] = [['text' => $this->qaCourseButtonLabel($course), 'callback_data' => 'qa:askcourse:'.$course->id]];
+                }
+                $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'qa:cancel']];
+
+                $bot->sendMessage($chatId, '❓ اختر المادة يلي بدك تسأل فيها:', $rows);
+
+                return;
+
+            case 'askcourse':
+                $courseId = (int) ($parts[1] ?? 0);
+                $isRegistered = $this->qaRegisteredCourses($link->user_id)->contains('id', $courseId);
+
+                if (! $isRegistered) {
+                    $bot->sendMessage($chatId, 'هذه المادة مش من مساقاتك الحالية 🙂');
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => 'qa_ask', 'step' => 'enter_question', 'data' => ['course_id' => $courseId]]]);
+                $bot->sendMessage($chatId, "✍️ اكتب سؤالك (بوضوح قدر الإمكان حتى يقدر زملاؤك يساعدوك):\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+                return;
+
+            case 'browse':
+                $link->update(['pending_action' => null]);
+                $courses = $this->qaRegisteredCourses($link->user_id);
+
+                $rows = [];
+                foreach ($courses as $course) {
+                    $rows[] = [['text' => $this->qaCourseButtonLabel($course), 'callback_data' => 'qa:list:'.$course->id.':0']];
+                }
+                $rows[] = [['text' => '🔍 بحث عن مادة تانية', 'callback_data' => 'qa:searchcourse']];
+                $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'qa:cancel']];
+
+                $bot->sendMessage($chatId, '📚 اختر مادة لتصفّح أسئلتها، أو دور عن مادة تانية:', $rows);
+
+                return;
+
+            case 'searchcourse':
+                $link->update(['pending_action' => ['action' => 'qa_searchcourse', 'step' => 'query', 'data' => []]]);
+                $bot->sendMessage($chatId, "🔍 اكتب اسم المادة أو رمزها:\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+                return;
+
+            case 'list':
+                $courseId = (int) ($parts[1] ?? 0);
+                $page = max(0, (int) ($parts[2] ?? 0));
+                $this->sendQaQuestionList($bot, $chatId, $courseId, $page);
+
+                return;
+
+            case 'view':
+                $questionId = (int) ($parts[1] ?? 0);
+                $this->sendQaQuestionView($bot, $chatId, $questionId);
+
+                return;
+
+            case 'answer':
+                $questionId = (int) ($parts[1] ?? 0);
+                $question = \App\Models\StudentQuestion::query()->find($questionId);
+
+                if (! $question) {
+                    $bot->sendMessage($chatId, 'هذا السؤال ما عاد موجود.');
+
+                    return;
+                }
+
+                $link->update(['pending_action' => ['action' => 'qa_answer', 'step' => 'enter_answer', 'data' => ['question_id' => $questionId]]]);
+                $bot->sendMessage($chatId, "✍️ اكتب إجابتك:\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+                return;
+
+            default:
+                return;
+        }
+    }
+
+    private function sendQaQuestionList(TelegramBotApi $bot, int|string $chatId, int $courseId, int $page): void
+    {
+        $course = Course::query()->find($courseId);
+
+        if (! $course) {
+            $bot->sendMessage($chatId, 'هذه المادة مش موجودة.');
+
+            return;
+        }
+
+        $perPage = 5;
+        $questions = \App\Models\StudentQuestion::query()
+            ->where('course_id', $courseId)
+            ->orderByDesc('created_at')
+            ->skip($page * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $total = \App\Models\StudentQuestion::query()->where('course_id', $courseId)->count();
+
+        if ($total === 0) {
+            $bot->sendMessage(
+                $chatId,
+                '📭 ما في أسئلة لهذه المادة بعد. كن أول من يسأل!',
+                [
+                    [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']],
+                ]
+            );
+
+            return;
+        }
+
+        $rows = [];
+        foreach ($questions as $question) {
+            $preview = mb_substr(trim((string) $question->question), 0, 45);
+            $rows[] = [['text' => "❓ {$preview}", 'callback_data' => 'qa:view:'.$question->id]];
+        }
+
+        $navRow = [];
+        if ($page > 0) {
+            $navRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'qa:list:'.$courseId.':'.($page - 1)];
+        }
+        if (($page + 1) * $perPage < $total) {
+            $navRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'qa:list:'.$courseId.':'.($page + 1)];
+        }
+        if ($navRow !== []) {
+            $rows[] = $navRow;
+        }
+
+        $rows[] = [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']];
+
+        $courseLabel = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+        $bot->sendMessage($chatId, "📚 <b>أسئلة مادة {$courseLabel}</b> ({$total})\n\nاختر سؤال لعرضه:", $rows);
+    }
+
+    private function sendQaQuestionView(TelegramBotApi $bot, int|string $chatId, int $questionId): void
+    {
+        $question = \App\Models\StudentQuestion::query()->with(['course', 'answers' => fn ($q) => $q->orderByDesc('created_at')->limit(5)])->find($questionId);
+
+        if (! $question) {
+            $bot->sendMessage($chatId, 'هذا السؤال ما عاد موجود.');
+
+            return;
+        }
+
+        $courseLabel = $question->course
+            ? trim(($question->course->code ? $question->course->code.' — ' : '').(string) ($question->course->name_ar ?: $question->course->name_en))
+            : 'مادة محذوفة';
+
+        $text = "❓ <b>سؤال طالب — {$courseLabel}</b>\n\n".
+            TelegramBotApi::escapeHtml((string) $question->question)."\n\n";
+
+        if ($question->answers->isEmpty()) {
+            $text .= '💬 لا يوجد إجابات بعد — كن أول من يجاوب!';
+        } else {
+            $text .= '💬 <b>الإجابات ('.$question->answers_count.")</b>:\n\n";
+            foreach ($question->answers as $answer) {
+                $text .= '👤 طالب: '.TelegramBotApi::escapeHtml((string) $answer->answer)."\n\n";
+            }
+        }
+
+        $bot->sendMessage($chatId, $text, [
+            [['text' => '✍️ أضف إجابة', 'callback_data' => 'qa:answer:'.$question->id]],
+            [['text' => '📚 كل أسئلة المادة', 'callback_data' => 'qa:list:'.$question->course_id.':0']],
+            [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']],
+        ]);
+    }
+
+    private function handleQaTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $action = (string) ($pending['action'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        if ($action === 'qa_ask') {
+            if (mb_strlen($normalized) < 8) {
+                $bot->sendMessage($chatId, 'اكتب سؤالك بشكل أوضح شوي (٨ أحرف على الأقل) 🙂');
+
+                return;
+            }
+            if (mb_strlen($normalized) > 1000) {
+                $bot->sendMessage($chatId, 'سؤالك طويل كتير 🙂 اختصره لأقل من 1000 حرف.');
+
+                return;
+            }
+
+            $courseId = (int) ($data['course_id'] ?? 0);
+            $course = Course::query()->find($courseId);
+
+            if (! $course) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, 'هذه المادة مش موجودة، جرّب من جديد.');
+
+                return;
+            }
+
+            $question = \App\Models\StudentQuestion::query()->create([
+                'course_id' => $courseId,
+                'user_id' => $link->user_id,
+                'question' => $normalized,
+            ]);
+
+            $link->update(['pending_action' => null]);
+
+            $bot->sendMessage(
+                $chatId,
+                "✅ تم نشر سؤالك لزملائك بمادة \"".TelegramBotApi::escapeHtml((string) ($course->name_ar ?: $course->name_en))."\". رح توصلك إشعارات بأي إجابة.",
+                [
+                    [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']],
+                ]
+            );
+
+            $this->broadcastQaQuestion($bot, $course, $question, $link->user_id);
+
+            return;
+        }
+
+        if ($action === 'qa_answer') {
+            if (mb_strlen($normalized) < 3) {
+                $bot->sendMessage($chatId, 'اكتب إجابة أوضح شوي 🙂');
+
+                return;
+            }
+            if (mb_strlen($normalized) > 1500) {
+                $bot->sendMessage($chatId, 'إجابتك طويلة كتير 🙂 اختصرها لأقل من 1500 حرف.');
+
+                return;
+            }
+
+            $questionId = (int) ($data['question_id'] ?? 0);
+            $question = \App\Models\StudentQuestion::query()->with('course')->find($questionId);
+
+            if (! $question) {
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, 'هذا السؤال ما عاد موجود.');
+
+                return;
+            }
+
+            \App\Models\StudentAnswer::query()->create([
+                'question_id' => $questionId,
+                'user_id' => $link->user_id,
+                'answer' => $normalized,
+            ]);
+            $question->increment('answers_count');
+
+            $link->update(['pending_action' => null]);
+
+            $bot->sendMessage(
+                $chatId,
+                'شكرًا لمساعدتك زملاءك! ✅ تم نشر إجابتك.',
+                [
+                    [['text' => '📚 كل أسئلة المادة', 'callback_data' => 'qa:list:'.$question->course_id.':0']],
+                ]
+            );
+
+            $this->notifyQaAsker($bot, $question, $link->user_id);
+
+            return;
+        }
+
+        if ($action === 'qa_searchcourse') {
+            if (mb_strlen($normalized) < 2) {
+                $bot->sendMessage($chatId, 'اكتب حرفين على الأقل 🙂');
+
+                return;
+            }
+
+            $courses = Course::query()
+                ->where('is_active', true)
+                ->where(function ($query) use ($normalized) {
+                    $query->where('name_ar', 'like', "%{$normalized}%")
+                        ->orWhere('name_en', 'like', "%{$normalized}%")
+                        ->orWhere('code', 'like', "%{$normalized}%");
+                })
+                ->orderBy('name_ar')
+                ->limit(8)
+                ->get();
+
+            if ($courses->isEmpty()) {
+                $bot->sendMessage($chatId, '❌ ما لقيت مادة بهذا الاسم، جرّب اسم أو رمز مختلف (أو اكتب "إلغاء"):');
+
+                return;
+            }
+
+            $link->update(['pending_action' => null]);
+
+            $rows = [];
+            foreach ($courses as $course) {
+                $rows[] = [['text' => $this->qaCourseButtonLabel($course), 'callback_data' => 'qa:list:'.$course->id.':0']];
+            }
+            $bot->sendMessage($chatId, '📚 اختر المادة يلي بدك تتصفح أسئلتها:', $rows);
+
+            return;
+        }
+    }
+
+    private function broadcastQaQuestion(TelegramBotApi $bot, Course $course, $question, int $askerUserId): void
+    {
+        $courseLabel = trim(($course->code ? $course->code.' — ' : '').(string) ($course->name_ar ?: $course->name_en));
+
+        $recipients = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('user_id', '!=', $askerUserId)
+            ->whereHas('user.myCourses', function ($q) use ($course) {
+                $q->where('courses.id', $course->id)->wherePivot('status', 'registered');
+            })
+            ->get();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $text = "🙋 <b>سؤال جديد بمادة {$courseLabel}</b>\n\n".
+            TelegramBotApi::escapeHtml((string) $question->question)."\n\nتقدر تساعد زميلك بالإجابة:";
+
+        $keyboard = [
+            [['text' => '✍️ أجب', 'callback_data' => 'qa:answer:'.$question->id]],
+        ];
+
+        foreach ($recipients as $recipient) {
+            $bot->sendMessage($recipient->telegram_chat_id, $text, $keyboard);
+        }
+    }
+
+    private function notifyQaAsker(TelegramBotApi $bot, $question, int $answererUserId): void
+    {
+        if ((int) $question->user_id === $answererUserId) {
+            return;
+        }
+
+        $askerLink = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('user_id', $question->user_id)
+            ->first();
+
+        if (! $askerLink) {
+            return;
+        }
+
+        $courseLabel = $question->course
+            ? trim(($question->course->code ? $question->course->code.' — ' : '').(string) ($question->course->name_ar ?: $question->course->name_en))
+            : '';
+
+        $bot->sendMessage(
+            $askerLink->telegram_chat_id,
+            "📬 <b>وصلتك إجابة جديدة</b> على سؤالك بمادة {$courseLabel} 🎉",
+            [
+                [['text' => '👀 عرض السؤال والإجابات', 'callback_data' => 'qa:view:'.$question->id]],
+            ]
+        );
+    }
 }
