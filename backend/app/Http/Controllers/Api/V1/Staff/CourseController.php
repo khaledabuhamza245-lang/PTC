@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course;
+use App\Support\PublicCache;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -48,6 +49,8 @@ class CourseController extends Controller
 
         $course = Course::create($data);
 
+        PublicCache::forgetCourses();
+
         return response()->json([
             'message' => 'تمت إضافة المادة.',
             'data' => $course,
@@ -76,6 +79,8 @@ class CourseController extends Controller
         }
 
         $course->update($data);
+
+        PublicCache::forgetCourses();
 
         return response()->json([
             'message' => 'تم تحديث المادة.',
@@ -106,6 +111,8 @@ class CourseController extends Controller
             }
         });
 
+        PublicCache::forgetCourses();
+
         return response()->json([
             'message' => 'تم حفظ الترتيب.',
             'data' => ['count' => count($data['keys'])],
@@ -126,6 +133,8 @@ class CourseController extends Controller
 
         $course->delete();
 
+        PublicCache::forgetCourses();
+
         return response()->json(['message' => 'تم حذف المادة.']);
     }
 
@@ -137,6 +146,8 @@ class CourseController extends Controller
         $this->authorize('restore', $course);
 
         $course->restore();
+
+        PublicCache::forgetCourses();
 
         return response()->json([
             'message' => 'تم استرجاع المادة.',

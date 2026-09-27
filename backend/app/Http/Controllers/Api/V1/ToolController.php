@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tool;
+use App\Support\PublicCache;
 
 class ToolController extends Controller
 {
@@ -12,10 +13,13 @@ class ToolController extends Controller
      *
      * بلا ترقيم صفحات: القائمة تُصنَّف وتُرشَّح في المتصفح، وترقيمها
      * يعني طلبًا جديدًا مع كل نقرة مرشِّح. وهي مئة صفّ نحيف لا أكثر.
+     *
+     * (خطوة ١٠٣) بلا أي تخصيص شخصي — تُخزَّن مؤقتًا عبر PublicCache
+     * لتخفيف التزاحم وقت الذروة (راجع تعليل الملف نفسه).
      */
     public function index()
     {
-        $tools = Tool::query()
+        $tools = PublicCache::rememberTools(fn () => Tool::query()
             ->where('is_active', true)
             ->with(['courses' => fn ($query) => $query
                 ->where('is_active', true)
@@ -38,7 +42,8 @@ class ToolController extends Controller
                     'name_ar' => $course->name_ar,
                     'year' => $course->year,
                 ])->values(),
-            ]);
+            ])
+            ->toArray());
 
         return response()->json(['data' => $tools]);
     }

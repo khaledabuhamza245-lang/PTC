@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tool;
+use App\Support\PublicCache;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -52,6 +53,8 @@ class ToolController extends Controller
 
         $tool->courses()->sync($this->pivot($data['course_ids']));
 
+        PublicCache::forgetTools();
+
         return response()->json([
             'message' => 'تمت إضافة الأداة.',
             'data' => $tool->load('courses:id,key,code,name_ar'),
@@ -75,6 +78,8 @@ class ToolController extends Controller
             $tool->courses()->sync($this->pivot($data['course_ids']));
         }
 
+        PublicCache::forgetTools();
+
         return response()->json([
             'message' => 'تم تحديث الأداة.',
             'data' => $tool->fresh()->load('courses:id,key,code,name_ar'),
@@ -86,6 +91,8 @@ class ToolController extends Controller
         $this->authorize('delete', $tool);
 
         $tool->delete();
+
+        PublicCache::forgetTools();
 
         return response()->json(['message' => 'تم حذف الأداة.']);
     }

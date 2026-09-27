@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Term;
+use App\Support\PublicCache;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -21,6 +22,8 @@ class TermController extends Controller
 
         $this->applyCurrent($term);
 
+        PublicCache::forgetTerms();
+
         return response()->json([
             'message' => 'تمت إضافة الفصل.',
             'data' => $term->fresh(),
@@ -32,6 +35,8 @@ class TermController extends Controller
         $term->update($this->validated($request, $term));
 
         $this->applyCurrent($term);
+
+        PublicCache::forgetTerms();
 
         return response()->json([
             'message' => 'تم تحديث الفصل.',
@@ -53,6 +58,8 @@ class TermController extends Controller
         }
 
         $term->delete();
+
+        PublicCache::forgetTerms();
 
         return response()->json(['message' => 'تم حذف الفصل.']);
     }

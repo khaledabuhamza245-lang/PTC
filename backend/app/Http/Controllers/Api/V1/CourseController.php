@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course;
+use App\Support\PublicCache;
 use Illuminate\Http\Request;
 
 class CourseController extends Controller
@@ -18,16 +19,38 @@ class CourseController extends Controller
      *
      * والساعات والصنف يدخلان تلقائيًا بلا سطر هنا: لا $hidden على
      * الموديل ولا API Resource، فالأعمدة الجديدة تظهر بمجرّد الهجرة.
+     *
+     * (خطوة ١٠٣) الطلب الافتراضي بلا أي فلتر — وهو الأكثر تكرارًا
+     * بفارق كبير، كل طالب يفتح الموقع يطلبه بلا فلاتر — يُخزَّن مؤقتًا
+     * ٩٠ ثانية عبر App\Support\PublicCache لتخفيف التزاحم على قاعدة
+     * البيانات وقت الذروة (راجع تعليل الملف نفسه). طلبات البحث/الفلترة
+     * (نادرة ومتنوعة الصياغة) تبقى تُنفَّذ مباشرة بلا تخزين.
      */
     public function index(Request $request)
     {
         $search = trim((string) $request->query('search', ''));
+        $year = $request->integer('year');
+        $semester = $request->integer('semester');
 
+        $isDefaultQuery = $search === '' && ! $year && ! $semester;
+
+        $data = $isDefaultQuery
+            ? PublicCache::rememberCourses(fn () => $this->buildCoursesPayload(null, null, null))
+            : $this->buildCoursesPayload($search, $year, $semester);
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildCoursesPayload(?string $search, ?int $year, ?int $semester): array
+    {
         $courses = Course::query()
             ->with(['prerequisites.prerequisite:id,key,code,name_ar'])
             ->where('is_active', true)
-            ->when($request->integer('year'), fn ($q, $year) => $q->where('year', $year))
-            ->when($request->integer('semester'), fn ($q, $semester) => $q->where('semester', $semester))
+            ->when($year, fn ($q, $year) => $q->where('year', $year))
+            ->when($semester, fn ($q, $semester) => $q->where('semester', $semester))
             ->when($search, function ($q, $search) {
                 $value = '%'.$search.'%';
                 $q->where(function ($q) use ($value) {
@@ -86,7 +109,7 @@ class CourseController extends Controller
             $course->unsetRelation('prerequisites');
         });
 
-        return response()->json(['data' => $courses]);
+        return $courses->toArray();
     }
 
     public function show(Course $course)

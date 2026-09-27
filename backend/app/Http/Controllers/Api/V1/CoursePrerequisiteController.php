@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\CoursePrerequisite;
+use App\Support\PublicCache;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -81,6 +82,8 @@ class CoursePrerequisiteController extends Controller
             );
         }
 
+        PublicCache::forgetCourses();
+
         return response()->json([
             'message' => 'تمت إضافة المتطلب.',
             'data' => $row->fresh('prerequisite'),
@@ -95,6 +98,8 @@ class CoursePrerequisiteController extends Controller
         abort_unless($prerequisite->course_id === $course->id, 404);
 
         $prerequisite->delete();
+
+        PublicCache::forgetCourses();
 
         return response()->json(['message' => 'تم حذف المتطلب.']);
     }
