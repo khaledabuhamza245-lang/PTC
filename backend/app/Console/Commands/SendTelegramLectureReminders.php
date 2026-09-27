@@ -91,7 +91,7 @@ class SendTelegramLectureReminders extends Command
                 '🕐 '.TelegramBotApi::escapeHtml($startTime).' — '.$typeLabel."\n\n".
                 'بتبدأ بعد ١٥ دقيقة تقريبًا 🙂';
 
-            $bot->sendMessage($link->telegram_chat_id, $message);
+            \App\Jobs\SendTelegramMessage::dispatch($link->telegram_chat_id, $message);
             $sent++;
         }
 

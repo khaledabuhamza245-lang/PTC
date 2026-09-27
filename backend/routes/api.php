@@ -53,6 +53,14 @@ Route::prefix('v1')->group(function () {
     Route::get('/ai/process-pending', [AiAssistantController::class, 'processPending']);
 
     /*
+     * معالجة طابور المهام المؤجّلة (رسائل تيليجرام الجماعية) — نفس فكرة
+     * /ai/process-pending أعلاه بالضبط. راجع شرح كامل بـ
+     * QueueController::processPending. بلا أي تأثير طالما
+     * QUEUE_CONNECTION=sync بـ.env (الوضع الحالي).
+     */
+    Route::get('/queue/process-pending', [\App\Http\Controllers\Api\V1\QueueController::class, 'processPending']);
+
+    /*
      * استقبال تحديثات بوت "المساعد الأكاديمي" (Webhook) — بوت تجريبي
      * منفصل بالكامل عن telegram-upload، مرحلة أولى (ربط الحساب فقط).
      * الحماية برمز سرّي بالترويسة (X-Telegram-Bot-Api-Secret-Token)

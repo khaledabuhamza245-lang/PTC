@@ -10179,7 +10179,7 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
         ];
 
         foreach ($recipients as $recipient) {
-            $bot->sendMessage($recipient->telegram_chat_id, $text, $keyboard);
+            \App\Jobs\SendTelegramMessage::dispatch($recipient->telegram_chat_id, $text, $keyboard);
         }
     }
 

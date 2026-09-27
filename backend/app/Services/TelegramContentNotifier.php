@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendTelegramMessage;
 use App\Models\Course;
 use App\Models\CourseFile;
 use Illuminate\Support\Facades\DB;
@@ -11,12 +12,10 @@ use Illuminate\Support\Facades\DB;
  * بمادة معينة، فور ما يضيف الطاقم محتوى جديد فيها (CourseFileController
  * @ staff::store هو المستدعي الوحيد حاليًا).
  *
- * ⚠ تنفيذ متزامن (sync) عمدًا بمرحلته الحالية — الاستضافة الحالية
- * بلا queue worker حقيقي (راجع QUEUE_CONNECTION=sync بـ.env.example).
- * مقبول الآن لأن عدد الحسابات المربوطة فعليًا قليل جدًا (بوت تجريبي).
- * قبل أي إطلاق حقيقي لعدد كبير من الطلاب، هاي أول نقطة لازم تتحول
- * لطابور حقيقي (Laravel Queue + Cron يشغّل queue:work دوريًا) حتى ما
- * يتعلّق زر "حفظ" بلوحة تحكم الطاقم بانتظار إرسال عشرات الرسائل.
+ * كل رسالة بترسل عبر مهمة طابور مستقلة (SendTelegramMessage::dispatch)
+ * بدل نداء HTTP مباشر بحلقة متزامنة — راجع تعليق الشرح الكامل بأعلى
+ * ملف SendTelegramMessage. مع QUEUE_CONNECTION=sync الحالي بلا أي تغيير
+ * بالسلوك، وجاهز فورًا للعمل بالخلفية بمجرد تفعيل طابور حقيقي.
  *
  * فشل الإرسال لطالب واحد (رقم محادثة محذوف، حظر البوت...) ما يوقف
  * إرسال الباقي — كل رسالة بمحاولتها الخاصة المعزولة.
@@ -53,11 +52,7 @@ class TelegramContentNotifier
         $message = $this->buildMessage($course, $file);
 
         foreach ($chatIds as $chatId) {
-            try {
-                $this->bot->sendMessage($chatId, $message);
-            } catch (\Throwable $error) {
-                report($error);
-            }
+            SendTelegramMessage::dispatch($chatId, $message);
         }
     }
 
