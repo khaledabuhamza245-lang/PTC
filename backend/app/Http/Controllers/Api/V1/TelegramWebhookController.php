@@ -193,10 +193,14 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_CAT_ADMIN = '🛠️ إدارة';
     private const MAIN_MENU_BACK = '🔙 القائمة الرئيسية';
 
+    // "🔍 بحث" بقيت زر مباشر بالقائمة الرئيسية (بدل ما تُدفن جوّا فئة
+    // "📚 المساقات والمحتوى") بناءً على طلب صريح من المستخدم — أسهل
+    // وأضمن وصول، وصار البحث نفسه يغطي أزرار/ميزات البوت كمان لا بس
+    // المساقات/المحتوى/الأدوات (راجع FEATURE_INDEX وsendSearchResults).
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_CAT_ACADEMIC], ['text' => self::MAIN_MENU_CAT_COURSES]],
         [['text' => self::MAIN_MENU_CAT_TOOLS], ['text' => self::MAIN_MENU_CAT_COMMUNITY]],
-        [['text' => self::MAIN_MENU_HELP]],
+        [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_HELP]],
     ];
 
     private const SUBMENU_ACADEMIC = [
@@ -206,7 +210,7 @@ class TelegramWebhookController extends Controller
 
     private const SUBMENU_COURSES = [
         [['text' => self::MAIN_MENU_COURSES], ['text' => self::MAIN_MENU_MY_COURSES]],
-        [['text' => self::MAIN_MENU_FAVORITES], ['text' => self::MAIN_MENU_SEARCH]],
+        [['text' => self::MAIN_MENU_FAVORITES]],
         [['text' => self::MAIN_MENU_BACK]],
     ];
 
@@ -226,6 +230,41 @@ class TelegramWebhookController extends Controller
         [['text' => self::MAIN_MENU_ADMIN_ANNOUNCE], ['text' => self::MAIN_MENU_ADMIN_TOOLS]],
         [['text' => self::MAIN_MENU_ADMIN_CONTENT], ['text' => self::MAIN_MENU_ADMIN_COURSES]],
         [['text' => self::MAIN_MENU_BACK]],
+    ];
+
+    /*
+     * فهرس "بحث عن زر/ميزة" (جلسة سابعة، جزء 4) — طلب صريح من المستخدم:
+     * "🔍 بحث" ما عاد يقتصر على مساقات/محتوى/أدوات (Course/CourseFile/
+     * Tool بقاعدة البيانات)، صار يفتّش كمان بأسماء/مرادفات كل زر رئيسي
+     * بالبوت نفسه، ويعرض نتيجة قابلة للضغط (inline) توصّل الطالب
+     * مباشرة لنفس الميزة بلا ما يدوّر يدويًا بأي فئة. كل مفتاح هون
+     * مطابق تمامًا لنفس المرادفات المستخدمة أصلًا بمطابقة النص بالأسفل
+     * (self::MAIN_MENU_GPA => ['معدلي','المعدل','gpa']...) حتى ما يصير
+     * فرق سلوك بين "اكتب الزر يدويًا" و"دوره بالبحث". مخطط callback_data:
+     * navjump:{key} → handleNavJumpCallback() ينفّذ بالضبط نفس كود
+     * كتلة المطابقة النصية لهذا الزر (بما فيها مسح pending_action لو
+     * كانت الكتلة الأصلية تعمل هيك).
+     */
+    private const FEATURE_INDEX = [
+        'plan' => ['label' => self::MAIN_MENU_PLAN, 'keywords' => ['خطتي', 'خطة', 'تخرج', 'ساعات معتمدة', 'plan']],
+        'gpa' => ['label' => self::MAIN_MENU_GPA, 'keywords' => ['معدلي', 'المعدل', 'معدل', 'علامات', 'علامة', 'gpa']],
+        'schedule' => ['label' => self::MAIN_MENU_SCHEDULE, 'keywords' => ['جدولي', 'جدول', 'محاضرات', 'محاضرة', 'تذكير', 'schedule']],
+        'courses' => ['label' => self::MAIN_MENU_COURSES, 'keywords' => ['المساقات', 'مساقات', 'الخطة الدراسية', 'شجرة المساقات', 'courses']],
+        'mycourses' => ['label' => self::MAIN_MENU_MY_COURSES, 'keywords' => ['مساقاتي', 'مساقاتي الحالية', 'mycourses']],
+        'favorites' => ['label' => self::MAIN_MENU_FAVORITES, 'keywords' => ['مفضلاتي', 'المفضلة', 'favorites']],
+        'tools' => ['label' => self::MAIN_MENU_TOOLS, 'keywords' => ['القائمة الذكية', 'ذكاء اصطناعي', 'مساعد أسئلة', 'ورشة أكواد', 'tools', 'ai']],
+        'calc' => ['label' => self::MAIN_MENU_CALC, 'keywords' => ['حاسبة', 'حاسبة الهندسة', 'حاسبة المقاومات', 'calc']],
+        'multisim' => ['label' => self::MAIN_MENU_MULTISIM, 'keywords' => ['multisim', 'ملتسيم', 'محاكي دوائر', 'دليل multisim']],
+        'uml' => ['label' => self::MAIN_MENU_UML, 'keywords' => ['uml', 'مخطط', 'مولد uml', 'class diagram', 'مخطط اصناف']],
+        'peerhelp' => ['label' => self::MAIN_MENU_PEER_HELP, 'keywords' => ['مساعدة الطلاب', 'اسأل زملائي', 'اسأل', 'qa']],
+        'miniapp' => ['label' => self::MAIN_MENU_MINIAPP, 'keywords' => ['التطبيق المصغر', 'ميني اب', 'تطبيق مصغر', 'miniapp', 'app']],
+        'contact' => ['label' => self::MAIN_MENU_CONTACT, 'keywords' => ['تواصل معنا', 'تواصل', 'دعم', 'شكوى', 'contact']],
+        'contribute' => ['label' => self::MAIN_MENU_CONTRIBUTE, 'keywords' => ['شارك ملف', 'مشاركة ملف', 'رفع ملف', 'contribute']],
+        'help' => ['label' => self::MAIN_MENU_HELP, 'keywords' => ['مساعدة', 'شرح البوت', 'أوامر', 'help']],
+        'adminannounce' => ['label' => self::MAIN_MENU_ADMIN_ANNOUNCE, 'keywords' => ['نشر اعلان', 'اعلان', 'announce'], 'staffOnly' => true],
+        'admintools' => ['label' => self::MAIN_MENU_ADMIN_TOOLS, 'keywords' => ['ادارة الادوات', 'admintools'], 'staffOnly' => true],
+        'admincontent' => ['label' => self::MAIN_MENU_ADMIN_CONTENT, 'keywords' => ['ادارة المحتوى', 'admincontent'], 'staffOnly' => true],
+        'admincourses' => ['label' => self::MAIN_MENU_ADMIN_COURSES, 'keywords' => ['ادارة المساقات', 'admincourses'], 'staffOnly' => true],
     ];
 
     // جداول ثوابت "حاسبة المقاومات والمكثفات" (كود ألوان المقاومات
@@ -462,6 +501,8 @@ class TelegramWebhookController extends Controller
                 $this->handleUmlCallback($bot, $aiAssistant, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'event:')) {
                 $this->handleEventCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'navjump:')) {
+                $this->handleNavJumpCallback($bot, $planCalculator, $aiAssistant, $gpaCalculator, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -771,20 +812,7 @@ class TelegramWebhookController extends Controller
         }
 
         if (in_array($normalized, [self::MAIN_MENU_HELP, 'مساعدة', 'help', 'أوامر'], true)) {
-            $bot->sendMessageWithMainMenu(
-                $chatId,
-                "🧭 <b>دليلك باستخدام البوت</b> (نسخة تجريبية، رح تكبر تدريجيًا)\n\n".
-                "الأزرار الدائمة تحت مربع الكتابة صارت مقسومة لفئات حتى ما تحتاج سكرول طويل — اضغط فئة لتشوف أزرارها، واستخدم \"🔙 القائمة الرئيسية\" للرجوع منها بأي وقت:\n\n".
-                "📊 <b>الأكاديمي</b> — خطتي (تقدّمك نحو التخرّج)، معدلي (معدّلك التراكمي بالتفصيل + تسجيل/تعديل/حذف علامة مادة ومحاكي \"ماذا لو؟\")، جدولي (جدول محاضراتك + تذكير تلقائي قبل كل محاضرة).\n".
-                "📚 <b>المساقات والمحتوى</b> — المساقات (تصفّح الخطة سنة/فصل، أو 🌳 شجرة المساقات الكاملة، وتفاصيل أي مادة)، مساقاتي الحالية، مفضلاتي (كل ملف حفظته)، بحث (بكلمة وحدة عن مادة/محتوى/أداة).\n".
-                "🧠 <b>أدوات وذكاء اصطناعي</b> — القائمة الذكية (مساعد أسئلة، ورشة أكواد، مولّد أسئلة، تلخيص ملفات)، حاسبة الهندسة السريعة، دليل Multisim، مولّد UML.\n".
-                "🙋 <b>مجتمع ودعم</b> — مساعدة الطلاب (اسأل زملاءك أو ساعدهم)، التطبيق المصغّر (الموقع كامل جوّا تيليجرام)، تواصل معنا، شارك ملف/مصدر.\n".
-                "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
-                "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا بـ\"🧠 أدوات وذكاء اصطناعي\".\n".
-                "🔎 بأي محادثة تيليجرام (حتى مجموعات الدراسة)، اكتب @".config('services.telegram.bot_username', 'اسم_البوت')." متبوعًا باسم مادة/أداة لتشاركها بضغطة وحدة، بدون فتح البوت.\n".
-                "❓ مساعدة — هاي القائمة.",
-                $this->buildMainMenuKeyboard($link->user)
-            );
+            $this->sendHelpText($bot, $chatId, $link->user);
 
             return response()->json(['ok' => true]);
         }
@@ -894,7 +922,7 @@ class TelegramWebhookController extends Controller
 
         if (in_array($normalized, [self::MAIN_MENU_SEARCH, 'بحث', 'search'], true)) {
             $link->update(['pending_action' => ['action' => 'search', 'step' => 'query', 'lecture_id' => null, 'data' => []]]);
-            $bot->sendMessage($chatId, '🔍 اكتب كلمة أو اسم مادة/ملف/أداة تدور عليه (حرفين على الأقل):');
+            $bot->sendMessage($chatId, '🔍 اكتب كلمة تدور عليها — مادة، ملف، أداة، أو حتى اسم أي زر/ميزة بالبوت (حرفين على الأقل):');
 
             return response()->json(['ok' => true]);
         }
@@ -979,6 +1007,30 @@ class TelegramWebhookController extends Controller
         $this->routeFreeTextToAssistant($bot, $aiAssistant, $chatId, $link, $text);
 
         return response()->json(['ok' => true]);
+    }
+
+    /*
+     * نص "❓ مساعدة" — مستخرج بدالة مستقلة (جلسة سابعة، جزء 4) حتى
+     * يقدر "نتيجة بحث → 🧭 مساعدة" (navjump:help) يستدعيه بلا تكرار
+     * نفس النص الطويل بمكانين.
+     */
+    private function sendHelpText(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user): void
+    {
+        $bot->sendMessageWithMainMenu(
+            $chatId,
+            "🧭 <b>دليلك باستخدام البوت</b> (نسخة تجريبية، رح تكبر تدريجيًا)\n\n".
+            "الأزرار الدائمة تحت مربع الكتابة صارت مقسومة لفئات حتى ما تحتاج سكرول طويل — اضغط فئة لتشوف أزرارها، واستخدم \"🔙 القائمة الرئيسية\" للرجوع منها بأي وقت:\n\n".
+            "📊 <b>الأكاديمي</b> — خطتي (تقدّمك نحو التخرّج)، معدلي (معدّلك التراكمي بالتفصيل + تسجيل/تعديل/حذف علامة مادة ومحاكي \"ماذا لو؟\")، جدولي (جدول محاضراتك + تذكير تلقائي قبل كل محاضرة).\n".
+            "📚 <b>المساقات والمحتوى</b> — المساقات (تصفّح الخطة سنة/فصل، أو 🌳 شجرة المساقات الكاملة، وتفاصيل أي مادة)، مساقاتي الحالية، مفضلاتي (كل ملف حفظته).\n".
+            "🧠 <b>أدوات وذكاء اصطناعي</b> — القائمة الذكية (مساعد أسئلة، ورشة أكواد، مولّد أسئلة، تلخيص ملفات)، حاسبة الهندسة السريعة، دليل Multisim، مولّد UML.\n".
+            "🙋 <b>مجتمع ودعم</b> — مساعدة الطلاب (اسأل زملاءك أو ساعدهم)، التطبيق المصغّر (الموقع كامل جوّا تيليجرام)، تواصل معنا، شارك ملف/مصدر.\n".
+            "🔍 <b>بحث</b> — زر مباشر بالقائمة الرئيسية (مش محتاج تفتح فئة أول): دور بكلمة وحدة عن مادة، ملف، أداة، أو حتى اسم أي زر/ميزة بالبوت نفسه (مثلًا اكتب \"معدل\" أو \"UML\") وبنوصّلك له بضغطة وحدة.\n".
+            "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
+            "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا بـ\"🧠 أدوات وذكاء اصطناعي\".\n".
+            "🔎 بأي محادثة تيليجرام (حتى مجموعات الدراسة)، اكتب @".config('services.telegram.bot_username', 'اسم_البوت')." متبوعًا باسم مادة/أداة لتشاركها بضغطة وحدة، بدون فتح البوت.\n".
+            "❓ مساعدة — هاي القائمة.",
+            $this->buildMainMenuKeyboard($user)
+        );
     }
 
     /*
@@ -4175,10 +4227,22 @@ class TelegramWebhookController extends Controller
          * منه الطالب إلا بضغط زر رئيسي تاني (راجع mainMenuButtons
          * بـ__invoke) أو كتابة "إلغاء".
          */
-        $this->sendSearchResults($bot, $chatId, $normalized);
+        $this->sendSearchResults($bot, $chatId, $normalized, $link->user->isStaff());
     }
 
-    private function sendSearchResults(TelegramBotApi $bot, int|string $chatId, string $term): void
+    /*
+     * توحيد بسيط للنص العربي قبل مطابقته بـFEATURE_INDEX — يشيل تمييز
+     * الهمزات (أ/إ/آ ← ا) ويوحّد حالة الأحرف اللاتينية، حتى "اعدادات"
+     * أو "الاعدادات" أو "settings" تتصرف كلها بنفس المرونة بدل مطابقة
+     * حرفية صارمة. لا تأثير على بحث قاعدة البيانات (Course/CourseFile/
+     * Tool) — هذا فقط لفهرس الأزرار بالذاكرة.
+     */
+    private function normalizeSearchText(string $text): string
+    {
+        return str_replace(['أ', 'إ', 'آ', 'ة', 'ى'], ['ا', 'ا', 'ا', 'ه', 'ي'], mb_strtolower(trim($text)));
+    }
+
+    private function sendSearchResults(TelegramBotApi $bot, int|string $chatId, string $term, bool $includeStaffFeatures = false): void
     {
         $escaped = str_replace(['%', '_'], ['\%', '\_'], $term);
         $contains = '%'.$escaped.'%';
@@ -4209,7 +4273,37 @@ class TelegramWebhookController extends Controller
             ->limit(5)
             ->get(['id', 'name', 'type']);
 
-        if ($courses->isEmpty() && $files->isEmpty() && $tools->isEmpty()) {
+        /*
+         * فهرس أزرار/ميزات البوت (FEATURE_INDEX) — مطابقة بالذاكرة لا
+         * بقاعدة البيانات: نطابق النص المطبَّع ضد تسمية الزر نفسها وكل
+         * مرادفاتها. أزرار الإدارة (staffOnly) ما تظهر إلا لو
+         * $includeStaffFeatures true (المستخدم فعليًا isStaff()).
+         */
+        $normalizedTerm = $this->normalizeSearchText($term);
+        $matchedFeatures = [];
+
+        foreach (self::FEATURE_INDEX as $key => $feature) {
+            if (! empty($feature['staffOnly']) && ! $includeStaffFeatures) {
+                continue;
+            }
+
+            $haystacks = array_merge([$feature['label']], $feature['keywords']);
+            $isMatch = false;
+
+            foreach ($haystacks as $haystack) {
+                if (mb_stripos($this->normalizeSearchText($haystack), $normalizedTerm) !== false) {
+                    $isMatch = true;
+
+                    break;
+                }
+            }
+
+            if ($isMatch) {
+                $matchedFeatures[$key] = $feature['label'];
+            }
+        }
+
+        if ($courses->isEmpty() && $files->isEmpty() && $tools->isEmpty() && $matchedFeatures === []) {
             $bot->sendMessage($chatId, '🔍 ما لقيت أي نتيجة لـ"'.TelegramBotApi::escapeHtml($term).'". جرّب كلمة تانية.');
 
             return;
@@ -4218,6 +4312,17 @@ class TelegramWebhookController extends Controller
         $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
         $lines = ['🔍 <b>نتائج البحث عن "'.TelegramBotApi::escapeHtml($term).'"</b>', ''];
         $keyboard = [];
+
+        if ($matchedFeatures !== []) {
+            $lines[] = '🧭 <b>أزرار وميزات البوت:</b>';
+
+            foreach ($matchedFeatures as $key => $label) {
+                $lines[] = '• '.TelegramBotApi::escapeHtml($label);
+                $keyboard[] = [['text' => $label, 'callback_data' => 'navjump:'.$key]];
+            }
+
+            $lines[] = '';
+        }
 
         if ($courses->isNotEmpty()) {
             $lines[] = '📘 <b>مساقات:</b>';
@@ -10783,5 +10888,157 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
 
         $link->update(['pending_action' => null]);
         $bot->sendMessage($chatId, 'صار خطأ بالعملية، جرّب من جديد 🙂');
+    }
+
+    /*
+     * "🔍 بحث → 🧭 أزرار وميزات البوت" (جلسة سابعة، جزء 4) — نتيجة
+     * بحث مطابقة لـFEATURE_INDEX بتوصل هون بزر inline (navjump:{key}).
+     * كل حالة هون هي *بالضبط* نفس كود كتلة المطابقة النصية لهذا الزر
+     * بـ__invoke() (بما فيها مسح pending_action لو كانت تعمل هيك)،
+     * حتى يتصرف "لقيته بالبحث وضغطته" بالضبط متل "كتبت اسم الزر يدويًا".
+     * $planCalculator/$aiAssistant/$gpaCalculator ممرَّرة من __invoke()
+     * نفسها (نفس الخدمات المُحقَنة بالكونستركتر، لا نسخة جديدة).
+     */
+    private function handleNavJumpCallback(
+        TelegramBotApi $bot,
+        PlanCalculator $planCalculator,
+        TelegramAiAssistant $aiAssistant,
+        TelegramGpaCalculator $gpaCalculator,
+        array $callbackQuery
+    ): void {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $key = substr($data, strlen('navjump:'));
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link || ! $link->user) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        $isAdminKey = str_starts_with($key, 'admin');
+
+        if ($isAdminKey && ! $link->user->isStaff()) {
+            $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+            return;
+        }
+
+        switch ($key) {
+            case 'plan':
+                $this->replyWithPlanSummary($bot, $chatId, $link->user, $planCalculator);
+
+                return;
+
+            case 'gpa':
+                $this->replyWithGpaSummary($bot, $chatId, $link->user, $gpaCalculator);
+
+                return;
+
+            case 'schedule':
+                $this->replyWithScheduleSummary($bot, $chatId, $link);
+
+                return;
+
+            case 'courses':
+                $this->sendCourseHubYearPicker($bot, $chatId);
+
+                return;
+
+            case 'mycourses':
+                $this->sendMyCoursesList($bot, $chatId, $link->user);
+
+                return;
+
+            case 'favorites':
+                $this->sendContentFavoritesList($bot, $chatId, $link->user, 1);
+
+                return;
+
+            case 'tools':
+                $this->sendMenu($bot, $chatId, $link->currentMode());
+
+                return;
+
+            case 'calc':
+                $link->update(['pending_action' => null]);
+                $this->sendCalcMainMenu($bot, $chatId);
+
+                return;
+
+            case 'multisim':
+                $link->update(['pending_action' => null]);
+                $this->sendMultisimMenu($bot, $chatId);
+
+                return;
+
+            case 'uml':
+                $this->sendUmlIntro($bot, $chatId, $link);
+
+                return;
+
+            case 'peerhelp':
+                $link->update(['pending_action' => null]);
+                $this->sendQaMainMenu($bot, $chatId);
+
+                return;
+
+            case 'miniapp':
+                $this->sendMiniAppCard($bot, $chatId);
+
+                return;
+
+            case 'contact':
+                $this->startContactFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'contribute':
+                $this->startContributeFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'help':
+                $this->sendHelpText($bot, $chatId, $link->user);
+
+                return;
+
+            case 'adminannounce':
+                $this->startAnnounceFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'admintools':
+                $this->sendAdminToolMenu($bot, $chatId, 1);
+
+                return;
+
+            case 'admincontent':
+                $this->startAdminContentFlow($bot, $link, $chatId);
+
+                return;
+
+            case 'admincourses':
+                $this->sendAdminCoursesMenu($bot, $chatId);
+
+                return;
+
+            default:
+                // مفتاح غير معروف (نسخة قديمة من رسالة بحث سابقة مثلًا) — تجاهل صامت.
+        }
     }
 }
