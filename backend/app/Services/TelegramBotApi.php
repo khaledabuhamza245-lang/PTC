@@ -92,6 +92,34 @@ class TelegramBotApi
     }
 
     /*
+     * تعديل رسالة موجودة أصلًا (نص + أزرار) بدل إرسال رسالة جديدة —
+     * مستخدَمة بتحديث عدّاد تصويت "✅/❌" على إجابات "🙋 مساعدة الطلاب"
+     * حيًّا بمكانه، بدل تكديس رسالة جديدة بكل ضغطة تصويت.
+     */
+    public function editMessageText(int|string $chatId, int $messageId, string $text, ?array $keyboard = null): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+        ];
+
+        if ($keyboard !== null) {
+            $payload['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
+        }
+
+        Http::timeout(10)->post(
+            "https://api.telegram.org/bot{$this->token}/editMessageText",
+            $payload
+        );
+    }
+
+    /*
      * تسجيل قائمة أوامر "/" الظاهرة بتيليجرام (الزر جنب أيقونة
      * السمايلات بصندوق الكتابة) — $commands مصفوفة عناصر
      * {command, description} بصيغة تيليجرام القياسية (command لاتيني

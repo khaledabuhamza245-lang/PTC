@@ -9393,13 +9393,20 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
 
     /*
      * =====================================================================
-     * 🌐 التطبيق المصغّر (Mini App) — جلسة سابعة، جزء 1
+     * 🌐 التطبيق المصغّر (Mini App) — جلسة سابعة، جزء 1 (مُصلَح جزء 2)
      * =====================================================================
      * قرار مدروس بدل بناء موقع مصغّر منفصل: نفتح الموقع الحالي الشغّال
-     * فعليًا بزر (يُفتح داخل متصفّح تيليجرام المدمج) — صفر ازدواجية،
-     * أسرع، وأضمن. لو المستخدم يضبط لاحقًا Web App domain عبر BotFather
-     * (/setdomain)، يكفي تغيير المفتاح 'url' إلى 'web_app' => ['url'=>...]
-     * هون بس ليصير تجربة Web App كاملة (بلا شريط عنوان متصفح).
+     * فعليًا داخل تيليجرام نفسه — صفر ازدواجية، أسرع، وأضمن.
+     *
+     * ⚠ إصلاح: أول نسخة استخدمت زر 'url' عادي — وهذا يفتح متصفح خارجي
+     * (كروم على أندرويد/ديسكتوب) بدل نافذة تيليجرام المدمجة، لأنه 'url'
+     * مجرد رابط عادي بنظر تيليجرام. الحل الصحيح هو نوع زر مختلف كليًا
+     * اسمه Web App ('web_app' => ['url' => ...]) — هذا فعليًا يفتح
+     * الصفحة بنافذة WebView داخل تطبيق تيليجرام نفسه (بلا خروج، بثيم
+     * تيليجرام، وزر رجوع مدمج). لا يحتاج أي إعداد BotFather إضافي
+     * (/setdomain) طالما الزر جوّا inline keyboard برسالة محادثة خاصة
+     * (مو Menu Button الثابت ولا Attachment Menu) — فقط الرابط لازم
+     * HTTPS (متوفر أصلًا).
      */
     private function sendMiniAppCard(TelegramBotApi $bot, int|string $chatId): void
     {
@@ -9408,9 +9415,9 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
         $bot->sendMessage(
             $chatId,
             "🌐 <b>التطبيق المصغّر</b>\n\n".
-            'افتح موقع دليل الطالب كامل المزايا (تصفح المساقات، الملفات، لوحة حسابك...) من غير ما تطلع من تيليجرام:',
+            'افتح موقع دليل الطالب كامل المزايا (تصفح المساقات، الملفات، لوحة حسابك...) بنافذة مدمجة من غير ما تطلع من تيليجرام:',
             [
-                [['text' => '🚀 فتح الموقع', 'url' => $url]],
+                [['text' => '🚀 فتح الموقع', 'web_app' => ['url' => $url]]],
             ]
         );
     }
@@ -9429,9 +9436,10 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
     {
         $bot->sendMessage(
             $chatId,
-            "🙋 <b>مساعدة الطلاب</b>\n\nاسأل زملاءك بمادة أنت مسجَّل فيها، أو تصفّح أسئلة/أجوبة سابقة لأي مادة (مفيدة جدًا وقت المذاكرة).",
+            "🙋 <b>مساعدة الطلاب</b>\n\nاسأل زملاءك بمادة أنت مسجَّل فيها، ساعدهم بالإجابة على أسئلتهم، أو تصفّح أسئلة/أجوبة سابقة لأي مادة (مفيدة جدًا وقت المذاكرة).",
             [
                 [['text' => '❓ اطرح سؤال جديد', 'callback_data' => 'qa:ask']],
+                [['text' => '🗂 ساعد بالإجابة على أسئلة', 'callback_data' => 'qa:open']],
                 [['text' => '📚 تصفّح أسئلة مادة', 'callback_data' => 'qa:browse']],
             ]
         );
@@ -9579,9 +9587,97 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
 
                 return;
 
+            case 'open':
+                $link->update(['pending_action' => null]);
+                $this->sendQaOpenQuestions($bot, $chatId, $link->user_id, 0);
+
+                return;
+
+            case 'openpage':
+                $page = max(0, (int) ($parts[1] ?? 0));
+                $this->sendQaOpenQuestions($bot, $chatId, $link->user_id, $page);
+
+                return;
+
+            case 'vote':
+                $answerId = (int) ($parts[1] ?? 0);
+                $direction = ($parts[2] ?? '') === 'down' ? 'down' : 'up';
+                $messageId = (int) ($callbackQuery['message']['message_id'] ?? 0);
+                $this->handleQaVote($bot, $link, $chatId, $messageId, $answerId, $direction);
+
+                return;
+
             default:
                 return;
         }
+    }
+
+    /*
+     * "🗂 ساعد بالإجابة على أسئلة" — طلب المستخدم صراحة إتاحة مسار
+     * مباشر للطالب يبحث فيه عن أسئلة يعرف جوابها بدل ما يضطر يدوّر
+     * مادة بمادة. يجمع الأسئلة "بدون أي إجابة بعد" من كل مساقاته
+     * الحالية المسجَّلة، الأحدث أولًا — أكثر شي يحتاج مساعدة فورية.
+     */
+    private function sendQaOpenQuestions(TelegramBotApi $bot, int|string $chatId, int $userId, int $page): void
+    {
+        $courseIds = $this->qaRegisteredCourses($userId)->pluck('id')->all();
+
+        if ($courseIds === []) {
+            $bot->sendMessage(
+                $chatId,
+                'لسا ما عندك أي مادة مسجَّلة بـ"📖 مساقاتي الحالية" — سجّل موادك الحالية أولًا حتى تقدر تشوف أسئلة تحتاج مساعدة.'
+            );
+
+            return;
+        }
+
+        $perPage = 5;
+        $baseQuery = \App\Models\StudentQuestion::query()
+            ->whereIn('course_id', $courseIds)
+            ->where('answers_count', 0);
+
+        $total = (clone $baseQuery)->count();
+
+        if ($total === 0) {
+            $bot->sendMessage(
+                $chatId,
+                '🎉 ما في أي سؤال بدون إجابة حاليًا بمساقاتك — كل شي متجاوب عليه!',
+                [
+                    [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']],
+                ]
+            );
+
+            return;
+        }
+
+        $questions = (clone $baseQuery)
+            ->with('course')
+            ->orderByDesc('created_at')
+            ->skip($page * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $rows = [];
+        foreach ($questions as $question) {
+            $courseCode = $question->course->code ?? '';
+            $preview = mb_substr(trim((string) $question->question), 0, 35);
+            $rows[] = [['text' => "❓ [{$courseCode}] {$preview}", 'callback_data' => 'qa:view:'.$question->id]];
+        }
+
+        $navRow = [];
+        if ($page > 0) {
+            $navRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'qa:openpage:'.($page - 1)];
+        }
+        if (($page + 1) * $perPage < $total) {
+            $navRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'qa:openpage:'.($page + 1)];
+        }
+        if ($navRow !== []) {
+            $rows[] = $navRow;
+        }
+
+        $rows[] = [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']];
+
+        $bot->sendMessage($chatId, "🗂 <b>أسئلة تحتاج مساعدة</b> ({$total})\n\nمن مساقاتك الحالية، بدون أي إجابة بعد:", $rows);
     }
 
     private function sendQaQuestionList(TelegramBotApi $bot, int|string $chatId, int $courseId, int $page): void
@@ -9641,7 +9737,7 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
 
     private function sendQaQuestionView(TelegramBotApi $bot, int|string $chatId, int $questionId): void
     {
-        $question = \App\Models\StudentQuestion::query()->with(['course', 'answers' => fn ($q) => $q->orderByDesc('created_at')->limit(5)])->find($questionId);
+        $question = \App\Models\StudentQuestion::query()->with(['course', 'answers' => fn ($q) => $q->orderByDesc('created_at')->limit(8)])->find($questionId);
 
         if (! $question) {
             $bot->sendMessage($chatId, 'هذا السؤال ما عاد موجود.');
@@ -9654,22 +9750,28 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
             : 'مادة محذوفة';
 
         $text = "❓ <b>سؤال طالب — {$courseLabel}</b>\n\n".
-            TelegramBotApi::escapeHtml((string) $question->question)."\n\n";
-
-        if ($question->answers->isEmpty()) {
-            $text .= '💬 لا يوجد إجابات بعد — كن أول من يجاوب!';
-        } else {
-            $text .= '💬 <b>الإجابات ('.$question->answers_count.")</b>:\n\n";
-            foreach ($question->answers as $answer) {
-                $text .= '👤 طالب: '.TelegramBotApi::escapeHtml((string) $answer->answer)."\n\n";
-            }
-        }
+            TelegramBotApi::escapeHtml((string) $question->question)."\n\n".
+            ($question->answers->isEmpty()
+                ? '💬 لا يوجد إجابات بعد — كن أول من يجاوب!'
+                : '💬 عدد الإجابات: <b>'.$question->answers_count.'</b> (بالأسفل ⬇️)');
 
         $bot->sendMessage($chatId, $text, [
             [['text' => '✍️ أضف إجابة', 'callback_data' => 'qa:answer:'.$question->id]],
             [['text' => '📚 كل أسئلة المادة', 'callback_data' => 'qa:list:'.$question->course_id.':0']],
             [['text' => '🙋 مساعدة الطلاب', 'callback_data' => 'qa:menu']],
         ]);
+
+        /*
+         * كل إجابة تُرسَل كرسالة مستقلة بأزرار تصويت خاصة فيها ("✅
+         * صحيحة" / "❌ غير دقيقة") — طلب صريح من المستخدم حتى تبقى
+         * الإجابات المحفوظة موثوقة لمن يقرأها لاحقًا. رسالة منفصلة
+         * (لا نص واحد مجمَّع) لأنه تيليجرام ما بيدعم أزرار مختلفة لكل
+         * "فقرة" داخل نفس الرسالة.
+         */
+        foreach ($question->answers as $answer) {
+            [$answerText, $answerKeyboard] = $this->qaAnswerMessagePayload($answer);
+            $bot->sendMessage($chatId, $answerText, $answerKeyboard);
+        }
     }
 
     private function handleQaTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
@@ -9864,5 +9966,63 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
                 [['text' => '👀 عرض السؤال والإجابات', 'callback_data' => 'qa:view:'.$question->id]],
             ]
         );
+    }
+
+    /**
+     * نص + أزرار رسالة إجابة واحدة (تُستخدم عند أول عرض وأيضًا لبناء
+     * نفس الرسالة من جديد بعد تحديث عدّاد التصويت بـeditMessageText).
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function qaAnswerMessagePayload(\App\Models\StudentAnswer $answer): array
+    {
+        $text = '👤 <b>طالب:</b> '.TelegramBotApi::escapeHtml((string) $answer->answer);
+
+        $keyboard = [
+            [
+                ['text' => "✅ صحيحة ({$answer->helpful_count})", 'callback_data' => 'qa:vote:'.$answer->id.':up'],
+                ['text' => "❌ غير دقيقة ({$answer->unhelpful_count})", 'callback_data' => 'qa:vote:'.$answer->id.':down'],
+            ],
+        ];
+
+        return [$text, $keyboard];
+    }
+
+    /*
+     * تصويت "✅ صحيحة" / "❌ غير دقيقة" على إجابة — طلب صريح من
+     * المستخدم حتى تبقى الإجابات المحفوظة موثوقة لمن يقرأها لاحقًا.
+     * جدول `student_answer_votes` بقيد unique(answer_id,user_id) يمنع
+     * نفس الطالب من التصويت أكثر من مرة، لكن يسمح له يبدّل رأيه
+     * (updateOrCreate بدل create) — والعدّادان على student_answers
+     * نفسها يُعاد احتسابهما من صفوف التصويت الفعلية دايمًا (مصدر
+     * الحقيقة الوحيد)، لا زيادة/نقصان يدوي عرضة للتيه.
+     */
+    private function handleQaVote(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, int $messageId, int $answerId, string $direction): void
+    {
+        $answer = \App\Models\StudentAnswer::query()->find($answerId);
+
+        if (! $answer) {
+            return;
+        }
+
+        if ((int) $answer->user_id === $link->user_id) {
+            // التصويت على الإجابة الشخصية غير مسموح — تجاهل صامت
+            // (تم ردّ answerCallbackQuery أصلًا بأعلى handleQaCallback).
+            return;
+        }
+
+        \App\Models\StudentAnswerVote::query()->updateOrCreate(
+            ['answer_id' => $answerId, 'user_id' => $link->user_id],
+            ['vote' => $direction]
+        );
+
+        $answer->helpful_count = \App\Models\StudentAnswerVote::query()->where('answer_id', $answerId)->where('vote', 'up')->count();
+        $answer->unhelpful_count = \App\Models\StudentAnswerVote::query()->where('answer_id', $answerId)->where('vote', 'down')->count();
+        $answer->save();
+
+        if ($messageId > 0) {
+            [$text, $keyboard] = $this->qaAnswerMessagePayload($answer);
+            $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+        }
     }
 }
