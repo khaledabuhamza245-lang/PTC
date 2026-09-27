@@ -173,15 +173,59 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_MULTISIM = '📖 دليل Multisim';
     private const MAIN_MENU_UML = '🧩 مولّد UML';
 
+    /*
+     * إعادة تنظيم القائمة الرئيسية بفئات (جلسة سابعة، جزء 3) — بعد ما
+     * وصل عدد الأزرار الدائمة لـ16 زر (8 صفوف) صار الطالب يحتاج سكرول
+     * طويل وممكن يفوته زر بالأسفل بلا ما ينتبه. الحل: قائمة رئيسية
+     * مختصرة بـ4 فئات فقط + "❓ مساعدة" مباشرة (٣ صفوف بدل ٨)، وكل فئة
+     * لما تُضغط بترجع "قائمة فرعية" حقيقية (ReplyKeyboardMarkup تاني،
+     * عبر sendMessageWithMainMenu نفسها) فيها نفس أزرار self::MAIN_MENU_*
+     * الأصلية بالضبط + زر "🔙 القائمة الرئيسية" بالأسفل — فكل منطق
+     * المطابقة النصية الموجود أصلًا بالأسفل (self::MAIN_MENU_PLAN،
+     * self::MAIN_MENU_GPA...) يبقى بلا أي تغيير، لأنه نفس الزر بنفس
+     * النص بيوصل بس من كيبورد مختلف. راجع SUBMENU_* والمطابقة النصية
+     * لأزرار الفئات/الرجوع بالأسفل.
+     */
+    private const MAIN_MENU_CAT_ACADEMIC = '📊 الأكاديمي';
+    private const MAIN_MENU_CAT_COURSES = '📚 المساقات والمحتوى';
+    private const MAIN_MENU_CAT_TOOLS = '🧠 أدوات وذكاء اصطناعي';
+    private const MAIN_MENU_CAT_COMMUNITY = '🙋 مجتمع ودعم';
+    private const MAIN_MENU_CAT_ADMIN = '🛠️ إدارة';
+    private const MAIN_MENU_BACK = '🔙 القائمة الرئيسية';
+
     private const MAIN_MENU_KEYBOARD = [
-        [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
-        [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
-        [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
-        [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
-        [['text' => self::MAIN_MENU_PEER_HELP], ['text' => self::MAIN_MENU_MINIAPP]],
+        [['text' => self::MAIN_MENU_CAT_ACADEMIC], ['text' => self::MAIN_MENU_CAT_COURSES]],
+        [['text' => self::MAIN_MENU_CAT_TOOLS], ['text' => self::MAIN_MENU_CAT_COMMUNITY]],
+        [['text' => self::MAIN_MENU_HELP]],
+    ];
+
+    private const SUBMENU_ACADEMIC = [
+        [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA], ['text' => self::MAIN_MENU_SCHEDULE]],
+        [['text' => self::MAIN_MENU_BACK]],
+    ];
+
+    private const SUBMENU_COURSES = [
+        [['text' => self::MAIN_MENU_COURSES], ['text' => self::MAIN_MENU_MY_COURSES]],
+        [['text' => self::MAIN_MENU_FAVORITES], ['text' => self::MAIN_MENU_SEARCH]],
+        [['text' => self::MAIN_MENU_BACK]],
+    ];
+
+    private const SUBMENU_AI_TOOLS = [
+        [['text' => self::MAIN_MENU_TOOLS], ['text' => self::MAIN_MENU_CALC]],
         [['text' => self::MAIN_MENU_MULTISIM], ['text' => self::MAIN_MENU_UML]],
-        [['text' => self::MAIN_MENU_CALC], ['text' => self::MAIN_MENU_CONTACT]],
-        [['text' => self::MAIN_MENU_CONTRIBUTE], ['text' => self::MAIN_MENU_HELP]],
+        [['text' => self::MAIN_MENU_BACK]],
+    ];
+
+    private const SUBMENU_COMMUNITY = [
+        [['text' => self::MAIN_MENU_PEER_HELP], ['text' => self::MAIN_MENU_MINIAPP]],
+        [['text' => self::MAIN_MENU_CONTACT], ['text' => self::MAIN_MENU_CONTRIBUTE]],
+        [['text' => self::MAIN_MENU_BACK]],
+    ];
+
+    private const SUBMENU_ADMIN = [
+        [['text' => self::MAIN_MENU_ADMIN_ANNOUNCE], ['text' => self::MAIN_MENU_ADMIN_TOOLS]],
+        [['text' => self::MAIN_MENU_ADMIN_CONTENT], ['text' => self::MAIN_MENU_ADMIN_COURSES]],
+        [['text' => self::MAIN_MENU_BACK]],
     ];
 
     // جداول ثوابت "حاسبة المقاومات والمكثفات" (كود ألوان المقاومات
@@ -574,6 +618,8 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT, self::MAIN_MENU_CONTRIBUTE,
                 self::MAIN_MENU_CALC, self::MAIN_MENU_MINIAPP, self::MAIN_MENU_PEER_HELP,
                 self::MAIN_MENU_MULTISIM, self::MAIN_MENU_UML,
+                self::MAIN_MENU_CAT_ACADEMIC, self::MAIN_MENU_CAT_COURSES, self::MAIN_MENU_CAT_TOOLS,
+                self::MAIN_MENU_CAT_COMMUNITY, self::MAIN_MENU_CAT_ADMIN, self::MAIN_MENU_BACK,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -662,6 +708,56 @@ class TelegramWebhookController extends Controller
          * كمان للتوافق لو حدا كتبها يدويًا، لكنها لم تعد مذكورة بأي
          * رسالة للمستخدم.
          */
+
+        /*
+         * أزرار الفئات + "🔙 القائمة الرئيسية" (جلسة سابعة، جزء 3) —
+         * راجع تعليق MAIN_MENU_CAT_ACADEMIC/SUBMENU_* فوق. كل فئة
+         * بترجع قائمة فرعية حقيقية (ReplyKeyboardMarkup) عبر نفس
+         * sendMessageWithMainMenu المستخدمة أصلًا للقائمة الرئيسية —
+         * الأزرار جواها نفس self::MAIN_MENU_* الأصلية بالضبط، فمطابقتها
+         * بالأسفل (PLAN/GPA/...) بتشتغل عادي بلا أي تعديل عليها.
+         */
+        if (in_array($normalized, [self::MAIN_MENU_CAT_ACADEMIC], true)) {
+            $bot->sendMessageWithMainMenu($chatId, '📊 <b>الأكاديمي</b> — اختر:', self::SUBMENU_ACADEMIC);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_CAT_COURSES], true)) {
+            $bot->sendMessageWithMainMenu($chatId, '📚 <b>المساقات والمحتوى</b> — اختر:', self::SUBMENU_COURSES);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_CAT_TOOLS], true)) {
+            $bot->sendMessageWithMainMenu($chatId, '🧠 <b>أدوات وذكاء اصطناعي</b> — اختر:', self::SUBMENU_AI_TOOLS);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_CAT_COMMUNITY], true)) {
+            $bot->sendMessageWithMainMenu($chatId, '🙋 <b>مجتمع ودعم</b> — اختر:', self::SUBMENU_COMMUNITY);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_CAT_ADMIN], true)) {
+            if (! $link->user->isStaff()) {
+                // ما المفروض يوصل هون أصلًا (الزر ما بيظهر إلا لحسابات الطاقم) — تجاهل صامت لأي محاولة يدوية.
+                return response()->json(['ok' => true]);
+            }
+
+            $bot->sendMessageWithMainMenu($chatId, '🛠️ <b>إدارة</b> — اختر:', self::SUBMENU_ADMIN);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_BACK, 'رجوع', 'القائمة الرئيسية', 'back'], true)) {
+            $bot->sendMessageWithMainMenu($chatId, '🏠 القائمة الرئيسية:', $this->buildMainMenuKeyboard($link->user));
+
+            return response()->json(['ok' => true]);
+        }
+
         if (in_array($normalized, [self::MAIN_MENU_PLAN, 'خطتي', 'plan'], true)) {
             $this->replyWithPlanSummary($bot, $chatId, $link->user, $planCalculator);
 
@@ -678,18 +774,13 @@ class TelegramWebhookController extends Controller
             $bot->sendMessageWithMainMenu(
                 $chatId,
                 "🧭 <b>دليلك باستخدام البوت</b> (نسخة تجريبية، رح تكبر تدريجيًا)\n\n".
-                "استخدم الأزرار الظاهرة تحت مربع الكتابة دايمًا للتنقل — ما في داعي تكتب أي شيء يدوي:\n\n".
-                "📊 خطتي — تقدّمك نحو التخرّج (الساعات المعتمدة).\n".
-                "🧮 معدلي — معدّلك التراكمي (عام + تفصيل لكل سنة وفصل) + أزرار تسجيل/تعديل/حذف علامة أي مادة، ومحاكي \"ماذا لو؟\" — كلها بمزامنة فورية مع حاسبة المعدل بالموقع.\n".
-                "📅 جدولي — جدول محاضراتك الأسبوعي + تذكير تلقائي قبل كل محاضرة بربع ساعة، وأزرار إضافة/تعديل/حذف/تفعيل التذكيرات مباشرة تحت الجدول.\n".
-                "📚 المساقات — تصفّح مساقات الخطة حسب السنة والفصل (أو المساقات الاختيارية أو الأدوات الهندسية أو 🌳 شجرة المساقات الكاملة بضغطة وحدة)، وشوف تفاصيل أي مادة: الساعات المعتمدة، المتطلبات السابقة واللاحقة، مواضيع تحضيرية، الأدوات المرتبطة، ومحتواها العام — كل هذا من غير ما تفتح الموقع.\n".
-                "📖 مساقاتي الحالية — مساقاتك المسجَّلة فعليًا، مع أزرار إضافة/حذف مساق مباشرة (تتزامن مع الصفحة الشخصية بالموقع فورًا).\n".
-                "⭐ مفضلاتي — كل الملفات يلي حفظتها من أي مادة، بروابطها المباشرة، بمكان وحد.\n".
-                "📤 شارك ملف/مصدر — عندك ملف أو مصدر مفيد لمادة معيّنة؟ اختر المادة (أو ادخل من داخل تفاصيلها مباشرة) وبنوصلك برابط جاهز لبوت رفع الملفات ببياناتك ومادتك معبّاة تلقائيًا.\n".
-                "🔍 بحث — دور بكلمة وحدة عن مادة أو محتوى أو أداة بنفس الوقت.\n".
-                "🧪 القائمة الذكية — معمل فيه أربع محطات ذكاء اصطناعي: مساعد أسئلة، ورشة أكواد (فحص/شرح/تحسين)، مولّد أسئلة، وتلخيص ملفات — بدّل بينها وقت ما بدك.\n".
+                "الأزرار الدائمة تحت مربع الكتابة صارت مقسومة لفئات حتى ما تحتاج سكرول طويل — اضغط فئة لتشوف أزرارها، واستخدم \"🔙 القائمة الرئيسية\" للرجوع منها بأي وقت:\n\n".
+                "📊 <b>الأكاديمي</b> — خطتي (تقدّمك نحو التخرّج)، معدلي (معدّلك التراكمي بالتفصيل + تسجيل/تعديل/حذف علامة مادة ومحاكي \"ماذا لو؟\")، جدولي (جدول محاضراتك + تذكير تلقائي قبل كل محاضرة).\n".
+                "📚 <b>المساقات والمحتوى</b> — المساقات (تصفّح الخطة سنة/فصل، أو 🌳 شجرة المساقات الكاملة، وتفاصيل أي مادة)، مساقاتي الحالية، مفضلاتي (كل ملف حفظته)، بحث (بكلمة وحدة عن مادة/محتوى/أداة).\n".
+                "🧠 <b>أدوات وذكاء اصطناعي</b> — القائمة الذكية (مساعد أسئلة، ورشة أكواد، مولّد أسئلة، تلخيص ملفات)، حاسبة الهندسة السريعة، دليل Multisim، مولّد UML.\n".
+                "🙋 <b>مجتمع ودعم</b> — مساعدة الطلاب (اسأل زملاءك أو ساعدهم)، التطبيق المصغّر (الموقع كامل جوّا تيليجرام)، تواصل معنا، شارك ملف/مصدر.\n".
                 "📷 ابعتلي صورة صفحة أو ملف PDF — رح ألخّصلك محتواها (بأي وضع).\n".
-                "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا.\n".
+                "💬 اكتب أي سؤال أو كود أو موضوع عادي — رح يردّ حسب الأداة المختارة حاليًا بـ\"🧠 أدوات وذكاء اصطناعي\".\n".
                 "🔎 بأي محادثة تيليجرام (حتى مجموعات الدراسة)، اكتب @".config('services.telegram.bot_username', 'اسم_البوت')." متبوعًا باسم مادة/أداة لتشاركها بضغطة وحدة، بدون فتح البوت.\n".
                 "❓ مساعدة — هاي القائمة.",
                 $this->buildMainMenuKeyboard($link->user)
@@ -3363,23 +3454,18 @@ class TelegramWebhookController extends Controller
      * ============================================================
      */
     /*
-     * لوحة القائمة الرئيسية — نفس self::MAIN_MENU_KEYBOARD لكل الطلاب،
-     * وصف إضافي "📢 نشر إعلان" لحسابات الإدارة فقط (User::isStaff())
-     * — مرحلة ٣.
+     * لوحة القائمة الرئيسية — نفس self::MAIN_MENU_KEYBOARD المختصر
+     * (٣ صفوف: فئتان + فئتان + مساعدة) لكل الطلاب، وفئة إضافية
+     * "🛠️ إدارة" لحسابات الإدارة فقط (User::isStaff()) بدل صفّين
+     * منفصلين كما كانت (راجع تعليق SUBMENU_ADMIN/MAIN_MENU_CAT_ADMIN
+     * فوق لسبب إعادة التنظيم بفئات).
      */
     private function buildMainMenuKeyboard(\App\Models\User $user): array
     {
         $keyboard = self::MAIN_MENU_KEYBOARD;
 
         if ($user->isStaff()) {
-            $keyboard[] = [
-                ['text' => self::MAIN_MENU_ADMIN_ANNOUNCE],
-                ['text' => self::MAIN_MENU_ADMIN_TOOLS],
-            ];
-            $keyboard[] = [
-                ['text' => self::MAIN_MENU_ADMIN_CONTENT],
-                ['text' => self::MAIN_MENU_ADMIN_COURSES],
-            ];
+            $keyboard[] = [['text' => self::MAIN_MENU_CAT_ADMIN]];
         }
 
         return $keyboard;
