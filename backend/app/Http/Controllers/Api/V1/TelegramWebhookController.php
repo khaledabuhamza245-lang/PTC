@@ -10546,8 +10546,8 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
             return;
         }
 
-        if (mb_strlen($normalized) > 800) {
-            $bot->sendMessage($chatId, 'الوصف طويل كتير 🙂 اختصره لأقل من 800 حرف.');
+        if (mb_strlen($normalized) > 3000) {
+            $bot->sendMessage($chatId, 'الوصف طويل كتير 🙂 اختصره لأقل من 3000 حرف.');
 
             return;
         }

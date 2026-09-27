@@ -253,7 +253,7 @@ class TelegramAiAssistant
 
         $raw = $this->callGemini($systemInstruction, [
             ['text' => $description],
-        ], tooLargeMessage: 'الوصف طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بمخطط لهذا الوصف، جرّب صياغة أوضح.', maxOutputTokens: 2000);
+        ], tooLargeMessage: 'الوصف طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بمخطط لهذا الوصف، جرّب صياغة أوضح.', maxOutputTokens: 3500);
 
         if (preg_match('/```(?:mermaid)?\s*(classDiagram[\s\S]*?)```/i', $raw, $m)) {
             return trim($m[1]);
