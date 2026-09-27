@@ -96,21 +96,43 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.open(CACHE_NAME).then(cache =>
       cache.match(request).then(cached => {
-        const networkUpdate = fetch(request)
-          .then(response => {
-            if (
-              response &&
-              response.ok &&
-              response.type === 'basic'
-            ) {
-              cache.put(request, response.clone());
-            }
+        const networkFetch = fetch(request).then(response => {
+          if (
+            response &&
+            response.ok &&
+            response.type === 'basic'
+          ) {
+            cache.put(request, response.clone());
+          }
 
-            return response;
-          })
-          .catch(() => null);
+          return response;
+        });
 
-        return cached || networkUpdate;
+        /*
+         * ⚠ إصلاح خطوة ١٠٩: النسخة السابقة كانت دومًا تُلحق
+         * `.catch(() => null)` بطلب الشبكة، وترجّع `cached || networkUpdate`
+         * (يعني تلك القيمة الموعودة نفسها، لا نتيجتها). لو ما في نسخة
+         * كاش أصلًا (أول زيارة فعلية لملف معيّن — بالضبط حالة أي طالب
+         * يفتح الموقع لأول مرة) وفشل طلب الشبكة (انقطاع لحظي، شبكة
+         * جامعة مزدحمة...)، كانت النتيجة `event.respondWith(null)` —
+         * قيمة غير صالحة تجعل المتصفح يعتبر تحميل الملف بالكامل فاشلًا
+         * بصمت. لملف مثل `core.js` (يحوي `API_CONFIG`/`API_READY`)، هذا
+         * يعني عدم تعريف المتغيّرين إطلاقًا، فتظهر شاشة "لم يتم ضبط
+         * رابط الباك إند" الخاصة بالتطوير المحلي لطالبة حقيقية على
+         * الإنتاج — رغم أن كل شيء بالخادم سليم ١٠٠٪ (تحقّقتُ مباشرة).
+         *
+         * الإصلاح: لو في كاش، رجّعه فورًا كالمعتاد وحدّث بالخلفية بهدوء
+         * (فشل التحديث هنا غير مهم — عنده نسخة معروضة أصلًا). لو ما في
+         * كاش، رجّع نتيجة الشبكة الحقيقية كما هي — نجاح يُرجع الملف
+         * طبيعيًا، وفشل حقيقي يُعامَل كخطأ شبكة عاديًا (نفس ما يحصل بأي
+         * موقع بلا service worker إطلاقًا)، لا كنجاح فارغ مضلِّل.
+         */
+        if (cached) {
+          networkFetch.catch(() => {});
+          return cached;
+        }
+
+        return networkFetch;
       })
     )
   );
