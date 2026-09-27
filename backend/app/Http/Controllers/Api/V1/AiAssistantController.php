@@ -1407,10 +1407,35 @@ class AiAssistantController extends Controller
 
         $text = $response->json('choices.0.message.content');
 
-        if (!$text) {
+        if (!$text || $this->looksLikeGarbageOpenRouterReply($text)) {
+            /* خطوة 110: 'openrouter/free' اسم عام يُوجَّه داخليًا لأي
+               نموذج مجاني متاح لحظتها — لا ضمان أنه نموذج محادثة أصلًا.
+               رُصد فعليًا رد "User Safety: safe" (تصنيف تصفية داخلي
+               مسرَّب من نموذج غير مخصَّص للمحادثة) عُرض حرفيًا لطالبة
+               كإجابة كاملة. بلا هذا الفحص، أي رد قصير/مشبوه كهذا كان
+               يُقبل كـ"نجاح" ويُعرض مباشرة بلا أي تحقق. */
+            \Log::warning('OpenRouter returned a suspicious/garbage reply, rejecting.', ['text' => $text]);
+
             return ['ok' => false, 'text' => null, 'rate_limited' => false];
         }
 
         return ['ok' => true, 'text' => $text, 'rate_limited' => false];
+    }
+
+    /**
+     * حراسة بسيطة ضد ردود غير حقيقية من نموذج مجاني ضعيف/غير مناسب
+     * وراء اسم 'openrouter/free' — لا تدّعي كشف كل حالة ممكنة، فقط أكثر
+     * الأنماط شيوعًا المرصودة فعليًا (تصنيفات سلامة مسرَّبة، ردود قصيرة
+     * جدًا لا يمكن أن تكون شرحًا حقيقيًا لسؤال دراسي).
+     */
+    private function looksLikeGarbageOpenRouterReply(string $text): bool
+    {
+        $trimmed = trim($text);
+
+        if (mb_strlen($trimmed) < 25) {
+            return true;
+        }
+
+        return (bool) preg_match('/^\s*(user\s*safety|safety\s*rating|content\s*flag)\b/i', $trimmed);
     }
 }
