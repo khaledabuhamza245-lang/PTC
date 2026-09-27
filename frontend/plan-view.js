@@ -1212,7 +1212,233 @@ const PTCPlanView = (function () {
      * من نفس آلية الطابور/الحفظ الدفعي (pending/drain) بدون أي حاجة
      * لتعديل منطق الحفظ بملف آخر، وتبقى إمكانية تعديل كل مساق على
      * حدة بعدها شغّالة تمامًا كالمعتاد.
+     *
+     * الزر أصلًا غير مفعّل افتراضيًا (IsCompleted=false) — ما بيتحول
+     * لحالة "منجز" إلا بضغطة يدوية فعلية من الطالب، أو لو كانت كل
+     * مساقات النطاق أصلًا منجزة يدويًا واحدًا واحدًا (نفس النتيجة
+     * البصرية، لأن الحالة تُحسب ديناميكيًا من واقع حالات المساقات
+     * الفعلية لا من أي علم/Flag منفصل مخزّن).
      */
+    function countScopeStatuses(scope) {
+      const picks =
+        [...scope.querySelectorAll('.plan-status-pick')];
+
+      const counts = {
+        total: picks.length,
+        completed: 0,
+        registered: 0,
+        dropped: 0,
+        none: 0,
+      };
+
+      picks.forEach(pick => {
+        const value =
+          STATUS[pick.value]
+            ? pick.value
+            : 'none';
+
+        counts[value] =
+          (counts[value] || 0) + 1;
+      });
+
+      return counts;
+    }
+
+    /*
+     * تصريف عربي مبسّط لعدد المساقات ضمن فئة معيّنة (منسحب/جارٍ/متبقٍ)
+     * — واحد بصيغة مفردة، اثنان بصيغة مثنّى صريحة (زي ما طلب المستخدم
+     * بالضبط لحالة "منجز ما عدا مساقين متبقيات")، وثلاثة فأكثر برقم.
+     */
+    function countedPhrase(count, forms) {
+      if (count === 1) return forms.one;
+      if (count === 2) return forms.two;
+      return count + ' ' + forms.plural;
+    }
+
+    const REMAINING_FORMS = {
+      one: 'مساق واحد متبقٍ',
+      two: 'مساقين متبقيات',
+      plural: 'مساقات متبقية',
+    };
+
+    const DROPPED_FORMS = {
+      one: 'مساق منسحب',
+      two: 'مساقين منسحبين',
+      plural: 'مساقات منسحبة',
+    };
+
+    const REGISTERED_FORMS = {
+      one: 'مساق جارٍ',
+      two: 'مساقين جاريين',
+      plural: 'مساقات جارية',
+    };
+
+    /*
+     * يبني حالة الزر (state + النص الظاهر + tooltip كامل) اعتمادًا
+     * فقط على مصفوفة حالات المساقات الحالية بهذا النطاق — بلا أي علم
+     * منفصل محفوظ، فتنعكس أي تعديل يدوي لاحق (تغيير حالة مساق واحد
+     * بعد تفعيل "منجز الكل") تلقائيًا بمجرد إعادة رسم/فحص الزر.
+     */
+    function bulkStateOf(scope) {
+      const counts =
+        countScopeStatuses(scope);
+
+      if (!counts.total) {
+        return { state: 'default', label: 'منجز الكل', title: '' };
+      }
+
+      if (counts.completed === counts.total) {
+        return {
+          state: 'done',
+          label: 'منجز الكل',
+          title: 'كل مساقات هذا النطاق مسجّلة كمنجزة — اضغط للتراجع',
+        };
+      }
+
+      if (counts.completed === 0) {
+        return {
+          state: 'default',
+          label: 'منجز الكل',
+          title: 'حدّد كل مساقات هذا النطاق كمنجزة دفعة واحدة',
+        };
+      }
+
+      const onlyRegistered =
+        counts.registered > 0
+        && counts.dropped === 0
+        && counts.none === 0;
+
+      if (onlyRegistered) {
+        const verb =
+          counts.registered === 1
+            ? 'ما زال'
+            : 'ما زالت';
+
+        const label =
+          'منجز لكن '
+          + verb
+          + ' '
+          + countedPhrase(
+              counts.registered,
+              REGISTERED_FORMS
+            );
+
+        return { state: 'partial', label, title: label };
+      }
+
+      const clauses = [];
+
+      if (counts.dropped > 0) {
+        clauses.push(
+          countedPhrase(
+            counts.dropped,
+            DROPPED_FORMS
+          )
+        );
+      }
+
+      if (counts.none > 0) {
+        clauses.push(
+          countedPhrase(
+            counts.none,
+            REMAINING_FORMS
+          )
+        );
+      }
+
+      if (counts.registered > 0) {
+        clauses.push(
+          countedPhrase(
+            counts.registered,
+            REGISTERED_FORMS
+          )
+        );
+      }
+
+      const label =
+        'منجز ما عدا '
+        + clauses.join(' و');
+
+      return { state: 'partial', label, title: label };
+    }
+
+    function renderBulkBtn(bulkBtn) {
+      const scopeSelector =
+        bulkBtn.dataset.planBulk
+          === 'year'
+          ? '.plan-year'
+          : '.plan-sem';
+
+      const scope =
+        bulkBtn.closest(scopeSelector);
+
+      if (!scope) return;
+
+      const info = bulkStateOf(scope);
+
+      bulkBtn.classList.remove(
+        'is-done',
+        'is-partial'
+      );
+
+      if (info.state === 'done') {
+        bulkBtn.classList.add('is-done');
+      } else if (info.state === 'partial') {
+        bulkBtn.classList.add('is-partial');
+      }
+
+      bulkBtn.title =
+        info.title
+        || 'حدّد كل مساقات هذا النطاق كمنجزة دفعة واحدة';
+
+      const iconName =
+        info.state === 'done'
+          ? 'checkCircle'
+          : (
+              info.state === 'partial'
+                ? 'circleDot'
+                : 'check'
+            );
+
+      bulkBtn.innerHTML =
+        `<i data-icon="${iconName}"></i> ${esc(info.label)}`;
+
+      if (
+        typeof renderIcons === 'function'
+      ) {
+        renderIcons(bulkBtn);
+      }
+    }
+
+    function refreshBulkButtons(root) {
+      (root || node)
+        .querySelectorAll('.plan-bulk-btn')
+        .forEach(renderBulkBtn);
+    }
+
+    function setPickStatus(pick, value) {
+      pick.value = value;
+
+      pick.className =
+        'plan-status-pick '
+        + statusClass(value);
+
+      const row =
+        pick.closest('.plan-row');
+
+      if (row) {
+        row.className =
+          'plan-row '
+          + statusClass(value);
+      }
+
+      opts.onStatusChange(
+        pick.dataset.planKey,
+        value,
+        pick
+      );
+    }
+
     function applyBulkDone(bulkBtn) {
       if (
         typeof opts.onStatusChange
@@ -1236,41 +1462,38 @@ const PTCPlanView = (function () {
         return;
       }
 
-      const picks =
-        [
-          ...scope.querySelectorAll(
-            '.plan-status-pick'
-          ),
-        ].filter(
-          pick =>
-            pick.value !== 'completed'
-        );
+      const info = bulkStateOf(scope);
 
-      picks.forEach(pick => {
-        pick.value = 'completed';
+      const allPicks =
+        [...scope.querySelectorAll(
+          '.plan-status-pick'
+        )];
 
-        pick.className =
-          'plan-status-pick '
-          + statusClass('completed');
+      /*
+       * لو النطاق كامل منجز أصلًا (الزر بحالة is-done)، الضغطة هاي
+       * تراجُع: ترجّع كل مساقاته لحالة "متبقٍ" — تصرّف زر تبديل
+       * (Toggle) واضح للطالب بدل ما يبقى الزر بلا أي فائدة إضافية
+       * بعد أول ضغطة.
+       */
+      if (info.state === 'done') {
+        allPicks.forEach(pick => {
+          setPickStatus(pick, 'none');
+        });
+      } else {
+        allPicks
+          .filter(
+            pick =>
+              pick.value !== 'completed'
+          )
+          .forEach(pick => {
+            setPickStatus(pick, 'completed');
+          });
+      }
 
-        const row =
-          pick.closest(
-            '.plan-row'
-          );
-
-        if (row) {
-          row.className =
-            'plan-row '
-            + statusClass('completed');
-        }
-
-        opts.onStatusChange(
-          pick.dataset.planKey,
-          'completed',
-          pick
-        );
-      });
+      refreshBulkButtons(node);
     }
+
+    refreshBulkButtons(node);
 
     node.onclick = event => {
       const bulkBtn =
@@ -1471,6 +1694,36 @@ const PTCPlanView = (function () {
         pick.value,
         pick
       );
+
+      /*
+       * تعديل يدوي لمساق واحد بعد ما كان النطاق (فصل/سنة) بحالة
+       * "منجز الكل" (أو أي حالة جزئية) لازم يحدّث شكل ونص زرّي
+       * "منجز الكل" (السنة + الفصل الحاوي) فورًا وبدون إعادة رسم
+       * كامل الصفحة.
+       */
+      const semScope =
+        pick.closest('.plan-sem');
+
+      const yearScope =
+        pick.closest('.plan-year');
+
+      if (semScope) {
+        const semBulkBtn =
+          semScope.querySelector(
+            ':scope > [data-plan-sem-head] .plan-bulk-btn'
+          );
+
+        if (semBulkBtn) renderBulkBtn(semBulkBtn);
+      }
+
+      if (yearScope) {
+        const yearBulkBtn =
+          yearScope.querySelector(
+            ':scope > [data-plan-year-head] .plan-bulk-btn'
+          );
+
+        if (yearBulkBtn) renderBulkBtn(yearBulkBtn);
+      }
     };
   }
 
