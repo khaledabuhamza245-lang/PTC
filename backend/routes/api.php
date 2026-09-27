@@ -61,6 +61,14 @@ Route::prefix('v1')->group(function () {
     Route::get('/queue/process-pending', [\App\Http\Controllers\Api\V1\QueueController::class, 'processPending']);
 
     /*
+     * نسخ احتياطي دوري تلقائي لقاعدة البيانات — خطوة 108. تُستدعى من
+     * cron-job.org (حساب موجود أصلًا بالمشروع) مرة يوميًا، وترسل ملف
+     * .sql مضغوط عبر بوت تيليجرام لمحادثة خاصة بالنسخ الاحتياطي —
+     * راجع شرح كامل بـBackupController::run.
+     */
+    Route::get('/backup/run', [\App\Http\Controllers\Api\V1\BackupController::class, 'run']);
+
+    /*
      * استقبال تحديثات بوت "المساعد الأكاديمي" (Webhook) — بوت تجريبي
      * منفصل بالكامل عن telegram-upload، مرحلة أولى (ربط الحساب فقط).
      * الحماية برمز سرّي بالترويسة (X-Telegram-Bot-Api-Secret-Token)
