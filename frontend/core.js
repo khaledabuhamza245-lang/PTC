@@ -2921,6 +2921,84 @@ const QuranAudio=(function(){
 })();
 
 
+/* ============================================================
+   أيقونة بوت تيليجرام بشريط التنقّل (بجانب البحث/تثبيت التطبيق) —
+   تظهر فقط للطالب المسجّل دخوله (بلا معنى قبل ذلك). بضغطة واحدة:
+   لو حسابه لسا غير مربوط بتيليجرام، تنقله لبطاقة الربط بصفحة
+   الحساب (account.html#tgLinkCard)؛ لو مربوط فعلًا، تفتحله محادثة
+   البوت مباشرة بتبويب جديد (بلا حاجة يدوّر عليه بتيليجرام بنفسه).
+   حالة الربط تُجلب مرة وتُخزَّن مؤقتًا (تُعاد فقط عند ptc-auth-change
+   الفعلي، لا كل مرة تُبنى الأيقونة) لتفادي نداء API متكرر بلا داعٍ.
+   ============================================================ */
+(function(){
+  let btnEl=null;
+  let statusPromise=null;
+  let lastUserKey=null;
+
+  function fetchStatus(){
+    if(typeof PTCApi==='undefined') return Promise.resolve(null);
+    return PTCApi.get('/me/telegram-link')
+      .then(res=>(res && res.data) || null)
+      .catch(()=>null);
+  }
+
+  function buildBtn(){
+    if(btnEl) return btnEl;
+    const host=document.querySelector('.nav-actions');
+    if(!host) return null;
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='theme-btn tg-nav-btn';
+    btn.setAttribute('aria-label','بوت تيليجرام');
+    btn.title='بوت تيليجرام';
+    btn.innerHTML=(typeof ic==='function') ? ic('send',18) : '';
+    btn.addEventListener('click',onClick);
+    host.insertBefore(btn,host.firstChild);
+    btnEl=btn;
+    return btn;
+  }
+
+  function removeBtn(){
+    btnEl?.remove();
+    btnEl=null;
+  }
+
+  async function onClick(){
+    if(btnEl) btnEl.disabled=true;
+    try{
+      const data=await (statusPromise || fetchStatus());
+      if(data && data.linked && data.bot_url){
+        window.open(data.bot_url,'_blank','noopener');
+      } else {
+        location.href='account.html#tgLinkCard';
+      }
+    } finally {
+      if(btnEl) btnEl.disabled=false;
+    }
+  }
+
+  async function render(){
+    if(typeof PTCAuth==='undefined') return;
+    const u=PTCAuth.user;
+    if(!u){
+      removeBtn();
+      lastUserKey=null;
+      statusPromise=null;
+      return;
+    }
+    if(!document.querySelector('.nav-actions')) return;
+    buildBtn();
+    if(lastUserKey!==u.id){
+      lastUserKey=u.id;
+      statusPromise=fetchStatus();
+    }
+  }
+
+  window.addEventListener('ptc-auth-change',render);
+  window.addEventListener('DOMContentLoaded',()=>setTimeout(render,400));
+})();
+
+
 
 const isLocalHost=['localhost','127.0.0.1','::1'].includes(location.hostname);
 if('serviceWorker' in navigator && location.protocol!=='file:' && !isLocalHost){
@@ -4431,10 +4509,15 @@ if('serviceWorker' in navigator && location.protocol!=='file:' && !isLocalHost){
   let navBtnEl = null;
 
   /* أيقونة دائمة بشريط التنقّل (بجانب زر الوضع الليلي/النهاري) —
-     تظهر فقط باللحظة اللي يصير فيها فعليًا حدث تثبيت جاهز من
-     المتصفح (نفس لحظة ظهور أيقونة "تثبيت" الأصلية بشريط عنوان
-     Chrome على سطح المكتب) — تثبيت مباشر بضغطة واحدة، بلا أي
-     تخمين ولا داعي يدوّر الطالب بقوائم المتصفح بنفسه. */
+     تظهر بكل المتصفحات دومًا (لا تعتمد على وصول حدث beforeinstallprompt
+     أصلًا) لأن فايرفوكس (وأحيانًا أوبرا حسب الإصدار/الإعدادات) لا يرسل
+     هذا الحدث إطلاقًا — لا يوجد أي واجهة برمجية بديلة تتيح تثبيتًا
+     بضغطة واحدة هناك، هذا قيد منصّة حقيقي لا حل برمجي له من جهتنا.
+     الضغطة نفسها (triggerFromMenu) تتصرف حسب المتصفح: لو الحدث وصل
+     فعليًا (Chrome/Edge غالبًا) تفتح نافذة التثبيت الرسمية مباشرة؛
+     غير هيك تعرض توجيهًا واضحًا بالخطوات اليدوية (سفاري/فايرفوكس/
+     أي متصفح آخر) بدل ما تختفي الأيقونة بصمت وتوهم الطالب إنه ما
+     في طريقة للتثبيت أصلًا. */
   function buildNavButton(){
     if(navBtnEl) return navBtnEl;
     const host = document.querySelector('.nav-actions');
@@ -4445,14 +4528,14 @@ if('serviceWorker' in navigator && location.protocol!=='file:' && !isLocalHost){
     btn.setAttribute('aria-label', 'تثبيت التطبيق');
     btn.title = 'تثبيت التطبيق';
     btn.innerHTML = `${(typeof ic === 'function') ? ic('download', 18) : ''}<span class="pwa-nav-ping"></span><span class="pwa-nav-dot"></span>`;
-    btn.addEventListener('click', doInstall);
+    btn.addEventListener('click', triggerFromMenu);
     host.insertBefore(btn, host.firstChild);
     navBtnEl = btn;
     return btn;
   }
 
   function showNavButton(){
-    if(isStandalone() || !deferredPrompt) return;
+    if(isStandalone()) return;
     const btn = buildNavButton();
     btn?.classList.add('show');
   }
@@ -4527,6 +4610,18 @@ if('serviceWorker' in navigator && location.protocol!=='file:' && !isLocalHost){
     if(recentlyDismissed()) return;
     setTimeout(show, 2500);
   });
+
+  /*
+   * إظهار الأيقونة فورًا بكل الأحوال بمجرد جاهزية الصفحة، بلا انتظار
+   * لحدث beforeinstallprompt (قد لا يصل إطلاقًا بفايرفوكس/أوبرا).
+   * لو وصل الحدث لاحقًا (Chrome/Edge)، showNavButton أعلاه تُستدعى
+   * مرة ثانية بلا أي ضرر (classList.add('show') فقط).
+   */
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', showNavButton);
+  } else {
+    showNavButton();
+  }
 
   window.addEventListener('appinstalled', ()=>{
     hide();

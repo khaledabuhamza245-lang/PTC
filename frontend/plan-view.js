@@ -718,6 +718,21 @@ const PTCPlanView = (function () {
             )} مساق
           </em>
 
+          ${
+            editable
+              ? `
+                <button
+                  type="button"
+                  class="plan-bulk-btn"
+                  data-plan-bulk="sem"
+                  title="حدّد كل مساقات هذا الفصل كمنجزة دفعة واحدة"
+                >
+                  <i data-icon="check"></i> منجز الكل
+                </button>
+              `
+              : ''
+          }
+
           <span
             class="plan-sem-chev"
             aria-hidden="true"
@@ -949,9 +964,11 @@ const PTCPlanView = (function () {
                   year.year
                 )}"
               >
-                <button
-                  type="button"
+                <div
                   class="plan-year-head"
+                  data-plan-year-head
+                  role="button"
+                  tabindex="0"
                   aria-expanded="${
                     isYearOpen
                       ? 'true'
@@ -976,10 +993,25 @@ const PTCPlanView = (function () {
                     )} ساعة
                   </em>
 
+                  ${
+                    editable
+                      ? `
+                        <button
+                          type="button"
+                          class="plan-bulk-btn"
+                          data-plan-bulk="year"
+                          title="حدّد كل مساقات هذه السنة كمنجزة دفعة واحدة"
+                        >
+                          <i data-icon="check"></i> منجز الكل
+                        </button>
+                      `
+                      : ''
+                  }
+
                   <span class="chev">
                     ▼
                   </span>
-                </button>
+                </div>
 
                 <div
                   class="plan-year-body"
@@ -1170,7 +1202,92 @@ const PTCPlanView = (function () {
       }
     }
 
+    /*
+     * زر "منجز الكل" (سنة كاملة أو فصل واحد) — يقرأ كل خانات
+     * ".plan-status-pick" الفعلية بنفس نطاق السنة/الفصل (تستثني
+     * تلقائيًا أي خانة اختيارية فارغة/مقفلة، لأنها أصلًا لا تملك
+     * select حقيقي، راجع statusCell)، ويتجاهل أي مساق "منجز" أصلًا
+     * كي لا يرسل نداء حفظ لا داعي له، ثم يمرّ كل واحد عبر نفس
+     * opts.onStatusChange المستخدم لكل تغيير فردي — فيستفيد تلقائيًا
+     * من نفس آلية الطابور/الحفظ الدفعي (pending/drain) بدون أي حاجة
+     * لتعديل منطق الحفظ بملف آخر، وتبقى إمكانية تعديل كل مساق على
+     * حدة بعدها شغّالة تمامًا كالمعتاد.
+     */
+    function applyBulkDone(bulkBtn) {
+      if (
+        typeof opts.onStatusChange
+          !== 'function'
+      ) {
+        return;
+      }
+
+      const scopeSelector =
+        bulkBtn.dataset.planBulk
+          === 'year'
+          ? '.plan-year'
+          : '.plan-sem';
+
+      const scope =
+        bulkBtn.closest(
+          scopeSelector
+        );
+
+      if (!scope) {
+        return;
+      }
+
+      const picks =
+        [
+          ...scope.querySelectorAll(
+            '.plan-status-pick'
+          ),
+        ].filter(
+          pick =>
+            pick.value !== 'completed'
+        );
+
+      picks.forEach(pick => {
+        pick.value = 'completed';
+
+        pick.className =
+          'plan-status-pick '
+          + statusClass('completed');
+
+        const row =
+          pick.closest(
+            '.plan-row'
+          );
+
+        if (row) {
+          row.className =
+            'plan-row '
+            + statusClass('completed');
+        }
+
+        opts.onStatusChange(
+          pick.dataset.planKey,
+          'completed',
+          pick
+        );
+      });
+    }
+
     node.onclick = event => {
+      const bulkBtn =
+        event.target.closest(
+          '.plan-bulk-btn'
+        );
+
+      if (
+        bulkBtn
+        && node.contains(bulkBtn)
+        && editable
+      ) {
+        applyBulkDone(bulkBtn);
+
+        return;
+      }
+
       const changeBtn =
         event.target.closest(
           '.plan-elective-change'
@@ -1234,6 +1351,20 @@ const PTCPlanView = (function () {
         return;
       }
 
+      /*
+       * زر "منجز الكل" نفسه <button> حقيقي — تفعيله بلوحة المفاتيح
+       * (Enter/مسافة) يطلق click حدثه الطبيعي تلقائيًا من المتصفح،
+       * فلا داعي لأي معالجة إضافية هون؛ نمنع فقط أن يلتقطها معالج
+       * تبديل السنة/الفصل الأب (لأن الزر متداخل بداخل رأس السنة).
+       */
+      if (
+        event.target.closest(
+          '.plan-bulk-btn'
+        )
+      ) {
+        return;
+      }
+
       const semesterHead =
         event.target.closest(
           '[data-plan-sem-head]'
@@ -1250,6 +1381,22 @@ const PTCPlanView = (function () {
         toggleSemester(
           semesterHead
         );
+
+        return;
+      }
+
+      const yearHead =
+        event.target.closest(
+          '[data-plan-year-head]'
+        );
+
+      if (
+        yearHead
+        && node.contains(yearHead)
+      ) {
+        event.preventDefault();
+
+        toggleYear(yearHead);
       }
     };
 

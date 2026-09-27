@@ -57,10 +57,17 @@ class TelegramLinkController extends Controller
     {
         $link = TelegramLink::where('user_id', $request->user()->id)->first();
 
+        $botUsername = (string) config('services.telegram.bot_username', '');
+
         return response()->json([
             'data' => [
                 'linked' => (bool) ($link?->isLinked()),
                 'telegram_first_name' => $link?->telegram_first_name,
+                // رابط فتح البوت مباشرة (لأيقونة تيليجرام بشريط التنقّل
+                // بالموقع — بلا أي حاجة لتضمين اسم البوت بالواجهة نفسها،
+                // فيبقى شغّالًا صح حتى لو تغيّر اسم البوت أو استخدمنا بوت
+                // اختبار منفصل ببيئة مختلفة).
+                'bot_url' => $botUsername !== '' ? "https://t.me/{$botUsername}" : null,
             ],
         ]);
     }
