@@ -151,14 +151,37 @@ class TelegramWebhookController extends Controller
     private const MAIN_MENU_MINIAPP = '🌐 التطبيق المصغّر';
     private const MAIN_MENU_PEER_HELP = '🙋 مساعدة الطلاب';
 
+    // ثلاث ميزات إضافية (جلسة سابعة، جزء 2) — آخر 3 أفكار من الـ6
+    // المقترحة أصلًا، اشتُغلن أثناء انقطاع جهاز المستخدم (لابتوبه بلا
+    // شاحن) بناءً على تفويضه المباشر "اشتغل وجهّزهم بالكامل":
+    // - "📖 دليل Multisim" محتوى ثابت (لا AI ولا DB) عن برنامج NI
+    //   Multisim، منفصل تمامًا عن سجل "NI Multisim" الموجود مسبقًا
+    //   بكتالوج self::MAIN_MENU_TOOLS (Tool model) — هذا دليل استخدام
+    //   تفاعلي، وذاك كتالوج/رابط تحميل فقط (الدليل يربط له بزر تحميل).
+    // - "🧩 مولّد UML" يستخدم Gemini (عبر TelegramAiAssistant) لتوليد
+    //   كود Mermaid classDiagram من وصف الطالب بالعربي، ثم يرندره صورة
+    //   PNG عبر mermaid.ink العامة (بلا أي مكتبة رسم على السيرفر).
+    // - "📅 رادار الفرص والفعاليات" (events: بالأسفل) — الكود والجدول
+    //   جاهزان بالكامل (راجع App\Models\Event وhandleEventCallback/
+    //   handleEventTextInput تحت)، لكن الميزة **معطّلة عمدًا مؤقتًا**
+    //   بقرار المستخدم (رجّأها لجولة لاحقة) — زر القائمة الرئيسية
+    //   ومطابقة النص أُزيلا حتى ما توصل لأي طالب فعليًا، وجدول
+    //   `events` نفسه لسا ما اتشغّل بـphpMyAdmin (step96) أصلًا. لتفعيلها
+    //   لاحقًا: رجّع صف MAIN_MENU_EVENTS بـMAIN_MENU_KEYBOARD تحت + كتلة
+    //   المطابقة النصية بـ__invoke() (كانتا موجودتين بجلسة سابعة/جزء 2
+    //   قبل التعطيل)، وشغّل step96_run_this_in_phpmyadmin.sql أولًا.
+    private const MAIN_MENU_MULTISIM = '📖 دليل Multisim';
+    private const MAIN_MENU_UML = '🧩 مولّد UML';
+
     private const MAIN_MENU_KEYBOARD = [
         [['text' => self::MAIN_MENU_PLAN], ['text' => self::MAIN_MENU_GPA]],
         [['text' => self::MAIN_MENU_SCHEDULE], ['text' => self::MAIN_MENU_COURSES]],
         [['text' => self::MAIN_MENU_SEARCH], ['text' => self::MAIN_MENU_TOOLS]],
         [['text' => self::MAIN_MENU_MY_COURSES], ['text' => self::MAIN_MENU_FAVORITES]],
         [['text' => self::MAIN_MENU_PEER_HELP], ['text' => self::MAIN_MENU_MINIAPP]],
-        [['text' => self::MAIN_MENU_CONTACT], ['text' => self::MAIN_MENU_CONTRIBUTE]],
-        [['text' => self::MAIN_MENU_HELP], ['text' => self::MAIN_MENU_CALC]],
+        [['text' => self::MAIN_MENU_MULTISIM], ['text' => self::MAIN_MENU_UML]],
+        [['text' => self::MAIN_MENU_CALC], ['text' => self::MAIN_MENU_CONTACT]],
+        [['text' => self::MAIN_MENU_CONTRIBUTE], ['text' => self::MAIN_MENU_HELP]],
     ];
 
     // جداول ثوابت "حاسبة المقاومات والمكثفات" (كود ألوان المقاومات
@@ -389,6 +412,12 @@ class TelegramWebhookController extends Controller
                 $this->handleCalcCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'qa:')) {
                 $this->handleQaCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'ms:')) {
+                $this->handleMultisimCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'uml:')) {
+                $this->handleUmlCallback($bot, $aiAssistant, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'event:')) {
+                $this->handleEventCallback($bot, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -544,6 +573,7 @@ class TelegramWebhookController extends Controller
                 self::MAIN_MENU_ADMIN_CONTENT, self::MAIN_MENU_ADMIN_COURSES, self::MAIN_MENU_MY_COURSES,
                 self::MAIN_MENU_FAVORITES, self::MAIN_MENU_CONTACT, self::MAIN_MENU_CONTRIBUTE,
                 self::MAIN_MENU_CALC, self::MAIN_MENU_MINIAPP, self::MAIN_MENU_PEER_HELP,
+                self::MAIN_MENU_MULTISIM, self::MAIN_MENU_UML,
             ];
 
             if (! $hasMedia && in_array(trim($text), $mainMenuButtons, true)) {
@@ -582,6 +612,12 @@ class TelegramWebhookController extends Controller
                 $this->handleCalcTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'qa_')) {
                 $this->handleQaTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'ms_')) {
+                $this->handleMultisimTextInput($bot, $aiAssistant, $link, $chatId, $text);
+            } elseif ($pendingAction === 'uml_describe') {
+                $this->handleUmlTextInput($bot, $aiAssistant, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'event_')) {
+                $this->handleEventTextInput($bot, $link, $chatId, $text);
             } else {
                 $this->handleScheduleTextInput($bot, $link, $chatId, $text);
             }
@@ -687,6 +723,22 @@ class TelegramWebhookController extends Controller
 
             return response()->json(['ok' => true]);
         }
+
+        if (in_array($normalized, [self::MAIN_MENU_MULTISIM, 'دليل Multisim', 'Multisim', 'multisim'], true)) {
+            $link->update(['pending_action' => null]);
+            $this->sendMultisimMenu($bot, $chatId);
+
+            return response()->json(['ok' => true]);
+        }
+
+        if (in_array($normalized, [self::MAIN_MENU_UML, 'مولد UML', 'UML', 'uml'], true)) {
+            $this->sendUmlIntro($bot, $chatId, $link);
+
+            return response()->json(['ok' => true]);
+        }
+
+        // "📅 رادار الفرص والفعاليات" معطّلة مؤقتًا بقرار المستخدم — راجع
+        // تعليق MAIN_MENU_MULTISIM/MAIN_MENU_UML فوق لطريقة إعادة تفعيلها.
 
         if (in_array($normalized, [self::MAIN_MENU_SCHEDULE, 'جدولي', 'جدول', 'الجدول', 'schedule'], true)) {
             $this->replyWithScheduleSummary($bot, $chatId, $link);
@@ -10024,5 +10076,626 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
             [$text, $keyboard] = $this->qaAnswerMessagePayload($answer);
             $bot->editMessageText($chatId, $messageId, $text, $keyboard);
         }
+    }
+
+    /*
+     * ============================================================
+     * ميزة "📖 دليل Multisim" (جلسة سابعة، جزء 2) — دليل استخدام ثابت
+     * (لا AI ولا DB) لبرنامج NI Multisim، منفصل تمامًا عن سجل "NI
+     * Multisim" الموجود مسبقًا بكتالوج self::MAIN_MENU_TOOLS (Tool
+     * model) — هذا شرح تفاعلي بخطوات، وذاك كتالوج/رابط تحميل فقط
+     * (قسم "⬇️ تحميل البرنامج" بالأسفل يربط لنفس سجل Tool بدل تكرار
+     * الرابط يدويًا، حتى ما يصير مصدرين مختلفين لنفس الرابط).
+     * مخطط callback_data: ms:menu | ms:section:{key} | ms:ask.
+     * ============================================================
+     */
+    private const MULTISIM_SECTIONS = [
+        'start' => [
+            'title' => '🚀 البداية السريعة',
+            'body' => "بعد فتح Multisim، أول شي بتشوفه: لوحة رسم فاضية بالنص، وعلى اليمين مكتبة القطع (Component Toolbar)، وفوق شريط أدوات القياس والمحاكاة.\n\n".
+                "الخطوات الأساسية لأي دائرة جديدة:\n".
+                "1️⃣ File → New → Schematic Capture (أو Ctrl+N) لفتح لوحة رسم جديدة.\n".
+                "2️⃣ اسحب القطع من مكتبة اليمين (Place → Component لو ما شفتها) وحطها على اللوحة.\n".
+                "3️⃣ وصّل بين أطراف القطع بالماوس (بيصير مؤشر + عند الاقتراب من أي طرف — اضغط واسحب لطرف تاني).\n".
+                "4️⃣ لازم أرضي (Ground) بكل دائرة — بدونه المحاكاة بترفض تشتغل. تلاقيه بمجموعة Sources.\n".
+                "5️⃣ اضغط زر التشغيل (▶️ أخضر أعلى الشاشة، أو F5) لبدء المحاكاة.",
+        ],
+        'parts' => [
+            'title' => '🧰 المكوّنات الأساسية',
+            'body' => "أهم المجموعات يلي رح تحتاجها بمعظم مساقات الكهرباء/الإلكترونيات بالكلية:\n\n".
+                "🔋 Sources — مصادر الجهد/التيار (DC، AC، أرضي Ground).\n".
+                "🔧 Basic — مقاومات (Resistor)، مكثفات (Capacitor)، ملفات (Inductor)، مفاتيح.\n".
+                "⚡ Diodes / Transistors — دايودات وترانزستورات BJT/MOSFET.\n".
+                "🔌 Analog — مضخّمات عمليّاتية (Op-Amp) جاهزة.\n".
+                "💻 Digital — بوابات منطقية (AND/OR/NOT...)، فليب فلوب، عدّادات.\n".
+                "📟 Instruments (أسفل يمين الشاشة) — أهم جزء: أجهزة قياس افتراضية (Multimeter، Oscilloscope، Function Generator) اسحبها وحطها بالدائرة زي أي قطعة عادية.",
+        ],
+        'sim' => [
+            'title' => '▶️ تشغيل المحاكاة والقياس',
+            'body' => "بعد ما توصّل الدائرة وتحطّ جهاز قياس (مثلًا Multimeter أو Oscilloscope من Instruments):\n\n".
+                "1️⃣ دبل-كليك على جهاز القياس نفسه بلوحة الرسم لفتح شاشته (مش نافذة الخصائص).\n".
+                "2️⃣ اضغط ▶️ تشغيل (أو F5) — بتشتغل الدائرة فعليًا وتبدأ القيم تتحدّث لحظيًا.\n".
+                "3️⃣ لأي قياس بالزمن (إشارات متغيّرة) استخدم Oscilloscope: وصّل قناة CH1/CH2 لنقطة القياس، واضبط Time/Div وVolts/Div لحتى يظهر الشكل الموجي بوضوح.\n".
+                "4️⃣ اضغط ⏸️ (مربع التوقف) لإيقاف المحاكاة قبل ما تعدّل أي قطعة — التعديل أثناء التشغيل ممكن يعطي نتائج غلط.\n".
+                "💡 نصيحة: قبل التسليم قارن قيمك المقاسة بالحساب اليدوي (قانون أوم مثلًا) — الفرق الكبير غالبًا يعني وصلة غلط أو أرضي ناقص.",
+        ],
+        'trouble' => [
+            'title' => '🛠️ حل المشاكل الشائعة',
+            'body' => "أكتر المشاكل يلي بتواجه الطلاب بالمعمل الافتراضي، وحلها المباشر:\n\n".
+                "❌ \"Simulation did not converge\" — غالبًا دائرة بدون أرضي (Ground)، أو قيمة قطعة غير واقعية (مثلًا مقاومة 0Ω مباشرة على مصدر). ضيف Ground وتأكد من القيم.\n".
+                "❌ القراءة صفر أو ثابتة — تأكد إنك ضغطت ▶️ تشغيل فعليًا (مش بس فتحت شاشة الجهاز)، وإنه في وصلة فعلية (خط أخضر متصل، لا خط منقّط يعني وصلة ناقصة).\n".
+                "❌ القطعة \"محروقة\" (تظهر بلون مختلف) — تجاوزت الحد الأقصى المسموح (تيار/جهد) — تحقق من التوصيل قبل التشغيل.\n".
+                "❌ ما بتلاقي قطعة معيّنة — استخدم بحث المكوّنات (Place → Component → اكتب الاسم بخانة Search) بدل التصفح اليدوي.\n".
+                "❌ البرنامج بطيء أو عالق — قلّل عدد الأجهزة الافتراضية المفتوحة بنفس الوقت، أو أغلق الدارات القديمة غير المستخدمة.",
+        ],
+    ];
+
+    private function sendMultisimMenu(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $rows = [];
+        foreach (self::MULTISIM_SECTIONS as $key => $section) {
+            $rows[] = [['text' => $section['title'], 'callback_data' => 'ms:section:'.$key]];
+        }
+        $rows[] = [['text' => '⬇️ تحميل البرنامج', 'callback_data' => 'ms:section:download']];
+        $rows[] = [['text' => '🤖 اسأل عن Multisim', 'callback_data' => 'ms:ask']];
+
+        $bot->sendMessage(
+            $chatId,
+            "📖 <b>دليل Multisim</b>\n\nدليل سريع لاستخدام NI Multisim (محاكي الدوائر المستخدم بمساقات الكهرباء/الإلكترونيات) — اختر قسمًا:",
+            $rows
+        );
+    }
+
+    private function sendMultisimSection(TelegramBotApi $bot, int|string $chatId, string $key): void
+    {
+        if ($key === 'download') {
+            $tool = Tool::query()->where('is_active', true)->where('name', 'like', '%Multisim%')->first();
+
+            $rows = [[['text' => '⬅️ رجوع للدليل', 'callback_data' => 'ms:menu']]];
+            $text = "⬇️ <b>تحميل NI Multisim</b>\n\n";
+
+            if ($tool && $tool->official_url) {
+                $text .= TelegramBotApi::escapeHtml((string) $tool->description)."\n\nرابط التحميل الرسمي بالأسفل ⬇️";
+                array_unshift($rows, [['text' => '🔗 صفحة التحميل الرسمية', 'url' => $tool->official_url]]);
+            } else {
+                $text .= 'ما لقينا رابط تحميل مسجَّل حاليًا بكتالوج الأدوات — دوّر عن "NI Multisim" بموقع NI الرسمي، أو اسأل الدكتور المسؤول عن المساق.';
+            }
+
+            $bot->sendMessage($chatId, $text, $rows);
+
+            return;
+        }
+
+        $section = self::MULTISIM_SECTIONS[$key] ?? null;
+
+        if (! $section) {
+            $this->sendMultisimMenu($bot, $chatId);
+
+            return;
+        }
+
+        $bot->sendMessage(
+            $chatId,
+            '<b>'.TelegramBotApi::escapeHtml($section['title'])."</b>\n\n".TelegramBotApi::escapeHtml($section['body']),
+            [
+                [['text' => '⬅️ رجوع للدليل', 'callback_data' => 'ms:menu']],
+                [['text' => '🤖 اسأل عن Multisim', 'callback_data' => 'ms:ask']],
+            ]
+        );
+    }
+
+    private function handleMultisimCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('ms:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        if ($key === 'menu') {
+            $this->sendMultisimMenu($bot, $chatId);
+
+            return;
+        }
+
+        if ($key === 'section') {
+            $this->sendMultisimSection($bot, $chatId, (string) ($parts[1] ?? ''));
+
+            return;
+        }
+
+        if ($key === 'ask') {
+            $link->update(['pending_action' => ['action' => 'ms_ask', 'step' => 'enter_question', 'data' => []]]);
+            $bot->sendMessage($chatId, "🤖 اكتب سؤالك عن Multisim (تعامل مع قطعة معيّنة، رسالة خطأ، طريقة قياس...):\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+            return;
+        }
+
+        $this->sendMultisimMenu($bot, $chatId);
+    }
+
+    /*
+     * نص حر بمنتصف "🤖 اسأل عن Multisim" — نلف السؤال بسياق واضح ونمرره
+     * لنفس TelegramAiAssistant::askText العام (مؤهَّل أصلًا لمواضيع
+     * هندسة الحاسوب المتخصصة)، بدل فتح مسار AI منفصل بالكامل لسؤال واحد.
+     */
+    private function handleMultisimTextInput(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        $link->update(['pending_action' => null]);
+
+        try {
+            $answer = $aiAssistant->askText($link->user, 'سؤال طالب عن برنامج NI Multisim (محاكي دوائر): '.$normalized);
+            $bot->sendMessage(
+                $chatId,
+                '🤖 '.TelegramBotApi::escapeHtml($answer),
+                [
+                    [['text' => '📖 دليل Multisim', 'callback_data' => 'ms:menu']],
+                ]
+            );
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException ? $error->getMessage() : 'صار خطأ غير متوقع، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $bot->sendMessage($chatId, '⚠️ '.$friendly);
+        }
+    }
+
+    /*
+     * ============================================================
+     * ميزة "🧩 مولّد UML" (جلسة سابعة، جزء 2) — الطالب يوصف صف/نظام
+     * بسيط بالعربي، ونولّد كود Mermaid classDiagram عبر Gemini
+     * (TelegramAiAssistant::generateUmlDiagram)، ثم نرندره صورة PNG
+     * عبر mermaid.ink العامة (بلا مكتبة رسم على السيرفر) ونبعتها
+     * بـTelegramBotApi::sendPhoto. لو فشل التوليد أو الرندر، نرجع
+     * لخطة بديلة نصية: كود Mermaid الخام + تعليمات لصقه بـmermaid.live.
+     * مخطط callback_data: uml:new | uml:cancel.
+     * ============================================================
+     */
+    private function sendUmlIntro(TelegramBotApi $bot, int|string $chatId, ?TelegramLink $link = null): void
+    {
+        if ($link) {
+            $link->update(['pending_action' => ['action' => 'uml_describe', 'step' => 'enter_description', 'data' => []]]);
+        }
+
+        $bot->sendMessage(
+            $chatId,
+            "🧩 <b>مولّد UML</b>\n\n".
+            "صف لي صف (class) أو أكثر بالعربي أو الإنجليزي — الخصائص، الدوال، والعلاقات بينهم لو في أكتر من صف — وبولّدلك مخطط UML جاهز كصورة.\n\n".
+            "مثال: \"صف Car فيه اسم ولون وسرعة، ودالة تسريع وفرملة\"\n\n".
+            'اكتب وصفك الآن، أو اضغط "❌ إلغاء":',
+            [
+                [['text' => '❌ إلغاء', 'callback_data' => 'uml:cancel']],
+            ]
+        );
+    }
+
+    private function handleUmlCallback(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $key = substr($data, strlen('uml:'));
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        if ($key === 'cancel') {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        // 'new' أو أي قيمة غير معروفة — إعادة عرض شاشة الوصف من جديد.
+        $this->sendUmlIntro($bot, $chatId, $link);
+    }
+
+    private function handleUmlTextInput(TelegramBotApi $bot, TelegramAiAssistant $aiAssistant, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        if (mb_strlen($normalized) < 5) {
+            $bot->sendMessage($chatId, 'وصف قصير كتير 🙂 وضّح أكتر (اسم الصف، خصائصه، دواله).');
+
+            return;
+        }
+
+        if (mb_strlen($normalized) > 800) {
+            $bot->sendMessage($chatId, 'الوصف طويل كتير 🙂 اختصره لأقل من 800 حرف.');
+
+            return;
+        }
+
+        $link->update(['pending_action' => null]);
+
+        $newButtons = [
+            [['text' => '🔁 مخطط جديد', 'callback_data' => 'uml:new']],
+        ];
+
+        try {
+            $mermaidCode = $aiAssistant->generateUmlDiagram($link->user, $normalized);
+        } catch (\Throwable $error) {
+            $friendly = $error instanceof \RuntimeException ? $error->getMessage() : 'صار خطأ غير متوقع أثناء توليد المخطط، جرّب مرة أخرى.';
+
+            if (! $error instanceof \RuntimeException) {
+                report($error);
+            }
+
+            $bot->sendMessage($chatId, '⚠️ '.$friendly, $newButtons);
+
+            return;
+        }
+
+        $encoded = rtrim(strtr(base64_encode($mermaidCode), '+/', '-_'), '=');
+        $localPath = null;
+
+        try {
+            $response = Http::timeout(20)->get("https://mermaid.ink/img/{$encoded}", ['type' => 'png']);
+
+            if ($response->successful() && str_starts_with((string) $response->header('Content-Type'), 'image/')) {
+                $localPath = tempnam(sys_get_temp_dir(), 'uml_') . '.png';
+                file_put_contents($localPath, $response->body());
+            }
+        } catch (\Throwable $error) {
+            report($error);
+        }
+
+        if ($localPath) {
+            $bot->sendPhoto($chatId, $localPath, 'uml_diagram.png', '🧩 <b>مخططك جاهز!</b>');
+            @unlink($localPath);
+            $bot->sendMessage($chatId, 'بدك تولّد مخطط تاني؟', $newButtons);
+
+            return;
+        }
+
+        // فشل الرندر (mermaid.ink مش متاح مؤقتًا) — خطة بديلة نصية.
+        $bot->sendMessage(
+            $chatId,
+            "⚠️ ما قدرت أرندر المخطط كصورة حاليًا، بس هاي كود Mermaid جاهز — الصقه بموقع <b>mermaid.live</b> لمشاهدته:\n\n".
+            '<pre>'.TelegramBotApi::escapeHtml($mermaidCode).'</pre>',
+            $newButtons
+        );
+    }
+
+    /*
+     * ============================================================
+     * ميزة "📅 رادار الفرص والفعاليات" (جلسة سابعة، جزء 2) — جدول
+     * ومسار مستقلّان تمامًا عن Announcement/self::MAIN_MENU_ADMIN_ANNOUNCE
+     * (راجع تعليق App\Models\Event لسبب هذا القرار). أي عضو طاقم
+     * (isStaff()) ينشر فرصة/فعالية (عنوان + وصف + رابط اختياري)، وكل
+     * الطلاب يقدروا يتصفحوا القائمة (سحب/pull) — بلا بث تلقائي (push)
+     * حتى نبقيها بسيطة وموثوقة بأقل مخاطرة وقت الاشتغال بلا إشراف
+     * مباشر من المستخدم.
+     * مخطط callback_data: event:menu | event:list:{page} |
+     * event:view:{id} | event:post | event:postcat:{category} |
+     * event:cancel.
+     * ============================================================
+     */
+    private const EVENT_CATEGORY_LABELS = [
+        \App\Models\Event::CATEGORY_EVENT => '🎉 فعالية',
+        \App\Models\Event::CATEGORY_OPPORTUNITY => '💼 فرصة',
+    ];
+
+    private function activeEventsQuery()
+    {
+        return \App\Models\Event::query()
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhereDate('expires_at', '>=', now()->toDateString());
+            })
+            ->orderByDesc('created_at');
+    }
+
+    private function sendEventsMenu(TelegramBotApi $bot, int|string $chatId, \App\Models\User $user): void
+    {
+        $count = $this->activeEventsQuery()->count();
+
+        $rows = [
+            [['text' => '📋 تصفّح القائمة ('.$count.')', 'callback_data' => 'event:list:0']],
+        ];
+
+        if ($user->isStaff()) {
+            $rows[] = [['text' => '➕ انشر فرصة/فعالية', 'callback_data' => 'event:post']];
+        }
+
+        $bot->sendMessage(
+            $chatId,
+            "📅 <b>رادار الفرص والفعاليات</b>\n\nمسابقات، ورشات، تدريب، منح، وفعاليات تهم طلاب هندسة أنظمة الحاسوب — بمكان وحد ومحدَّث دايمًا.",
+            $rows
+        );
+    }
+
+    private function sendEventsList(TelegramBotApi $bot, int|string $chatId, int $page): void
+    {
+        $perPage = 5;
+        $events = $this->activeEventsQuery()->skip($page * $perPage)->take($perPage + 1)->get();
+        $hasMore = $events->count() > $perPage;
+        $events = $events->take($perPage);
+
+        if ($events->isEmpty() && $page === 0) {
+            $bot->sendMessage(
+                $chatId,
+                'لا يوجد فرص أو فعاليات منشورة حاليًا — تابعنا، رح تضاف أول ما تتوفر فرصة جديدة 🙂',
+                [[['text' => '⬅️ رجوع', 'callback_data' => 'event:menu']]]
+            );
+
+            return;
+        }
+
+        $rows = [];
+        foreach ($events as $event) {
+            $label = (self::EVENT_CATEGORY_LABELS[$event->category] ?? '📌').' '.mb_substr((string) $event->title, 0, 40);
+            $rows[] = [['text' => $label, 'callback_data' => 'event:view:'.$event->id]];
+        }
+
+        $navRow = [];
+        if ($page > 0) {
+            $navRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'event:list:'.($page - 1)];
+        }
+        if ($hasMore) {
+            $navRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'event:list:'.($page + 1)];
+        }
+        if ($navRow !== []) {
+            $rows[] = $navRow;
+        }
+        $rows[] = [['text' => '⬅️ رجوع للرادار', 'callback_data' => 'event:menu']];
+
+        $bot->sendMessage($chatId, '📋 <b>الفرص والفعاليات الحالية</b>', $rows);
+    }
+
+    private function sendEventView(TelegramBotApi $bot, int|string $chatId, int $eventId): void
+    {
+        $event = \App\Models\Event::query()->find($eventId);
+
+        if (! $event || ! $event->is_active) {
+            $bot->sendMessage($chatId, 'هذه الفرصة/الفعالية ما عادت متاحة.', [[['text' => '⬅️ رجوع', 'callback_data' => 'event:list:0']]]);
+
+            return;
+        }
+
+        $label = self::EVENT_CATEGORY_LABELS[$event->category] ?? '📌 فرصة/فعالية';
+        $text = "{$label}\n\n<b>".TelegramBotApi::escapeHtml((string) $event->title)."</b>\n\n".
+            TelegramBotApi::escapeHtml((string) $event->description);
+
+        if ($event->expires_at) {
+            $text .= "\n\n⏰ آخر موعد: ".$event->expires_at->format('Y-m-d');
+        }
+
+        $rows = [];
+        if ($event->url) {
+            $rows[] = [['text' => '🔗 رابط التفاصيل/التسجيل', 'url' => $event->url]];
+        }
+        $rows[] = [['text' => '⬅️ رجوع للقائمة', 'callback_data' => 'event:list:0']];
+
+        $bot->sendMessage($chatId, $text, $rows);
+    }
+
+    private function handleEventCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('event:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link || ! $link->user) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        switch ($key) {
+            case 'menu':
+                $link->update(['pending_action' => null]);
+                $this->sendEventsMenu($bot, $chatId, $link->user);
+
+                return;
+
+            case 'cancel':
+                $link->update(['pending_action' => null]);
+                $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+                return;
+
+            case 'list':
+                $page = max(0, (int) ($parts[1] ?? 0));
+                $this->sendEventsList($bot, $chatId, $page);
+
+                return;
+
+            case 'view':
+                $this->sendEventView($bot, $chatId, (int) ($parts[1] ?? 0));
+
+                return;
+
+            case 'post':
+                if (! $link->user->isStaff()) {
+                    $bot->sendMessage($chatId, 'هذه الميزة لحسابات الطاقم فقط.');
+
+                    return;
+                }
+
+                $rows = [];
+                foreach (self::EVENT_CATEGORY_LABELS as $category => $label) {
+                    $rows[] = [['text' => $label, 'callback_data' => 'event:postcat:'.$category]];
+                }
+                $rows[] = [['text' => '❌ إلغاء', 'callback_data' => 'event:cancel']];
+
+                $bot->sendMessage($chatId, '📅 اختر النوع:', $rows);
+
+                return;
+
+            case 'postcat':
+                if (! $link->user->isStaff()) {
+                    $bot->sendMessage($chatId, 'هذه الميزة لحسابات الطاقم فقط.');
+
+                    return;
+                }
+
+                $category = in_array($parts[1] ?? '', \App\Models\Event::CATEGORIES, true) ? $parts[1] : \App\Models\Event::CATEGORY_EVENT;
+                $link->update(['pending_action' => ['action' => 'event_post', 'step' => 'title', 'data' => ['category' => $category]]]);
+                $bot->sendMessage($chatId, "✍️ اكتب عنوان الفرصة/الفعالية (سطر واحد قصير):\n\nاكتب \"إلغاء\" لإيقاف العملية.");
+
+                return;
+
+            default:
+                $this->sendEventsMenu($bot, $chatId, $link->user);
+        }
+    }
+
+    private function handleEventTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم إلغاء العملية ✅');
+
+            return;
+        }
+
+        if (! $link->user || ! $link->user->isStaff()) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'هذه الميزة لحسابات الطاقم فقط.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $step = (string) ($pending['step'] ?? '');
+        $data = (array) ($pending['data'] ?? []);
+
+        if ($step === 'title') {
+            if (mb_strlen($normalized) < 3 || mb_strlen($normalized) > 150) {
+                $bot->sendMessage($chatId, 'العنوان لازم يكون بين ٣ و١٥٠ حرف 🙂');
+
+                return;
+            }
+
+            $data['title'] = $normalized;
+            $link->update(['pending_action' => ['action' => 'event_post', 'step' => 'description', 'data' => $data]]);
+            $bot->sendMessage($chatId, "✍️ اكتب وصفًا مختصرًا (الجهة، التاريخ، المكان، أهم التفاصيل):");
+
+            return;
+        }
+
+        if ($step === 'description') {
+            if (mb_strlen($normalized) < 10 || mb_strlen($normalized) > 2000) {
+                $bot->sendMessage($chatId, 'الوصف لازم يكون بين ١٠ و٢٠٠٠ حرف 🙂');
+
+                return;
+            }
+
+            $data['description'] = $normalized;
+            $link->update(['pending_action' => ['action' => 'event_post', 'step' => 'url', 'data' => $data]]);
+            $bot->sendMessage($chatId, "🔗 حابب تضيف رابط تسجيل/تفاصيل؟ ابعته الآن، أو اكتب \"تخطي\":");
+
+            return;
+        }
+
+        if ($step === 'url') {
+            $url = null;
+
+            if (! in_array(mb_strtolower($normalized), ['تخطي', 'skip', 'لا'], true)) {
+                if (! preg_match('#^https?://#i', $normalized) || mb_strlen($normalized) > 255) {
+                    $bot->sendMessage($chatId, 'الرابط لازم يبدأ بـhttp:// أو https:// (أو اكتب "تخطي" لتجاوزه):');
+
+                    return;
+                }
+
+                $url = $normalized;
+            }
+
+            $event = \App\Models\Event::query()->create([
+                'category' => $data['category'] ?? \App\Models\Event::CATEGORY_EVENT,
+                'title' => $data['title'] ?? '',
+                'description' => $data['description'] ?? '',
+                'url' => $url,
+                'posted_by' => $link->user_id,
+                'is_active' => true,
+            ]);
+
+            $link->update(['pending_action' => null]);
+
+            $bot->sendMessage(
+                $chatId,
+                '✅ تم نشر "'.TelegramBotApi::escapeHtml((string) $event->title).'" — رح يظهر لكل الطلاب بـ"📅 رادار الفرص والفعاليات" فورًا.',
+                [[['text' => '📅 الرادار', 'callback_data' => 'event:menu']]]
+            );
+
+            return;
+        }
+
+        $link->update(['pending_action' => null]);
+        $bot->sendMessage($chatId, 'صار خطأ بالعملية، جرّب من جديد 🙂');
     }
 }

@@ -225,6 +225,49 @@ class TelegramAiAssistant
         ], tooLargeMessage: 'السؤال طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بجواب على هذا السؤال، جرّب صياغة مختلفة.');
     }
 
+    /*
+     * ميزة "🧩 مولّد UML" (جلسة سابعة، جزء 2) — الطالب يوصف بالعربي
+     * صف/نظام بسيط ("صف Car فيه سرعة ولون، ودالة تسريع")، ونطلب من
+     * Gemini كود Mermaid classDiagram *فقط* (لا أي نص إضافي قبله أو
+     * بعده) — يُرندر لاحقًا كصورة PNG عبر mermaid.ink بـ
+     * TelegramWebhookController::handleUmlTextInput (لا مكتبة رسم
+     * محليًا). التعليمات صارمة على صيغة الرد حتى يسهل استخراج الكود
+     * برمجيًا بثقة (نفس فلسفة فواصل EDIT_MARK_* بـdebugCode، لكن هون
+     * أبسط: كتلة كود Mermaid واحدة بين ```mermaid و``` فقط).
+     *
+     * بلا حد يومي (نفس askText/generateQuiz) — الحد اليومي المشترك
+     * مقتصر على "ورشة الأكواد" فقط (راجع تعليق مطابق بـTelegramWebhookController).
+     */
+    public function generateUmlDiagram(User $user, string $description): string
+    {
+        $systemInstruction =
+            'أنت مساعد لتوليد مخططات UML (class diagram) بصيغة Mermaid لطلاب هندسة أنظمة الحاسوب. ' .
+            'مهمتك الوحيدة: تحويل وصف الطالب بالعربي أو الإنجليزي لصف/عدة أصناف وعلاقاتها إلى كود Mermaid ' .
+            'classDiagram صحيح ونظيف. ' .
+            'أجب حصرًا بكتلة كود واحدة بالشكل التالي، بلا أي مقدمة أو خاتمة أو شرح خارجها:' . "\n\n" .
+            "```mermaid\nclassDiagram\n    ...\n```\n\n" .
+            'استخدم أسماء الأصناف والخصائص والدوال كما ذكرها الطالب (ترجمها لإنجليزية بسيطة مناسبة لأسماء الأصناف لو ' .
+            'كانت عربية بالكامل)، وحدّد الأنواع الأساسية (int, String, float, bool...) لو ذكرها أو استنتجها بمنطقية. ' .
+            'أضف علاقات الوراثة/التجميع/الارتباط بينها لو وصفها الطالب (<|--, *--, o--, --> حسب الحالة). ' .
+            'لو الوصف غامض جدًا أو غير كافٍ لبناء صف واحد منطقي، ارجع كلاس واحد بسيط بأفضل تخمين معقول بدل الرفض.';
+
+        $raw = $this->callGemini($systemInstruction, [
+            ['text' => $description],
+        ], tooLargeMessage: 'الوصف طويل جدًا، جرّب تختصره.', emptyMessage: 'ما قدر المساعد يطلع بمخطط لهذا الوصف، جرّب صياغة أوضح.', maxOutputTokens: 2000);
+
+        if (preg_match('/```(?:mermaid)?\s*(classDiagram[\s\S]*?)```/i', $raw, $m)) {
+            return trim($m[1]);
+        }
+
+        // لا فواصل كود بالرد (نادر) — لو بدأ فعليًا بـclassDiagram نقبله كما هو، وإلا نعتبره فشل.
+        $trimmed = trim($raw);
+        if (stripos($trimmed, 'classDiagram') === 0) {
+            return $trimmed;
+        }
+
+        throw new RuntimeException('ما قدر المساعد يبني مخططًا صالحًا من هذا الوصف، جرّب تفاصيل أوضح (مثلًا: "صف Car فيه اسم ولون، ودالة تسريع").');
+    }
+
     // عام (لا private) حتى يقدر TelegramWebhookController يتحقق من حجم ملف الكود قبل ما يحمّله أصلًا.
     public const MAX_CODE_FILE_SIZE = 300 * 1024; // 300KB — كافٍ لأي ملف كود طالب فعلي (html/css/js/php...).
 

@@ -260,4 +260,34 @@ class TelegramBotApi
             ], static fn ($v) => $v !== null)
         );
     }
+
+    /*
+     * إرسال صورة محلية (sendPhoto) — نفس منطق sendDocument بالضبط
+     * (multipart upload لصورة مولَّدة لحظيًا، لا رابط عام لها) لكن
+     * بحقل "photo" حتى تظهر معاينة داخل المحادثة مباشرة بدل ملف
+     * للتحميل. يُستخدم حاليًا فقط لصورة مخطط UML الناتجة من
+     * mermaid.ink بميزة "🧩 مولّد UML" (راجع generateUmlDiagram
+     * بـTelegramAiAssistant وhandleUmlTextInput بالـwebhook).
+     */
+    public function sendPhoto(int|string $chatId, string $localPath, string $filename, ?string $caption = null): void
+    {
+        if (! $this->isConfigured() || ! is_readable($localPath)) {
+            return;
+        }
+
+        $request = Http::timeout(20)->attach(
+            'photo',
+            file_get_contents($localPath),
+            $filename
+        );
+
+        $request->post(
+            "https://api.telegram.org/bot{$this->token}/sendPhoto",
+            array_filter([
+                'chat_id' => $chatId,
+                'caption' => $caption,
+                'parse_mode' => $caption !== null ? 'HTML' : null,
+            ], static fn ($v) => $v !== null)
+        );
+    }
 }
