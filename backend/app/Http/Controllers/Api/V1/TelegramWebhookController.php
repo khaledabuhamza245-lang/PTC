@@ -15,11 +15,14 @@ use App\Models\GpaEntry;
 use App\Models\ScheduleLecture;
 use App\Models\TelegramLink;
 use App\Models\Tool;
+use App\Exceptions\CourseStatusException;
+use App\Services\MyCourseStatusService;
 use App\Services\PlanCalculator;
 use App\Services\TelegramAiAssistant;
 use App\Services\TelegramBotApi;
 use App\Services\TelegramContentNotifier;
 use App\Services\TelegramGpaCalculator;
+use App\Support\PlanBulkLabel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -409,7 +412,8 @@ class TelegramWebhookController extends Controller
         TelegramBotApi $bot,
         PlanCalculator $planCalculator,
         TelegramAiAssistant $aiAssistant,
-        TelegramGpaCalculator $gpaCalculator
+        TelegramGpaCalculator $gpaCalculator,
+        MyCourseStatusService $courseStatusService
     ) {
         $expectedSecret = (string) config('services.telegram.webhook_secret', '');
 
@@ -503,6 +507,8 @@ class TelegramWebhookController extends Controller
                 $this->handleEventCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'navjump:')) {
                 $this->handleNavJumpCallback($bot, $planCalculator, $aiAssistant, $gpaCalculator, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'plan:')) {
+                $this->handlePlanCallback($bot, $planCalculator, $courseStatusService, $callbackQuery);
             } else {
                 $this->handleMenuCallback($bot, $callbackQuery);
             }
@@ -1941,6 +1947,398 @@ class TelegramWebhookController extends Controller
             "🟢 مسجّل حاليًا: {$registered} مساق",
             $this->buildMainMenuKeyboard($user)
         );
+
+        /*
+         * ميزة "التحكّم الكامل بالخطة من الشات" (خطوة ١٠١) — رسالة
+         * ثانية منفصلة بأزرار Inline تفتح مباشرة على قائمة السنوات
+         * (المستوى الأول)، بدل زر وسيط "افتح الخطة" لا داعي له. أي
+         * تعديل حالة من هون يكتب بنفس جدول my_courses يلي يقرأه/يكتبه
+         * الموقع بالضبط (عبر MyCourseStatusService) — فأي فتح/تحديث
+         * لاحق بالموقع يعكس التعديل فورًا، وهذا أقصى "مزامنة لحظية"
+         * ممكنة بلا بنية Push فعلية (WebSocket/SSE) غير متوفرة على
+         * هذه الاستضافة المشتركة.
+         */
+        [$text, $keyboard] = $this->renderPlanYearsView($user, $planCalculator);
+
+        $bot->sendMessage($chatId, "👇 اضغط على سنة لتعديل حالات موادها مباشرة من هون:\n\n".$text, $keyboard);
+    }
+
+    /*
+     * ======================================================================
+     * التحكّم الكامل بالخطة الدراسية من داخل الشات (خطوة ١٠١).
+     *
+     * أربعة مستويات تنقّل بأزرار Inline (سنوات ← فصول ← مواد ← تعديل
+     * حالة مادة)، بنفس فلسفة "gpa:"/"sched:" الموجودة أصلًا بهذا الملف:
+     * كل ضغطة زر تعيد التحقق من الحساب المربوط والمعرّفات الرقمية فقط
+     * من callback_data (لا حالة محادثة يُعتمد عليها للتنقّل نفسه)، وكل
+     * كتابة فعلية تمرّ حصرًا عبر MyCourseStatusService — نفس جدول
+     * my_courses ونفس قواعد العمل (خانة اختيارية مفتوحة، مساق الفصل
+     * الحالي يتحوّل لـ"منسحب" لا يُحذف...) يلي يستخدمها الموقع، فلا يوجد
+     * احتمال انحراف بين الواجهتين (راجع تعليق أعلى تلك الخدمة).
+     *
+     * نطاق مقصود لهذه النسخة الأولى: المواد الإجبارية فقط (course_type
+     * = required) — لا الخانات الاختيارية (placeholder/elective). سبب
+     * الاستبعاد: اختيار مادة اختيارية جديدة لخانة معيّنة يعتمد على ترتيب
+     * استهلاك متسلسل عبر كل الخانات المفتوحة (راجع plan-view.js::
+     * electiveCtx.cursor)، وتكراره هون بمعزل عن رسم الموقع الفعلي يحمل
+     * خطر عرض/حفظ نتيجة مختلفة عن الموقع. الطالب يدير اختياراته من
+     * الموقع كما هو، والبوت هنا يغطي الغالبية العظمى من التعديلات
+     * (كل السنوات الأربع من المواد الإجبارية) بأمان تام.
+     *
+     * callback_data (بادئة "plan:"، أقل بكثير من حد الـ٦٤ بايت بكل حال):
+     *   plan:years          → قائمة السنوات (المستوى ١)
+     *   plan:y:{year}        → فصول سنة (المستوى ٢)
+     *   plan:t:{year}:{sem}  → مواد فصل، sem محلي ١ أو ٢ (المستوى ٣)
+     *   plan:c:{courseId}    → تعديل حالة مادة واحدة (المستوى ٤)
+     *   plan:s:{courseId}:{code} → ضبط الحالة فعليًا، code = c/r/d/n
+     *   plan:by:{year}       → "منجز الكل" لسنة كاملة (فصليها معًا)
+     *   plan:bt:{year}:{sem} → "منجز الكل" لفصل واحد
+     * ======================================================================
+     */
+    private const PLAN_STATUS_EMOJI = ['completed' => '✅', 'registered' => '⏳', 'dropped' => '🔴', 'none' => '⚪'];
+    private const PLAN_STATUS_LABEL = ['completed' => 'منجز', 'registered' => 'جارٍ', 'dropped' => 'منسحب', 'none' => 'متبقٍ'];
+    private const PLAN_STATUS_CODE = ['completed' => 'c', 'registered' => 'r', 'dropped' => 'd', 'none' => 'n'];
+    private const PLAN_CODE_STATUS = ['c' => 'completed', 'r' => 'registered', 'd' => 'dropped', 'n' => 'none'];
+
+    private function handlePlanCallback(
+        TelegramBotApi $bot,
+        PlanCalculator $planCalculator,
+        MyCourseStatusService $courseStatusService,
+        array $callbackQuery
+    ): void {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $messageId = (int) ($callbackQuery['message']['message_id'] ?? 0);
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('plan:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+
+        if (! $chatId || ! $messageId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()
+            ->whereNotNull('telegram_chat_id')
+            ->where('telegram_chat_id', $chatId)
+            ->first();
+
+        if (! $link) {
+            $bot->answerCallbackQuery($callbackId, 'هذا الحساب مش مربوط.');
+
+            return;
+        }
+
+        $user = $link->user;
+
+        try {
+            switch ($key) {
+                case 'years':
+                    $bot->answerCallbackQuery($callbackId);
+                    [$text, $keyboard] = $this->renderPlanYearsView($user, $planCalculator);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 'y':
+                    $year = (int) ($parts[1] ?? 0);
+                    $bot->answerCallbackQuery($callbackId);
+                    [$text, $keyboard] = $this->renderPlanTermsView($user, $planCalculator, $year);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 't':
+                    $year = (int) ($parts[1] ?? 0);
+                    $localSemester = (int) ($parts[2] ?? 0);
+                    $bot->answerCallbackQuery($callbackId);
+                    [$text, $keyboard] = $this->renderPlanCoursesView($user, $planCalculator, $year, $localSemester);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 'c':
+                    $course = Course::find((int) ($parts[1] ?? 0));
+
+                    if (! $course || $course->course_type !== 'required') {
+                        $bot->answerCallbackQuery($callbackId, 'المادة غير موجودة أو غير مدعومة من البوت حاليًا.');
+
+                        return;
+                    }
+
+                    $bot->answerCallbackQuery($callbackId);
+                    [$text, $keyboard] = $this->renderPlanCourseEditView($user, $planCalculator, $course);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 's':
+                    $course = Course::find((int) ($parts[1] ?? 0));
+                    $code = (string) ($parts[2] ?? '');
+                    $status = self::PLAN_CODE_STATUS[$code] ?? null;
+
+                    if (! $course || $course->course_type !== 'required' || ! $status) {
+                        $bot->answerCallbackQuery($callbackId, 'طلب غير صالح.');
+
+                        return;
+                    }
+
+                    if ($status === 'none') {
+                        $courseStatusService->remove($user, $course);
+                    } else {
+                        $courseStatusService->ensureStatus($user, $course, $status);
+                    }
+
+                    $bot->answerCallbackQuery($callbackId, '✅ تم الحفظ.');
+                    [$text, $keyboard] = $this->renderPlanCourseEditView($user, $planCalculator, $course);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 'by':
+                    $year = (int) ($parts[1] ?? 0);
+                    $changed = $this->bulkCompletePlanScope($courseStatusService, $planCalculator, $user, $year, null);
+                    $bot->answerCallbackQuery($callbackId, $changed > 0 ? "✅ تم تحديث {$changed} مادة." : 'كل المواد منجزة أصلًا.');
+                    [$text, $keyboard] = $this->renderPlanTermsView($user, $planCalculator, $year);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                case 'bt':
+                    $year = (int) ($parts[1] ?? 0);
+                    $localSemester = (int) ($parts[2] ?? 0);
+                    $changed = $this->bulkCompletePlanScope($courseStatusService, $planCalculator, $user, $year, $localSemester);
+                    $bot->answerCallbackQuery($callbackId, $changed > 0 ? "✅ تم تحديث {$changed} مادة." : 'كل المواد منجزة أصلًا.');
+                    [$text, $keyboard] = $this->renderPlanCoursesView($user, $planCalculator, $year, $localSemester);
+                    $bot->editMessageText($chatId, $messageId, $text, $keyboard);
+
+                    return;
+
+                default:
+                    $bot->answerCallbackQuery($callbackId);
+
+                    return;
+            }
+        } catch (CourseStatusException $e) {
+            $bot->answerCallbackQuery($callbackId, $e->getMessage());
+        }
+    }
+
+    /**
+     * "منجز الكل" — لسنة كاملة (localSemester=null) أو فصل واحد بعينها.
+     * يتجاهل أي مادة منجزة أصلًا (بلا نداء حفظ لا داعي له)، تمامًا مثل
+     * applyBulkDone() بالموقع (plan-view.js). يرجّع عدد المواد المتأثرة
+     * فعليًا ليُعرض للطالب برسالة التأكيد (Toast).
+     */
+    private function bulkCompletePlanScope(
+        MyCourseStatusService $courseStatusService,
+        PlanCalculator $planCalculator,
+        \App\Models\User $user,
+        int $year,
+        ?int $localSemester
+    ): int {
+        $courses = $this->planScopeCourses($year, $localSemester);
+        $statuses = $planCalculator->statusMap($user);
+        $changed = 0;
+
+        foreach ($courses as $course) {
+            $current = $statuses[$course->key]['status'] ?? 'none';
+
+            if ($current === 'completed') {
+                continue;
+            }
+
+            $courseStatusService->ensureStatus($user, $course, 'completed');
+            $changed++;
+        }
+
+        return $changed;
+    }
+
+    /**
+     * مواد سنة كاملة (localSemester=null) أو فصل واحد بعينها — إجبارية
+     * فقط (course_type=required)، بنفس نطاق PlanCalculator::byYear().
+     *
+     * @return \Illuminate\Support\Collection<int, Course>
+     */
+    private function planScopeCourses(int $year, ?int $localSemester)
+    {
+        $query = Course::query()
+            ->where('is_active', true)
+            ->where('course_type', 'required')
+            ->where('year', $year);
+
+        if ($localSemester !== null) {
+            $query->where('semester', (($year - 1) * 2) + $localSemester);
+        } else {
+            $query->whereIn('semester', [(($year - 1) * 2) + 1, (($year - 1) * 2) + 2]);
+        }
+
+        return $query->orderBy('sort_order')->orderBy('id')->get();
+    }
+
+    /**
+     * المستوى ١ — قائمة السنوات، بملخّص ساعات كل سنة (نفس أرقام
+     * PlanCalculator::summarize()['by_year'] المعروضة بصفحة الخطة
+     * بالموقع بالضبط، بلا أي حساب مواز).
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function renderPlanYearsView(\App\Models\User $user, PlanCalculator $planCalculator): array
+    {
+        $summary = $planCalculator->summarize($user);
+
+        $text = "📋 <b>الخطة الدراسية</b>\n\n".
+            "✅ {$summary['completed_hours']} من {$summary['total_credit_hours']} ساعة ({$summary['percent']}٪)\n\n".
+            'اختر سنة لعرض فصولها:';
+
+        $rows = [];
+
+        foreach ($summary['by_year'] as $row) {
+            $label = $this->gpaYearLabel((int) $row['year']);
+            $buttonText = "{$label} — {$row['completed_hours']}/{$row['plan_hours']} ({$row['percent']}٪)";
+
+            $rows[] = [['text' => $buttonText, 'callback_data' => "plan:y:{$row['year']}"]];
+        }
+
+        if (! $rows) {
+            $rows[] = [['text' => 'لا توجد سنوات بعد', 'callback_data' => 'plan:years']];
+        }
+
+        return [$text, $rows];
+    }
+
+    /**
+     * المستوى ٢ — فصلا سنة معيّنة + زر "منجز الكل" للسنة كاملة، بنص
+     * ديناميكي (PlanBulkLabel) يعكس أي حالة جزئية فورًا.
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function renderPlanTermsView(\App\Models\User $user, PlanCalculator $planCalculator, int $year): array
+    {
+        $statuses = $planCalculator->statusMap($user);
+        $yearCourses = $this->planScopeCourses($year, null);
+
+        $text = '📅 <b>'.$this->gpaYearLabel($year)."</b>\n\nاختر فصلًا لعرض مواده:";
+
+        $rows = [];
+
+        foreach ([1, 2] as $localSemester) {
+            $globalSemester = (($year - 1) * 2) + $localSemester;
+            $termCourses = $yearCourses->where('semester', $globalSemester);
+
+            $planHours = $termCourses->sum('credit_hours');
+            $doneHours = $termCourses
+                ->filter(fn (Course $c) => ($statuses[$c->key]['status'] ?? 'none') === 'completed')
+                ->sum('credit_hours');
+
+            $label = $this->gpaSemesterLabel($globalSemester);
+            $percent = $planHours > 0 ? (int) round($doneHours / $planHours * 100) : 0;
+
+            $rows[] = [[
+                'text' => "{$label} — {$doneHours}/{$planHours} ({$percent}٪)",
+                'callback_data' => "plan:t:{$year}:{$localSemester}",
+            ]];
+        }
+
+        $yearStatuses = $yearCourses->map(fn (Course $c) => $statuses[$c->key]['status'] ?? 'none')->all();
+        $bulk = PlanBulkLabel::forStatuses($yearStatuses);
+
+        $rows[] = [[
+            'text' => ($bulk['state'] === 'done' ? '✅ ' : '🔘 ').$bulk['label'].' (السنة)',
+            'callback_data' => "plan:by:{$year}",
+        ]];
+
+        $rows[] = [
+            ['text' => '⬅️ كل السنوات', 'callback_data' => 'plan:years'],
+        ];
+
+        return [$text, $rows];
+    }
+
+    /**
+     * المستوى ٣ — مواد فصل واحد بأيقونة حالتها الحالية + زر "منجز
+     * الكل" لهذا الفصل تحديدًا.
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function renderPlanCoursesView(\App\Models\User $user, PlanCalculator $planCalculator, int $year, int $localSemester): array
+    {
+        $statuses = $planCalculator->statusMap($user);
+        $courses = $this->planScopeCourses($year, $localSemester);
+        $globalSemester = (($year - 1) * 2) + $localSemester;
+
+        $text = '📚 <b>'.$this->gpaYearLabel($year).' — '.$this->gpaSemesterLabel($globalSemester)."</b>\n\n".
+            "✅ منجز · ⏳ جارٍ · 🔴 منسحب · ⚪ متبقٍ\n\n".
+            'اضغط على مادة لتغيير حالتها:';
+
+        $rows = [];
+
+        foreach ($courses as $course) {
+            $status = $statuses[$course->key]['status'] ?? 'none';
+            $emoji = self::PLAN_STATUS_EMOJI[$status] ?? '⚪';
+            $name = mb_strlen($course->name_ar) > 38 ? mb_substr($course->name_ar, 0, 37).'…' : $course->name_ar;
+
+            $rows[] = [['text' => "{$emoji} {$name}", 'callback_data' => "plan:c:{$course->id}"]];
+        }
+
+        if (! $courses->count()) {
+            $rows[] = [['text' => 'لا توجد مواد إجبارية بهذا الفصل', 'callback_data' => "plan:t:{$year}:{$localSemester}"]];
+        }
+
+        $termStatuses = $courses->map(fn (Course $c) => $statuses[$c->key]['status'] ?? 'none')->all();
+        $bulk = PlanBulkLabel::forStatuses($termStatuses);
+
+        $rows[] = [[
+            'text' => ($bulk['state'] === 'done' ? '✅ ' : '🔘 ').$bulk['label'].' (الفصل)',
+            'callback_data' => "plan:bt:{$year}:{$localSemester}",
+        ]];
+
+        $rows[] = [
+            ['text' => '⬅️ فصول السنة', 'callback_data' => "plan:y:{$year}"],
+            ['text' => '🏠 كل السنوات', 'callback_data' => 'plan:years'],
+        ];
+
+        return [$text, $rows];
+    }
+
+    /**
+     * المستوى ٤ — تعديل حالة مادة واحدة. أزرار الحالات الأربع دائمًا
+     * ظاهرة (لا نخفي الحالة الحالية)، مع علامة ✓ توضّح المختارة حاليًا
+     * بما إن أزرار تيليجرام لا تدعم أي تمييز بصري آخر.
+     *
+     * @return array{0: string, 1: array}
+     */
+    private function renderPlanCourseEditView(\App\Models\User $user, PlanCalculator $planCalculator, Course $course): array
+    {
+        $statuses = $planCalculator->statusMap($user);
+        $current = $statuses[$course->key]['status'] ?? 'none';
+        $currentLabel = self::PLAN_STATUS_LABEL[$current] ?? 'متبقٍ';
+
+        $localSemester = (($course->semester - 1) % 2) + 1;
+
+        $text = '📖 <b>'.TelegramBotApi::escapeHtml($course->name_ar)."</b>\n".
+            TelegramBotApi::escapeHtml($course->code)."\n\n".
+            "الحالة الحالية: {$currentLabel}\n\n".
+            'اختر الحالة الجديدة:';
+
+        $rows = [
+            [
+                ['text' => '✅ منجز'.($current === 'completed' ? ' ✓' : ''), 'callback_data' => "plan:s:{$course->id}:c"],
+                ['text' => '⏳ جارٍ'.($current === 'registered' ? ' ✓' : ''), 'callback_data' => "plan:s:{$course->id}:r"],
+            ],
+            [
+                ['text' => '🔴 منسحب'.($current === 'dropped' ? ' ✓' : ''), 'callback_data' => "plan:s:{$course->id}:d"],
+                ['text' => '⚪ متبقٍ'.($current === 'none' ? ' ✓' : ''), 'callback_data' => "plan:s:{$course->id}:n"],
+            ],
+            [
+                ['text' => '⬅️ مواد الفصل', 'callback_data' => "plan:t:{$course->year}:{$localSemester}"],
+            ],
+        ];
+
+        return [$text, $rows];
     }
 
     /*
