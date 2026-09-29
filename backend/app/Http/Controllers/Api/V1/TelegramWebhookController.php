@@ -477,6 +477,8 @@ class TelegramWebhookController extends Controller
                 $this->handleCourseHubCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'announce:')) {
                 $this->handleAnnounceCallback($bot, $callbackQuery);
+            } elseif (str_starts_with($callbackData, 'admannounce:')) {
+                $this->handleAdminAnnounceManageCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'admtool:')) {
                 $this->handleAdminToolCallback($bot, $callbackQuery);
             } elseif (str_starts_with($callbackData, 'admcontent:')) {
@@ -685,6 +687,8 @@ class TelegramWebhookController extends Controller
                 $this->handleGpaTextInput($bot, $gpaCalculator, $link, $chatId, $text);
             } elseif ($pendingAction === 'announce') {
                 $this->handleAnnounceTextInput($bot, $link, $chatId, $text);
+            } elseif (str_starts_with($pendingAction, 'admannounce')) {
+                $this->handleAdminAnnounceManageTextInput($bot, $link, $chatId, $text);
             } elseif ($pendingAction === 'search') {
                 $this->handleSearchTextInput($bot, $link, $chatId, $text);
             } elseif (str_starts_with($pendingAction, 'admtool')) {
@@ -948,7 +952,7 @@ class TelegramWebhookController extends Controller
                 return response()->json(['ok' => true]);
             }
 
-            $this->startAnnounceFlow($bot, $link, $chatId);
+            $this->sendAdminAnnounceHub($bot, $chatId);
 
             return response()->json(['ok' => true]);
         }
@@ -5279,6 +5283,288 @@ class TelegramWebhookController extends Controller
         }
 
         return $sent;
+    }
+
+    /*
+     * ============================================================
+     * "📢 نشر إعلان" — بوابة صغيرة قبل الوصول للتدفّق القديم مباشرة:
+     * "➕ نشر جديد" (نفس startAnnounceFlow كما كانت)، أو "📋 إدارة
+     * الإعلانات المنشورة" (ميزة جديدة — كانت الفجوة الوحيدة المتبقية
+     * فعليًا مقارنة بلوحة تحكم الموقع: نشر فقط بلا أي طريقة لحذف أو
+     * تعديل إعلان بعد نشره من داخل البوت). نفس صلاحية isStaff() الحقيقية
+     * تُفحص عند كل دخول لهذا القسم من أي نقطة (لا يوجد فرق بين مصدرَين).
+     * ============================================================
+     */
+    private function sendAdminAnnounceHub(TelegramBotApi $bot, int|string $chatId): void
+    {
+        $bot->sendMessage($chatId, '📢 <b>الإعلانات</b>', [
+            [['text' => '➕ نشر إعلان جديد', 'callback_data' => 'admannounce:new']],
+            [['text' => '📋 إدارة الإعلانات المنشورة', 'callback_data' => 'admannounce:list:1']],
+        ]);
+    }
+
+    private function sendAdminAnnounceList(TelegramBotApi $bot, int|string $chatId, int $page): void
+    {
+        $query = Announcement::query()->latest();
+        $total = (clone $query)->count();
+        $items = $query->forPage($page, self::COURSE_HUB_PAGE_SIZE)->get(['id', 'title', 'active', 'created_at']);
+
+        if ($items->isEmpty() && $page === 1) {
+            $bot->sendMessage($chatId, 'ما في أي إعلانات منشورة حتى الآن.', [
+                [['text' => '➕ نشر إعلان جديد', 'callback_data' => 'admannounce:new']],
+            ]);
+
+            return;
+        }
+
+        $keyboard = [];
+
+        foreach ($items as $item) {
+            $statusIcon = $item->active ? '🟢' : '🔴';
+            $title = (string) $item->title;
+            $title = mb_strlen($title) > 60 ? mb_substr($title, 0, 57).'...' : $title;
+            $label = trim($statusIcon.' '.$title);
+            $keyboard[] = [['text' => $label, 'callback_data' => 'admannounce:detail:'.$item->id]];
+        }
+
+        $lastPage = max(1, (int) ceil($total / self::COURSE_HUB_PAGE_SIZE));
+        $pagerRow = [];
+
+        if ($page > 1) {
+            $pagerRow[] = ['text' => '⬅️ السابق', 'callback_data' => 'admannounce:list:'.($page - 1)];
+        }
+
+        if ($page < $lastPage) {
+            $pagerRow[] = ['text' => 'التالي ➡️', 'callback_data' => 'admannounce:list:'.($page + 1)];
+        }
+
+        if ($pagerRow !== []) {
+            $keyboard[] = $pagerRow;
+        }
+
+        $keyboard[] = [['text' => '🔙 رجوع', 'callback_data' => 'admannounce:hub']];
+
+        $bot->sendMessage(
+            $chatId,
+            "📋 <b>الإعلانات المنشورة</b> (صفحة {$page} من {$lastPage})\n\n🟢 مفعّل / 🔴 معطّل — اختر إعلانًا لتعديله أو حذفه:",
+            $keyboard
+        );
+    }
+
+    private function sendAdminAnnounceDetail(TelegramBotApi $bot, int|string $chatId, int $id): void
+    {
+        $announcement = Announcement::query()->find($id);
+
+        if (! $announcement) {
+            $bot->sendMessage($chatId, '⚠️ هذا الإعلان غير موجود (يمكن اتحذف).', [[['text' => '🔙 كل الإعلانات', 'callback_data' => 'admannounce:list:1']]]);
+
+            return;
+        }
+
+        $audienceLabel = self::ANNOUNCE_AUDIENCE_LABELS[$announcement->audience] ?? $announcement->audience;
+
+        if ($announcement->audience === 'year' && $announcement->audience_year) {
+            $audienceLabel .= ' (السنة '.(int) $announcement->audience_year.')';
+        } elseif ($announcement->audience === 'course' && $announcement->course) {
+            $audienceLabel .= ' ("'.TelegramBotApi::escapeHtml((string) ($announcement->course->name_ar ?: $announcement->course->name_en)).'")';
+        }
+
+        $lines = [
+            '📢 <b>'.TelegramBotApi::escapeHtml((string) $announcement->title).'</b>',
+            'الحالة: '.($announcement->active ? '🟢 مفعّل (ظاهر بالموقع)' : '🔴 معطّل (مخفي عن الطلاب)'),
+            '👥 الجمهور: '.$audienceLabel,
+            '🕒 تاريخ النشر: '.$announcement->created_at?->format('Y-m-d H:i'),
+        ];
+
+        if (! empty($announcement->body)) {
+            $lines[] = '';
+            $lines[] = TelegramBotApi::escapeHtml((string) $announcement->body);
+        }
+
+        $keyboard = [
+            [
+                ['text' => '✏️ تعديل العنوان', 'callback_data' => 'admannounce:editfield:'.$announcement->id.':title'],
+                ['text' => '✏️ تعديل النص', 'callback_data' => 'admannounce:editfield:'.$announcement->id.':body'],
+            ],
+            [['text' => $announcement->active ? '🔴 تعطيل (إخفاء عن الطلاب)' : '🟢 تفعيل (إظهار للطلاب)', 'callback_data' => 'admannounce:toggle:'.$announcement->id]],
+            [['text' => '🗑️ حذف الإعلان نهائيًا', 'callback_data' => 'admannounce:delconfirm:'.$announcement->id]],
+            [['text' => '🔙 كل الإعلانات', 'callback_data' => 'admannounce:list:1']],
+        ];
+
+        $bot->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    private function handleAdminAnnounceManageCallback(TelegramBotApi $bot, array $callbackQuery): void
+    {
+        $callbackId = (string) ($callbackQuery['id'] ?? '');
+        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $data = (string) ($callbackQuery['data'] ?? '');
+        $action = substr($data, strlen('admannounce:'));
+        $parts = explode(':', $action);
+        $key = $parts[0] ?? '';
+
+        if (! $chatId) {
+            $bot->answerCallbackQuery($callbackId);
+
+            return;
+        }
+
+        $link = TelegramLink::query()->whereNotNull('telegram_chat_id')->where('telegram_chat_id', $chatId)->first();
+
+        if (! $link || ! $link->user || ! $link->user->isStaff()) {
+            $bot->answerCallbackQuery($callbackId, 'غير مخوّل.');
+
+            return;
+        }
+
+        $bot->answerCallbackQuery($callbackId);
+
+        if ($key === 'hub') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminAnnounceHub($bot, $chatId);
+
+            return;
+        }
+
+        if ($key === 'new') {
+            $this->startAnnounceFlow($bot, $link, $chatId);
+
+            return;
+        }
+
+        if ($key === 'list') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminAnnounceList($bot, $chatId, max(1, (int) ($parts[1] ?? 1)));
+
+            return;
+        }
+
+        if ($key === 'detail') {
+            $link->update(['pending_action' => null]);
+            $this->sendAdminAnnounceDetail($bot, $chatId, (int) ($parts[1] ?? 0));
+
+            return;
+        }
+
+        if ($key === 'toggle') {
+            $announcement = Announcement::query()->find((int) ($parts[1] ?? 0));
+
+            if ($announcement) {
+                $announcement->update(['active' => ! $announcement->active]);
+            }
+
+            $this->sendAdminAnnounceDetail($bot, $chatId, (int) ($parts[1] ?? 0));
+
+            return;
+        }
+
+        if ($key === 'editfield') {
+            $announcementId = (int) ($parts[1] ?? 0);
+            $field = $parts[2] ?? '';
+            $announcement = Announcement::query()->find($announcementId);
+
+            if (! $announcement || ! in_array($field, ['title', 'body'], true)) {
+                $bot->sendMessage($chatId, '⚠️ تعذّر إيجاد الإعلان.');
+
+                return;
+            }
+
+            $link->update(['pending_action' => [
+                'action' => 'admannounce_edit', 'step' => $field, 'lecture_id' => null,
+                'data' => ['id' => $announcementId],
+            ]]);
+
+            if ($field === 'title') {
+                $bot->sendMessage($chatId, '✏️ اكتب العنوان الجديد (بحد أقصى ١٩٠ حرف):');
+            } else {
+                $bot->sendMessage($chatId, '✏️ اكتب النص الجديد، أو اكتب "-" لمسح النص الحالي (بحد أقصى ١٠٠٠٠ حرف):');
+            }
+
+            return;
+        }
+
+        if ($key === 'delconfirm') {
+            $announcementId = (int) ($parts[1] ?? 0);
+            $bot->sendMessage(
+                $chatId,
+                '⚠️ متأكد تريد حذف هذا الإعلان نهائيًا؟ سيختفي فورًا من الموقع، وهذا الإجراء لا يمكن التراجع عنه.',
+                [[
+                    ['text' => '✅ نعم، احذف', 'callback_data' => 'admannounce:delyes:'.$announcementId],
+                    ['text' => '❌ لا، رجوع', 'callback_data' => 'admannounce:detail:'.$announcementId],
+                ]]
+            );
+
+            return;
+        }
+
+        if ($key === 'delyes') {
+            $announcement = Announcement::query()->find((int) ($parts[1] ?? 0));
+
+            if ($announcement) {
+                $announcement->delete();
+                $bot->sendMessage($chatId, '🗑️ تم حذف الإعلان نهائيًا.');
+            }
+
+            $this->sendAdminAnnounceList($bot, $chatId, 1);
+
+            return;
+        }
+    }
+
+    private function handleAdminAnnounceManageTextInput(TelegramBotApi $bot, TelegramLink $link, int|string $chatId, string $text): void
+    {
+        $normalized = trim($text);
+
+        if (in_array($normalized, ['إلغاء', 'الغاء', 'cancel'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, 'تم الإلغاء.');
+            $this->sendAdminAnnounceHub($bot, $chatId);
+
+            return;
+        }
+
+        if (! $link->user || ! $link->user->isStaff()) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '⛔ هذا الخيار متاح فقط لحسابات الإدارة.');
+
+            return;
+        }
+
+        $pending = $link->pending_action;
+        $data = $pending['data'] ?? [];
+        $field = $pending['step'] ?? null;
+        $announcement = Announcement::query()->find((int) ($data['id'] ?? 0));
+
+        if (! $announcement || ! in_array($field, ['title', 'body'], true)) {
+            $link->update(['pending_action' => null]);
+            $bot->sendMessage($chatId, '⚠️ تعذّر إيجاد الإعلان، ابدأ من جديد.');
+
+            return;
+        }
+
+        if ($field === 'title') {
+            if ($normalized === '' || mb_strlen($normalized) > 190) {
+                $bot->sendMessage($chatId, 'عنوان غير صالح 🙂 اكتب نص غير فاضي (بحد أقصى ١٩٠ حرف):');
+
+                return;
+            }
+
+            $announcement->update(['title' => $normalized]);
+        } else {
+            $body = in_array($normalized, ['-', 'تخطي', 'skip'], true) ? null : $text;
+
+            if ($body !== null && mb_strlen($body) > 10000) {
+                $bot->sendMessage($chatId, 'النص طويل جدًا (بحد أقصى ١٠٠٠٠ حرف) 🙂 جرّب نص أقصر، أو اكتب "-" لمسحه:');
+
+                return;
+            }
+
+            $announcement->update(['body' => $body]);
+        }
+
+        $link->update(['pending_action' => null]);
+        $bot->sendMessage($chatId, '✅ تم الحفظ.');
+        $this->sendAdminAnnounceDetail($bot, $chatId, $announcement->id);
     }
 
     /*
@@ -11542,7 +11828,7 @@ private function handleContributeTextInput(TelegramBotApi $bot, TelegramLink $li
                 return;
 
             case 'adminannounce':
-                $this->startAnnounceFlow($bot, $link, $chatId);
+                $this->sendAdminAnnounceHub($bot, $chatId);
 
                 return;
 
