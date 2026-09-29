@@ -17,6 +17,7 @@ class AiQuestion extends Model
         'attempts',
         'referenced_course_file_id',
         'cache_mode',
+        'notify_telegram_chat_id',
     ];
 
     public function user()

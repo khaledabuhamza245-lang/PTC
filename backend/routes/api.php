@@ -170,11 +170,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/ai/conversations/{aiConversation}/feedback', [AiAssistantController::class, 'feedback']);
         Route::get('/ai/usage', [AiAssistantController::class, 'usage']);
         Route::post('/ai/course-files/{courseFile}/summarize', [AiAssistantController::class, 'summarizeFile']);
-
-        Route::get('/ai/usage', [AiAssistantController::class, 'usage']);
-        Route::post('/ai/course-files/{courseFile}/summarize', [AiAssistantController::class, 'summarizeFile']);
-        Route::get('/ai/usage', [AiAssistantController::class, 'usage']);
-        Route::post('/ai/course-files/{courseFile}/summarize', [AiAssistantController::class, 'summarizeFile']);
+        Route::post('/ai/course-files/{courseFile}/telegram-link', [AiAssistantController::class, 'generateTelegramLink']);
  
         Route::get('/favorites', [FavoriteController::class, 'index']);
         Route::get('/favorites/ids', [FavoriteController::class, 'ids']);

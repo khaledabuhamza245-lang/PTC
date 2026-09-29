@@ -524,6 +524,49 @@ class AiAssistantController extends Controller
      */
     public function summarizeFile(Request $request, CourseFile $courseFile, PlanCalculator $calculator)
     {
+        $mode = $request->input('mode', 'summary');
+        $user = $request->user();
+
+        $result = $this->performSummarize($user, $courseFile, $mode, null, $calculator);
+
+        if ($result['status'] === 'limit') {
+            return response()->json(['message' => $result['message']], 429);
+        }
+
+        if ($result['status'] === 'ready') {
+            return response()->json([
+                'question_id' => $result['question_id'],
+                'conversation_id' => $result['conversation_id'],
+                'message_text' => $result['message_text'],
+                'reply' => $result['reply'],
+                'remaining' => $result['remaining'],
+            ], 200);
+        }
+
+        return response()->json([
+            'question_id' => $result['question_id'],
+            'conversation_id' => $result['conversation_id'],
+            'message_text' => $result['message_text'],
+            'remaining' => $result['remaining'],
+        ], 202);
+    }
+
+    /*
+     * خطوة ١١٣: استُخرج جسم summarizeFile() الأصلي لهنا (بلا أي تغيير
+     * بالمنطق نفسه) ليصير قابلًا للاستدعاء من مصدرين مختلفين بنفس
+     * السلوك الدقيق: نقطة API العادية (/ai/course-files/{id}/summarize
+     * بطلب من الموقع، عبر summarizeFile أعلاه) وأيضًا من داخل بوت
+     * تيليجرام (TelegramWebhookController، عبر رابط "لخّصلي"/"بطاقات
+     * مراجعة" المُحوَّل) — بلا تكرار أي منطق Gemini/التخزين المؤقت
+     * (CourseFileAiMeta) أو تنسيق البطاقات (FLASHCARDS_FORMAT_INSTRUCTION).
+     *
+     * $notifyTelegramChatId: لو غير null، يُخزَّن على السؤال (عمود
+     * notify_telegram_chat_id) ليُستخدم من processPending() لاحقًا لو
+     * رجع السؤال "pending" هون (الملف يحتاج تجهيزًا لأول مرة) — عندها
+     * البوت هو من يرسل الرد كرسالة جديدة لما يجهز، لا الموقع.
+     */
+    public function performSummarize(\App\Models\User $user, CourseFile $courseFile, string $mode, ?string $notifyTelegramChatId, PlanCalculator $calculator): array
+    {
         /*
          * ai_summarizable: تحكّم صريح من الطاقم (لوحة التحكم) بإمكانية
          * تلخيص/تحويل هذا الملف بالذات — لا يكفي الاعتماد على إخفاء
@@ -534,17 +577,15 @@ class AiAssistantController extends Controller
          */
         abort_unless($courseFile->is_published && $courseFile->status === 'ready' && $courseFile->ai_summarizable, 404);
 
-        $mode = $request->input('mode', 'summary');
         if (!in_array($mode, ['summary', 'flashcards'], true)) {
             $mode = 'summary';
         }
 
-        $user = $request->user();
-
         if ($this->dailyUsageCount($user->id) >= self::DAILY_LIMIT) {
-            return response()->json([
+            return [
+                'status' => 'limit',
                 'message' => 'وصلت الحد الأقصى للأسئلة اليوم (' . self::DAILY_LIMIT . ' سؤالًا). سيتم تجديد حدّك تلقائيًا عند الساعة 12 صباحًا.',
-            ], 429);
+            ];
         }
 
         $conversation = AiConversation::create([
@@ -567,6 +608,7 @@ class AiAssistantController extends Controller
             'course_name' => $courseFile->course?->name_ar,
             'status' => 'pending',
             'referenced_course_file_id' => $courseFile->id,
+            'notify_telegram_chat_id' => $notifyTelegramChatId,
         ]);
 
         $fileNeedsPrep = !$this->hasFreshMeta($courseFile->id);
@@ -580,22 +622,92 @@ class AiAssistantController extends Controller
             if ($immediate !== null) {
                 $this->appendToConversation($conversation, $messageText, $immediate);
 
-                return response()->json([
+                return [
+                    'status' => 'ready',
                     'question_id' => $question->id,
                     'conversation_id' => $conversation->id,
                     'message_text' => $messageText,
                     'reply' => $immediate,
                     'remaining' => max(0, self::DAILY_LIMIT - $this->dailyUsageCount($user->id)),
-                ], 200);
+                ];
             }
         }
 
-        return response()->json([
+        return [
+            'status' => 'pending',
             'question_id' => $question->id,
             'conversation_id' => $conversation->id,
             'message_text' => $messageText,
             'remaining' => max(0, self::DAILY_LIMIT - $this->dailyUsageCount($user->id)),
-        ], 202);
+        ];
+    }
+
+    /*
+     * توليد رابط تيليجرام موقّع (توكن مؤقّت، ١٠ دقائق، استخدام واحد)
+     * لزرّي "لخّصلي"/"بطاقات مراجعة" — راجع تعليق الهجرة
+     * create_telegram_ai_deeplinks_table وTelegramWebhookController
+     * (معالج /start بادئة ai_) للسياق الكامل. نفس فحص is_published/
+     * status/ai_summarizable المطبَّق بperformSummarize، مطبَّق هون
+     * أيضًا حتى لا يُولَّد رابط لملف لن يُقبل أصلًا لحظة استهلاكه.
+     */
+    public function generateTelegramLink(Request $request, CourseFile $courseFile)
+    {
+        abort_unless($courseFile->is_published && $courseFile->status === 'ready' && $courseFile->ai_summarizable, 404);
+
+        $mode = $request->input('mode', 'summary');
+        if (!in_array($mode, ['summary', 'flashcards'], true)) {
+            $mode = 'summary';
+        }
+
+        $botUsername = (string) config('services.telegram.bot_username', '');
+
+        if ($botUsername === '') {
+            return response()->json([
+                'message' => 'مساعد تيليجرام غير مُفعَّل حاليًا.',
+            ], 500);
+        }
+
+        $token = \Illuminate\Support\Str::random(32);
+
+        \App\Models\TelegramAiDeeplink::create([
+            'token' => $token,
+            'user_id' => $request->user()->id,
+            'course_file_id' => $courseFile->id,
+            'mode' => $mode,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        return response()->json([
+            'data' => [
+                'url' => "https://t.me/{$botUsername}?start=ai_{$token}",
+            ],
+        ]);
+    }
+
+    /*
+     * راجع notify_telegram_chat_id بAiQuestion — يُستدعى فقط من
+     * النقطتين اللي فعليًا تُنهيان سؤالًا وصل عبر processPending()
+     * (الدُفعة الدورية)، لا من tryImmediateAnswer (الرد هناك يرجع
+     * فورًا بنفس الطلب فيرسله البوت بنفسه مباشرة بلا حاجة لهذا). فشل
+     * إرسال تيليجرام هنا (بوت غير مُفعَّل، شبكة...) لا يفشّل حفظ
+     * الجواب نفسه — السؤال يبقى status=done بأي حال.
+     */
+    private function notifyTelegramIfNeeded(AiQuestion $question, string $reply): void
+    {
+        $chatId = $question->notify_telegram_chat_id;
+
+        if (!$chatId) {
+            return;
+        }
+
+        try {
+            $safeReply = \App\Services\TelegramBotApi::escapeHtml($reply);
+            app(\App\Services\TelegramBotApi::class)->sendMessage($chatId, "📝 <b>جاهز!</b>\n\n{$safeReply}");
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $question->update(['notify_telegram_chat_id' => null]);
     }
 
     private function appendToConversation(AiConversation $conversation, ?string $rawMessage, string $reply): void
@@ -739,6 +851,18 @@ class AiAssistantController extends Controller
                     'error_message' => 'تعذّر الوصول للمساعد بالوقت المناسب، حاول مرة أخرى.',
                 ]);
 
+            /*
+             * قبل التحديث الجماعي: أي سؤال منها جاي من بوت تيليجرام
+             * (notify_telegram_chat_id) لازم يُعلَم الطالب بالفشل هناك
+             * صراحة — بخلاف الموقع (تلاقيه صفحة /ai/result بنفسها)،
+             * محادثة تيليجرام تبقى صامتة تمامًا بلا هذا.
+             */
+            $staleTelegramQuestions = AiQuestion::where('status', 'pending')
+                ->whereNotNull('referenced_course_file_id')
+                ->whereNotNull('notify_telegram_chat_id')
+                ->where('created_at', '<', now()->subMinutes(20))
+                ->get(['id', 'notify_telegram_chat_id']);
+
             AiQuestion::where('status', 'pending')
                 ->whereNotNull('referenced_course_file_id')
                 ->where('created_at', '<', now()->subMinutes(20))
@@ -746,6 +870,17 @@ class AiAssistantController extends Controller
                     'status' => 'failed',
                     'error_message' => 'تعذّر الوصول للمساعد بالوقت المناسب، حاول مرة أخرى.',
                 ]);
+
+            foreach ($staleTelegramQuestions as $stale) {
+                try {
+                    app(\App\Services\TelegramBotApi::class)->sendMessage(
+                        $stale->notify_telegram_chat_id,
+                        '⚠️ تعذّر تجهيز هذا الملف بالوقت المناسب، جرّب اطلبه مرة أخرى.'
+                    );
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
 
             $providers = $this->providerPool();
             $processed = 0;
@@ -1022,6 +1157,7 @@ class AiAssistantController extends Controller
 
             $question->update(['status' => 'done', 'reply' => $result['text']]);
             $this->rememberAnswer($question, $result['text']);
+            $this->notifyTelegramIfNeeded($question, $result['text']);
 
             $conversation = $question->conversation_id ? AiConversation::find($question->conversation_id) : null;
             if ($conversation) {
@@ -1184,6 +1320,7 @@ class AiAssistantController extends Controller
 
         $question->update(['status' => 'done', 'reply' => $result['text']]);
         $this->rememberAnswer($question, $result['text']);
+        $this->notifyTelegramIfNeeded($question, $result['text']);
 
         $conversation = $question->conversation_id ? AiConversation::find($question->conversation_id) : null;
         if ($conversation) {

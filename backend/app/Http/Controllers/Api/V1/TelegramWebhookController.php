@@ -13,6 +13,7 @@ use App\Models\CourseUnit;
 use App\Models\Favorite;
 use App\Models\GpaEntry;
 use App\Models\ScheduleLecture;
+use App\Models\TelegramAiDeeplink;
 use App\Models\TelegramLink;
 use App\Models\Tool;
 use App\Exceptions\CourseStatusException;
@@ -538,6 +539,20 @@ class TelegramWebhookController extends Controller
             $token = trim(substr($text, strlen('/start')));
             $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
 
+            /*
+             * خطوة ١١٣: رابط "لخّصلي"/"بطاقات مراجعة" جاي من زر بصفحة
+             * المادة بالموقع (يفتح t.me/<bot>?start=ai_<token>) — توكن
+             * TelegramAiDeeplink منفصل تمامًا عن توكن ربط الحساب
+             * العادي أدناه (غرضه تشغيل إجراء محدد، لا ربط محادثة).
+             * لازم يُعالَج هنا قبل منطق توكن الربط العادي لأنه بنفس
+             * شكل "/start <شيء>".
+             */
+            if (str_starts_with($token, 'ai_')) {
+                $this->handleAiDeepLinkStart($bot, $planCalculator, $chatId, $telegramFirstName, substr($token, 3));
+
+                return response()->json(['ok' => true]);
+            }
+
             if ($token === '') {
                 /*
                  * علة كانت موجودة: "/start" بلا توكن (مثلًا بعد حذف
@@ -598,12 +613,26 @@ class TelegramWebhookController extends Controller
                 return response()->json(['ok' => true]);
             }
 
+            /*
+             * خطوة ١١٣: طالب ضغط زر "لخّصلي"/"بطاقات مراجعة" بالموقع
+             * وحسابه مش مربوط بعد بتيليجرام — handleAiDeepLinkStart
+             * أدناه خزّن الطلب (course_file_id/mode) بـpending_action
+             * بنفس سجل TelegramLink هذا (أُنشئ بلا chat_id وقتها) قبل
+             * ما يوجّهه لصفحة الربط. لازم نقرأه *قبل* ما نمسحه بالـupdate
+             * التالي (يستخدم نفس العمود لأغراض تانية أيضًا — سيناريو
+             * جدول المحاضرات).
+             */
+            $pendingAiAction = is_array($link->pending_action) && ($link->pending_action['action'] ?? null) === 'ai_deeplink'
+                ? $link->pending_action
+                : null;
+
             $link->update([
                 'telegram_chat_id' => $chatId,
                 'telegram_first_name' => $telegramFirstName,
                 'linked_at' => now(),
                 'link_token' => null,
                 'token_expires_at' => null,
+                'pending_action' => $pendingAiAction ? null : $link->pending_action,
             ]);
 
             $studentName = trim((string) ($link->user?->first_name ?? ''));
@@ -618,6 +647,14 @@ class TelegramWebhookController extends Controller
                 'استخدم الأزرار تحت 👇 للتنقل بين خطتك ومعدلك وجدولك وأدوات الذكاء الاصطناعي، أو زر "مساعدة" لشرح كل شيء.',
                 $this->buildMainMenuKeyboard($link->user)
             );
+
+            if ($pendingAiAction && $link->user) {
+                $courseFile = CourseFile::find($pendingAiAction['course_file_id'] ?? null);
+
+                if ($courseFile) {
+                    $this->runAiDeepLinkAction($bot, $planCalculator, $link->user, (string) $chatId, $courseFile, (string) ($pendingAiAction['mode'] ?? 'summary'));
+                }
+            }
 
             return response()->json(['ok' => true]);
         }
@@ -3759,6 +3796,128 @@ class TelegramWebhookController extends Controller
     }
 
     /*
+     * خطوة ١١٣: نقطة استقبال رابط "لخّصلي"/"بطاقات مراجعة" الجاي من
+     * زر صفحة المادة بالموقع (t.me/<bot>?start=ai_<token>). يعيد
+     * استخدام نفس منطق الموقع بالكامل (AiAssistantController::
+     * performSummarize) — لا منطق Gemini جديد هون إطلاقًا، فقط توصيل
+     * الطلب للمنطق الموجود وإرسال الرد كرسالة بوت بدل استجابة HTTP.
+     */
+    private function handleAiDeepLinkStart(
+        TelegramBotApi $bot,
+        PlanCalculator $planCalculator,
+        int|string $chatId,
+        string $telegramFirstName,
+        string $token
+    ): void {
+        $deeplink = TelegramAiDeeplink::query()->where('token', $token)->first();
+
+        if (!$deeplink || $deeplink->isExpired()) {
+            $bot->sendMessage(
+                $chatId,
+                'هذا الرابط منتهي أو غير صالح. ارجع لصفحة المادة بالموقع واضغط الزر من جديد.'
+            );
+
+            if ($deeplink) {
+                $deeplink->delete();
+            }
+
+            return;
+        }
+
+        $user = $deeplink->user;
+        $courseFile = $deeplink->courseFile;
+        $mode = (string) $deeplink->mode;
+        $deeplink->delete(); // استخدام واحد فقط، بغض النظر عن نتيجة ما بعده
+
+        if (!$user || !$courseFile) {
+            $bot->sendMessage($chatId, 'تعذّر العثور على الملف المطلوب، ارجع لصفحة المادة بالموقع وحاول مرة أخرى.');
+
+            return;
+        }
+
+        $link = TelegramLink::query()->where('user_id', $user->id)->first();
+
+        if (!$link || !$link->isLinked()) {
+            /*
+             * حساب الموقع غير مربوط بمحادثة تيليجرام هذه بعد — نخزّن
+             * الطلب (course_file_id/mode) بـpending_action على نفس
+             * سجل TelegramLink (يُنشأ لو ما كان موجودًا) ليُقرأ ويُنفَّذ
+             * تلقائيًا فور اكتمال الربط العادي (راجع معالج /start
+             * بتوكن الربط العادي أعلاه بنفس هذا الملف).
+             */
+            TelegramLink::updateOrCreate(
+                ['user_id' => $user->id],
+                ['pending_action' => ['action' => 'ai_deeplink', 'course_file_id' => $courseFile->id, 'mode' => $mode]]
+            );
+
+            $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+
+            $bot->sendMessage(
+                $chatId,
+                'أهلًا 👋 قبل ما نكمّل، لازم تربط حسابك بتيليجرام أول شي (مرة وحدة بس).'."\n\n".
+                'اضغط هذا الرابط وسجّل دخولك، وهناك بتلاقي زر "اربط حسابي بتيليجرام" — بعد الربط رح نكمّل تلقائيًا:'."\n".
+                $frontendUrl.'/account.html#tgLinkCard'
+            );
+
+            return;
+        }
+
+        $link->update(['telegram_chat_id' => $chatId, 'telegram_first_name' => $telegramFirstName]);
+
+        $this->runAiDeepLinkAction($bot, $planCalculator, $user, (string) $chatId, $courseFile, $mode);
+    }
+
+    /*
+     * راجع تعليق handleAiDeepLinkStart أعلاه — هذه هي نقطة التنفيذ
+     * الفعلية، تُستدعى إما مباشرة (حساب مربوط أصلًا) أو بعد اكتمال
+     * ربط الحساب من pending_action. تستدعي AiAssistantController::
+     * performSummarize() مباشرة (لا عبر HTTP) بنفس المنطق بالضبط
+     * المستخدَم من زر الموقع.
+     */
+    private function runAiDeepLinkAction(
+        TelegramBotApi $bot,
+        PlanCalculator $planCalculator,
+        \App\Models\User $user,
+        string $chatId,
+        CourseFile $courseFile,
+        string $mode
+    ): void {
+        $verb = $mode === 'flashcards' ? 'تجهيز بطاقات المراجعة' : 'تلخيص الملف';
+        $bot->sendMessage($chatId, "⏳ عم أبلش {$verb} — ثواني وبردّ عليك.");
+
+        try {
+            $result = app(\App\Http\Controllers\Api\V1\AiAssistantController::class)
+                ->performSummarize($user, $courseFile, $mode, $chatId, $planCalculator);
+        } catch (\Throwable $e) {
+            report($e);
+            $bot->sendMessage($chatId, '⚠️ صار خطأ غير متوقع، جرّب مرة أخرى من صفحة المادة بالموقع.');
+
+            return;
+        }
+
+        if ($result['status'] === 'limit') {
+            $bot->sendMessage($chatId, $result['message']);
+
+            return;
+        }
+
+        if ($result['status'] === 'ready') {
+            $safeReply = TelegramBotApi::escapeHtml($result['reply']);
+            $bot->sendMessage($chatId, "📝 <b>جاهز!</b>\n\n{$safeReply}");
+
+            return;
+        }
+
+        // pending: الملف يحتاج تجهيزًا لأول مرة — راجع notify_telegram_chat_id
+        // بAiAssistantController، الدُفعة الدورية (processPending) هي يلي
+        // بترسل الرد هون كرسالة جديدة لما يجهز (خلال دقيقة لدقيقتين عادةً).
+        $bot->sendMessage(
+            $chatId,
+            '📄 هذا أول طلب لهذا الملف، فبحتاج أجهّزه أول مرة (دقيقة أو دقيقتين ⏳). رح أبعتلك الرد هون تلقائيًا فور ما يخلص.'
+        );
+    }
+
+    /*
      * صورة أو ملف (PDF/صورة كمستند) → تنزيل من تيليجرام → تلخيص عبر
      * TelegramAiAssistant.
      *
@@ -4901,6 +5060,7 @@ class TelegramWebhookController extends Controller
     private const ANNOUNCE_AUDIENCE_LABELS = [
         'all' => '👥 كل الطلاب',
         'year' => '🎓 طلاب سنة معيّنة',
+        'year_semester' => '🎓 طلاب سنة وفصل معيّنين',
         'course' => '📘 طلاب مادة معيّنة',
     ];
 
@@ -4911,14 +5071,13 @@ class TelegramWebhookController extends Controller
      * فقط عبر telegram_links.telegram_chat_id المربوط فعليًا (لا أي
      * معطى يبعته العميل نفسه).
      *
-     * استهداف دقيق مدعوم الآن: كل الطلاب (audience=all) / سنة معيّنة
-     * (audience=year + audience_year) / طلاب مادة معيّنة (audience=course
-     * + course_id، بنفس شرط التسجيل الفعّال المستخدم بمنطق الموقع نفسه:
-     * my_courses.status بـ['registered','completed']). استهداف
-     * "سنة+فصل" (audience=year_semester) غير مدعوم عمدًا — عمود
-     * users.semester غير موجود فعليًا بقاعدة البيانات رغم إشارة الكود
-     * له بأماكن تانية (علة موثّقة بـstep90)، فأي استهداف بيعتمد عليه
-     * ما بيوصل لحدا فعليًا.
+     * استهداف دقيق مدعوم الآن بالكامل (خطوة ١١٢ — بعد إضافة عمود
+     * users.semester الناقص سابقًا): كل الطلاب (audience=all) / سنة
+     * معيّنة (audience=year + audience_year) / سنة وفصل معيّنين
+     * (audience=year_semester + audience_year + audience_semester) /
+     * طلاب مادة معيّنة (audience=course + course_id، بنفس شرط التسجيل
+     * الفعّال المستخدم بمنطق الموقع نفسه: my_courses.status بـ
+     * ['registered','completed']).
      *
      * عند النشر: يُنشأ Announcement عادي (يظهر بالموقع فورًا بنفس آلية
      * الإعلانات العادية — AnnouncementController::visibleTo() بالضبط)
@@ -4946,8 +5105,17 @@ class TelegramWebhookController extends Controller
         $bot->sendMessage($chatId, '👥 مين المفروض يشوف هذا الإعلان؟', [
             [['text' => '👥 كل الطلاب', 'callback_data' => 'announce:aud:all']],
             [['text' => '🎓 طلاب سنة معيّنة', 'callback_data' => 'announce:aud:year']],
+            [['text' => '🎓 طلاب سنة وفصل معيّنين', 'callback_data' => 'announce:aud:yearsem']],
             [['text' => '📘 طلاب مادة معيّنة', 'callback_data' => 'announce:aud:course']],
         ]);
+    }
+
+    private function sendAnnouncePickSemester(TelegramBotApi $bot, int|string $chatId, int $year): void
+    {
+        $bot->sendMessage($chatId, 'وأي فصل ضمن السنة '.$year.'؟', [[
+            ['text' => 'الفصل الأول', 'callback_data' => 'announce:sem:1'],
+            ['text' => 'الفصل الثاني', 'callback_data' => 'announce:sem:2'],
+        ]]);
     }
 
     private function sendAnnouncePreview(TelegramBotApi $bot, int|string $chatId, array $data): void
@@ -4956,6 +5124,9 @@ class TelegramWebhookController extends Controller
 
         if (($data['audience'] ?? null) === 'year') {
             $audienceLabel .= ' (السنة '.((int) ($data['audience_year'] ?? 0)).')';
+        } elseif (($data['audience'] ?? null) === 'year_semester') {
+            $sem = ((int) ($data['audience_semester'] ?? 0)) === 2 ? 'الثاني' : 'الأول';
+            $audienceLabel .= ' (السنة '.((int) ($data['audience_year'] ?? 0)).' — الفصل '.$sem.')';
         } elseif (($data['audience'] ?? null) === 'course') {
             $audienceLabel .= ' ("'.TelegramBotApi::escapeHtml((string) ($data['course_name'] ?? '')).'")';
         }
@@ -5135,6 +5306,22 @@ class TelegramWebhookController extends Controller
                 return;
             }
 
+            if ($arg === 'yearsem') {
+                $link->update(['pending_action' => ['action' => 'announce', 'step' => 'pick_year_sem', 'lecture_id' => null, 'data' => $pendingData]]);
+                $bot->sendMessage($chatId, '🎓 اختر السنة المستهدفة:', [
+                    [
+                        ['text' => 'السنة ١', 'callback_data' => 'announce:yearsemyear:1'],
+                        ['text' => 'السنة ٢', 'callback_data' => 'announce:yearsemyear:2'],
+                    ],
+                    [
+                        ['text' => 'السنة ٣', 'callback_data' => 'announce:yearsemyear:3'],
+                        ['text' => 'السنة ٤', 'callback_data' => 'announce:yearsemyear:4'],
+                    ],
+                ]);
+
+                return;
+            }
+
             if ($arg === 'course') {
                 $link->update(['pending_action' => ['action' => 'announce', 'step' => 'course_query', 'lecture_id' => null, 'data' => $pendingData]]);
                 $bot->sendMessage($chatId, '📘 اكتب اسم المادة أو رمزها:');
@@ -5163,6 +5350,53 @@ class TelegramWebhookController extends Controller
             $bot->answerCallbackQuery($callbackId);
             $pendingData['audience'] = 'year';
             $pendingData['audience_year'] = $year;
+            $link->update(['pending_action' => ['action' => 'announce', 'step' => 'confirm', 'lecture_id' => null, 'data' => $pendingData]]);
+            $this->sendAnnouncePreview($bot, $chatId, $pendingData);
+
+            return;
+        }
+
+        if ($key === 'yearsemyear') {
+            if (($pending['step'] ?? null) !== 'pick_year_sem') {
+                $bot->answerCallbackQuery($callbackId);
+
+                return;
+            }
+
+            $year = (int) $arg;
+
+            if ($year < 1 || $year > 4) {
+                $bot->answerCallbackQuery($callbackId);
+
+                return;
+            }
+
+            $bot->answerCallbackQuery($callbackId);
+            $pendingData['audience_year'] = $year;
+            $link->update(['pending_action' => ['action' => 'announce', 'step' => 'pick_semester', 'lecture_id' => null, 'data' => $pendingData]]);
+            $this->sendAnnouncePickSemester($bot, $chatId, $year);
+
+            return;
+        }
+
+        if ($key === 'sem') {
+            if (($pending['step'] ?? null) !== 'pick_semester') {
+                $bot->answerCallbackQuery($callbackId);
+
+                return;
+            }
+
+            $semester = (int) $arg;
+
+            if ($semester < 1 || $semester > 2) {
+                $bot->answerCallbackQuery($callbackId);
+
+                return;
+            }
+
+            $bot->answerCallbackQuery($callbackId);
+            $pendingData['audience'] = 'year_semester';
+            $pendingData['audience_semester'] = $semester;
             $link->update(['pending_action' => ['action' => 'announce', 'step' => 'confirm', 'lecture_id' => null, 'data' => $pendingData]]);
             $this->sendAnnouncePreview($bot, $chatId, $pendingData);
 
@@ -5204,7 +5438,7 @@ class TelegramWebhookController extends Controller
             $title = trim((string) ($pendingData['title'] ?? ''));
             $audience = $pendingData['audience'] ?? null;
 
-            if ($title === '' || ! in_array($audience, ['all', 'year', 'course'], true)) {
+            if ($title === '' || ! in_array($audience, ['all', 'year', 'year_semester', 'course'], true)) {
                 $link->update(['pending_action' => null]);
                 $bot->answerCallbackQuery($callbackId, 'خطأ بالبيانات، ابدأ من جديد.');
 
@@ -5216,7 +5450,8 @@ class TelegramWebhookController extends Controller
                 'body' => $pendingData['body'] ?? null,
                 'active' => true,
                 'audience' => $audience,
-                'audience_year' => $audience === 'year' ? (int) $pendingData['audience_year'] : null,
+                'audience_year' => in_array($audience, ['year', 'year_semester'], true) ? (int) $pendingData['audience_year'] : null,
+                'audience_semester' => $audience === 'year_semester' ? (int) $pendingData['audience_semester'] : null,
                 'course_id' => $audience === 'course' ? (int) $pendingData['course_id'] : null,
                 'created_by' => $link->user_id,
             ]);
@@ -5241,9 +5476,10 @@ class TelegramWebhookController extends Controller
      * بث الإعلان مباشرة عبر تيليجرام لكل طالب مستهدف مربوط حسابه —
      * نفس قواعد مطابقة الجمهور المستخدمة بـAnnouncementController::
      * visibleTo() العامة بالضبط (audience=all لكل حد، audience=year
-     * بمطابقة users.year، audience=course بمطابقة تسجيل فعّال
-     * my_courses.status بـ['registered','completed']) — بدون فرع
-     * year_semester (غير مدعوم، راجع التعليق أعلى دالة handleAnnounceCallback).
+     * بمطابقة users.year، audience=year_semester بمطابقة users.year+
+     * users.semester معًا — مدعوم فعليًا الآن بعد إضافة عمود
+     * users.semester الناقص سابقًا (خطوة ١١٢)، audience=course بمطابقة
+     * تسجيل فعّال my_courses.status بـ['registered','completed']).
      * إرسال معزول لكل مستلم (try/catch مستقل) حتى فشل واحد ما يوقف الباقي.
      * يرجّع عدد الرسائل المُرسَلة فعليًا (لعرضه بتأكيد النشر للأدمن).
      */
@@ -5253,6 +5489,12 @@ class TelegramWebhookController extends Controller
             $chatIds = TelegramLink::query()->whereNotNull('telegram_chat_id')->pluck('telegram_chat_id');
         } elseif ($announcement->audience === 'year') {
             $userIds = \App\Models\User::query()->where('year', $announcement->audience_year)->pluck('id');
+            $chatIds = TelegramLink::query()->whereIn('user_id', $userIds)->whereNotNull('telegram_chat_id')->pluck('telegram_chat_id');
+        } elseif ($announcement->audience === 'year_semester') {
+            $userIds = \App\Models\User::query()
+                ->where('year', $announcement->audience_year)
+                ->where('semester', $announcement->audience_semester)
+                ->pluck('id');
             $chatIds = TelegramLink::query()->whereIn('user_id', $userIds)->whereNotNull('telegram_chat_id')->pluck('telegram_chat_id');
         } elseif ($announcement->audience === 'course') {
             $userIds = \App\Models\User::query()
@@ -5365,6 +5607,9 @@ class TelegramWebhookController extends Controller
 
         if ($announcement->audience === 'year' && $announcement->audience_year) {
             $audienceLabel .= ' (السنة '.(int) $announcement->audience_year.')';
+        } elseif ($announcement->audience === 'year_semester' && $announcement->audience_year) {
+            $sem = ((int) $announcement->audience_semester) === 2 ? 'الثاني' : 'الأول';
+            $audienceLabel .= ' (السنة '.(int) $announcement->audience_year.' — الفصل '.$sem.')';
         } elseif ($announcement->audience === 'course' && $announcement->course) {
             $audienceLabel .= ' ("'.TelegramBotApi::escapeHtml((string) ($announcement->course->name_ar ?: $announcement->course->name_en)).'")';
         }

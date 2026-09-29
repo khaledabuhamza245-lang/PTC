@@ -492,7 +492,7 @@
                     type="button"
                     class="abtn ghost course-summarize-btn"
                     onclick="PTCCoursePage.summarize(${Number(item.id)}, this)"
-                    title="لخّص هذا الملف بمساعد PtcHub AI"
+                    title="لخّص هذا الملف عبر شات بوت تيليجرام"
                   >
                     ✨ لخّصلي
                   </button>
@@ -500,7 +500,7 @@
                     type="button"
                     class="abtn ghost course-flashcards-btn"
                     onclick="PTCCoursePage.flashcards(${Number(item.id)}, this)"
-                    title="حوّل هذا الملف إلى بطاقات مراجعة سريعة"
+                    title="حوّل هذا الملف إلى بطاقات مراجعة سريعة عبر بوت تيليجرام"
                   >
                     <i data-icon="layers"></i> بطاقات مراجعة
                   </button>
@@ -3194,40 +3194,45 @@ function unitBlock(
   }
 
   /*
-   * زر "لخّصلي" — يفتح مساعد PtcHub AI ويطلب منه تلخيص هذا الملف
-   * بالذات، بمعرّفه مباشرة، بلا حاجة لكتابة اسمه بالنص (وبلا احتمال
-   * تلخبط الأداة بين ملفات متشابهة الاسم).
+   * خطوة ١١٣: زرّا "لخّصلي"/"بطاقات مراجعة" لم يعودا يفتحان شات
+   * PtcHub AI بالموقع — بقرار صريح بعد مشاكل كثيرة وثّقناها بمساعد
+   * الموقع (خطوات ٦٩/٧٠/٧١/٧٥/٧٦). بدلًا من ذلك: نطلب من الباك-إند
+   * رابط تيليجرام مؤقّت (توكن استخدام واحد، ١٠ دقائق — راجع
+   * AiAssistantController::generateTelegramLink) وننقل الطالب مباشرة
+   * لشات بوت تيليجرام، يلي يكمّل نفس منطق التلخيص/البطاقات بالضبط
+   * (performSummarize) وبيردّ عليه هناك مباشرة، حتى لو الحساب مش
+   * مربوط بعد (البوت يوجّهه لصفحة الربط ويكمّل تلقائيًا بعدها).
+   *
+   * الأسئلة النصية العادية ورفع الصور بمساعد الموقع نفسه بقيا كما هما
+   * — هذا التحويل خاص فقط بتلخيص/بطاقات ملف مساق محدد.
    */
-  function summarize(id, button) {
-    if (!window.PTCAssistant?.summarizeFile) {
-      return;
-    }
-
+  async function openTelegramAiLink(id, mode, button) {
     if (button) button.disabled = true;
 
-    Promise.resolve(window.PTCAssistant.summarizeFile(Number(id)))
-      .finally(() => {
-        if (button) button.disabled = false;
-      });
+    try {
+      const response = await PTCApi.post(`/ai/course-files/${Number(id)}/telegram-link`, { mode });
+      const url = response?.data?.url;
+
+      if (!url) {
+        throw new Error('تعذّر توليد رابط تيليجرام.');
+      }
+
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      if (typeof showToast === 'function') {
+        showToast('خطأ', error?.message || 'تعذّر فتح بوت تيليجرام الآن، جرّب مرة أخرى.', '', 20);
+      }
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
-  /*
-   * زر "بطاقات مراجعة" — نفس آلية "لخّصلي" بالضبط (يفتح المساعد بمحادثة
-   * جديدة مثبَّتة على هذا الملف)، بس بطلب Gemini صراحة يرجع بتنسيق
-   * سؤال/جواب صارم (mode='flashcards') يعرضه app.js كبطاقات قابلة
-   * للقلب بدل نص عادي — راجع summarizeFile بالباك-إند لتفاصيل التنسيق.
-   */
+  function summarize(id, button) {
+    return openTelegramAiLink(id, 'summary', button);
+  }
+
   function flashcards(id, button) {
-    if (!window.PTCAssistant?.summarizeFile) {
-      return;
-    }
-
-    if (button) button.disabled = true;
-
-    Promise.resolve(window.PTCAssistant.summarizeFile(Number(id), 'flashcards'))
-      .finally(() => {
-        if (button) button.disabled = false;
-      });
+    return openTelegramAiLink(id, 'flashcards', button);
   }
 
   window.PTCCoursePage = {
