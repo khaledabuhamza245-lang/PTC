@@ -3882,6 +3882,8 @@ class TelegramWebhookController extends Controller
         CourseFile $courseFile,
         string $mode
     ): void {
+        $bot->sendChatAction($chatId, 'typing');
+
         $verb = $mode === 'flashcards' ? 'تجهيز بطاقات المراجعة' : 'تلخيص الملف';
         $bot->sendMessage($chatId, "⏳ عم أبلش {$verb} — ثواني وبردّ عليك.");
 

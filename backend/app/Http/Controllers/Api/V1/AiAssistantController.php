@@ -581,6 +581,51 @@ class AiAssistantController extends Controller
             $mode = 'summary';
         }
 
+        /*
+         * خطوة ١١٤: رد جاهز مخزَّن مسبقًا (من طالب سابق طلب نفس الملف
+         * بنفس الوضع) — رد فوري بلا أي استدعاء Gemini، وبلا استهلاك
+         * من الحد اليومي (ما في أي تكلفة فعلية على الإطلاق هون). لسا
+         * نسجّل AiQuestion/AiConversation عاديين (نفس سلوك أي طلب،
+         * يظهر بسجل محادثات الطالب بالموقع) لكن بحالة "done" مباشرة.
+         */
+        $cached = \App\Models\CourseFileAiResponse::where('course_file_id', $courseFile->id)
+            ->where('mode', $mode)
+            ->first();
+
+        if ($cached) {
+            $conversation = AiConversation::create([
+                'user_id' => $user->id,
+                'title' => \Illuminate\Support\Str::limit($courseFile->title ?: ($mode === 'flashcards' ? 'بطاقات مراجعة' : 'ملخّص ملف'), 60),
+                'messages' => [],
+                'pinned_course_file_id' => $courseFile->id,
+            ]);
+
+            $messageText = $mode === 'flashcards'
+                ? 'حوّل أهم نقاط هذا الملف إلى بطاقات مراجعة سريعة (Flashcards) لملف: ' . $courseFile->title . self::FLASHCARDS_FORMAT_INSTRUCTION
+                : 'لخّصلي هذا الملف واشرح أهم النقاط فيه: ' . $courseFile->title;
+
+            $question = AiQuestion::create([
+                'user_id' => $user->id,
+                'conversation_id' => $conversation->id,
+                'message' => $messageText,
+                'course_name' => $courseFile->course?->name_ar,
+                'status' => 'done',
+                'reply' => $cached->response_text,
+                'referenced_course_file_id' => $courseFile->id,
+            ]);
+
+            $this->appendToConversation($conversation, $messageText, $cached->response_text);
+
+            return [
+                'status' => 'ready',
+                'question_id' => $question->id,
+                'conversation_id' => $conversation->id,
+                'message_text' => $messageText,
+                'reply' => $cached->response_text,
+                'remaining' => max(0, self::DAILY_LIMIT - $this->dailyUsageCount($user->id)),
+            ];
+        }
+
         if ($this->dailyUsageCount($user->id) >= self::DAILY_LIMIT) {
             return [
                 'status' => 'limit',
@@ -708,6 +753,29 @@ class AiAssistantController extends Controller
         }
 
         $question->update(['notify_telegram_chat_id' => null]);
+    }
+
+    /*
+     * خطوة ١١٤: تخزين الرد النهائي لأي سؤال تلخيص/بطاقات ملف (لا
+     * الأسئلة النصية العامة — بلا referenced_course_file_id هون).
+     * $mode يُستنتَج من نص السؤال المخزَّن نفسه (بلا عمود جديد)، بنفس
+     * نمط الفحص المستخدَم أصلًا بـhandleChunkedFile لتمييز طلب
+     * البطاقات عن التلخيص العادي. updateOrCreate: لو تكرّر توليد نفس
+     * (ملف، وضع) لأي سبب (تعارض نادر بين طلبين متزامنين لملف جديد لم
+     * يُخزَّن رده بعد)، آخر رد ناجح هو يلي يبقى مخزَّنًا.
+     */
+    private function cacheCourseFileResponse(AiQuestion $question, string $reply): void
+    {
+        if (!$question->referenced_course_file_id) {
+            return;
+        }
+
+        $mode = str_contains($question->message ?? '', 'بطاقات مراجعة') ? 'flashcards' : 'summary';
+
+        \App\Models\CourseFileAiResponse::updateOrCreate(
+            ['course_file_id' => $question->referenced_course_file_id, 'mode' => $mode],
+            ['response_text' => $reply]
+        );
     }
 
     private function appendToConversation(AiConversation $conversation, ?string $rawMessage, string $reply): void
@@ -1058,6 +1126,7 @@ class AiAssistantController extends Controller
 
         $question->update(['status' => 'done', 'reply' => $result['text']]);
         $this->rememberAnswer($question, $result['text']);
+        $this->cacheCourseFileResponse($question, $result['text']);
 
         return $result['text'];
     }
@@ -1158,6 +1227,7 @@ class AiAssistantController extends Controller
             $question->update(['status' => 'done', 'reply' => $result['text']]);
             $this->rememberAnswer($question, $result['text']);
             $this->notifyTelegramIfNeeded($question, $result['text']);
+            $this->cacheCourseFileResponse($question, $result['text']);
 
             $conversation = $question->conversation_id ? AiConversation::find($question->conversation_id) : null;
             if ($conversation) {
@@ -1321,6 +1391,7 @@ class AiAssistantController extends Controller
         $question->update(['status' => 'done', 'reply' => $result['text']]);
         $this->rememberAnswer($question, $result['text']);
         $this->notifyTelegramIfNeeded($question, $result['text']);
+        $this->cacheCourseFileResponse($question, $result['text']);
 
         $conversation = $question->conversation_id ? AiConversation::find($question->conversation_id) : null;
         if ($conversation) {
