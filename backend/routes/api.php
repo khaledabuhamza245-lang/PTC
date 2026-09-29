@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\V1\Student\AiChatController;
 use App\Http\Controllers\Api\V1\AnnouncementController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ContactController;
@@ -116,7 +115,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/tools', [ToolController::class, 'index']);
  
     Route::middleware('auth:sanctum')->group(function () {
-        Route::post('/student/ai/chat', [AiChatController::class, 'chat']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/me', [ProfileController::class, 'show']);
         Route::patch('/me', [ProfileController::class, 'update']);
