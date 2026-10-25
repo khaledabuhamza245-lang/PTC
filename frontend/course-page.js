@@ -486,26 +486,21 @@
         <div class="course-resource-actions">
           <div class="course-resource-actions-primary">
             ${
-              PTCAuth.user && isAiSummarizable(item)
-                ? `
-                  <button
-                    type="button"
-                    class="abtn ghost course-summarize-btn"
-                    onclick="PTCCoursePage.summarize(${Number(item.id)}, this)"
-                    title="لخّص هذا الملف عبر شات بوت تيليجرام"
-                  >
-                    ✨ لخّصلي
-                  </button>
-                  <button
-                    type="button"
-                    class="abtn ghost course-flashcards-btn"
-                    onclick="PTCCoursePage.flashcards(${Number(item.id)}, this)"
-                    title="حوّل هذا الملف إلى بطاقات مراجعة سريعة عبر بوت تيليجرام"
-                  >
-                    <i data-icon="layers"></i> بطاقات مراجعة
-                  </button>
-                `
-                : ''
+              /*
+               * خطوة ١١٦: ألغي زرّا "لخّصلي"/"بطاقات مراجعة" من الموقع
+               * نهائيًا — المسار الكامل (CourseFileGeminiPreparer +
+               * processPending الدوري) معتمد على ping خارجي مجاني
+               * (cron-job.org) أثبت الاستخدام الحي إنه يتوقف لساعات بلا
+               * إنذار (راجع خطوة ١١٤)، فكان الطالب يضل منتظرًا طويلًا
+               * بلا أي رد ولا حتى رسالة فشل. القرار: الاكتفاء بميزة
+               * التلخيص المباشرة بالبوت (مشاركة ملف صغير بالشات، بلا أي
+               * اعتماد على هالـcron — راجع TelegramAiAssistant::
+               * summarizeFile) بدل هالمسار غير الموثوق. لم تُحذف
+               * isAiSummarizable أو الدالتان summarize/flashcards تحت
+               * (بلا استدعاء من أي مكان الآن) تفاديًا لأي أثر جانبي غير
+               * متوقَّع، فقط إخفاء الزرّين من الواجهة.
+               */
+              ''
             }
 
             <button
