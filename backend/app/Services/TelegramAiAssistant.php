@@ -78,7 +78,15 @@ class TelegramAiAssistant
         $size = filesize($localPath) ?: 0;
         if ($size <= 0 || $size > self::MAX_FILE_SIZE) {
             @unlink($localPath);
-            throw new RuntimeException('الملف كبير جدًا للبوت حاليًا (الحد ١٥ ميغابايت) — جرّب صورة أوضح لصفحة وحدة، أو من الموقع مباشرة للملفات الكبيرة.');
+            /*
+             * خطوة ١١٥: صياغة موحَّدة مع رسالة الموقع (FILE_TOO_BIG_
+             * FOR_SUMMARY_MESSAGE بـAiAssistantController) — رفض فوري
+             * وواضح بدل أي محاولة أو انتظار، مع اقتراح عملي (تقسيم
+             * الملف) قبل أي ذِكر لأدوات خارجية.
+             */
+            throw new RuntimeException(
+                'هذا الملف تجاوز الحجم المسموح للتلخيص عبر البوت (الحد ١٥ ميغابايت). جرّب تقسيم الملف لأجزاء أصغر وشارك كل جزء على حدة، أو لو بدك تلخيص الملف كامل دفعة واحدة فيه أدوات ذكاء اصطناعي خارجية ممكن تساعدك بهذي الحالة تحديدًا.'
+            );
         }
 
         if ($size <= self::INLINE_UPLOAD_THRESHOLD) {

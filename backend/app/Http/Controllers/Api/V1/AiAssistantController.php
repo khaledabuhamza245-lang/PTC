@@ -78,6 +78,24 @@ class AiAssistantController extends Controller
     private const FILE_TOO_LARGE_MESSAGE =
         'هذا الملف كبير جدًا على قدرة المساعد الحالية (تجاوز الحد الأقصى لتحليله دفعة واحدة). جرّب تسأل عن جزء محدد من محتواه بدل الملف كامل.';
 
+    /*
+     * خطوة ١١٥: سقف حجم مخصّص لملفات المساق المُلخَّصة عبر زرّي
+     * "لخّصلي"/"بطاقات مراجعة" (performSummarize) — منفصل عن
+     * MAX_FILE_SIZE (مرفقات الطالب المباشرة بالدردشة، ٥٠ ميغا). قبل
+     * هذا السقف كان أي ملف مساق، بغض النظر عن حجمه، يدخل بمسار
+     * processPending الدوري (دقيقة بكل جولة، حتى ٢٠ دقيقة كسقف كلي) —
+     * فالملفات الكبيرة فعليًا (تحتاج تقسيم لعدة أجزاء Gemini) كانت
+     * تُبقي الطالب منتظرًا طويلًا ثم تفشل أو تكاد، وهذا بالذات ما كسر
+     * ثقة الطلاب بالميزة. الحل: رفض الملفات الكبيرة فورًا وبرسالة
+     * واضحة وقت الطلب (بلا أي انتظار أو استهلاك من الحدّ اليومي)، بدل
+     * تركها تفشل بعد انتظار طويل. ٢٠ ميغا تغطّي تقريبًا كل ملفات
+     * المحاضرات/الملازم العادية (نصّية أو صور عادية) بأمان دون تقسيم.
+     */
+    private const SUMMARIZE_MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+    private const FILE_TOO_BIG_FOR_SUMMARY_MESSAGE =
+        'هذا الملف تجاوز الحجم المسموح للتلخيص الآلي السريع (٢٠ ميغابايت)، فتجربة تلخيصه رح تاخد وقت طويل وغالبًا تفشل بالنهاية. جرّب تقسيم الملف لأجزاء أصغر وتلخيص كل جزء على حدة، أو لو بدك تلخيص الملف كامل دفعة واحدة فيه أدوات ذكاء اصطناعي خارجية ممكن تساعدك بهذي الحالة تحديدًا.';
+
     /* كلمات ترجّح أن السؤال عن ملف بعينه — تُستخدم فقط لصياغة رسالة
        "ما لقيت الملف" الصريحة حين لا تنجح المطابقة، لا لأي قرار آخر. */
     private const FILE_INTENT_HINTS = ['ملف', 'شابتر', 'chapter', 'pdf', 'محاضرة', 'ملزمة'];
@@ -533,6 +551,10 @@ class AiAssistantController extends Controller
             return response()->json(['message' => $result['message']], 429);
         }
 
+        if ($result['status'] === 'too_large') {
+            return response()->json(['message' => $result['message']], 422);
+        }
+
         if ($result['status'] === 'ready') {
             return response()->json([
                 'question_id' => $result['question_id'],
@@ -579,6 +601,27 @@ class AiAssistantController extends Controller
 
         if (!in_array($mode, ['summary', 'flashcards'], true)) {
             $mode = 'summary';
+        }
+
+        /*
+         * خطوة ١١٥: فحص الحجم فورًا، قبل أي تسجيل سؤال أو استهلاك حدّ
+         * يومي — راجع تعليق SUMMARIZE_MAX_FILE_SIZE أعلاه. لو كان رد
+         * جاهز مخزَّن مسبقًا (الفحص التالي مباشرة) فهذا السقف لا يهمّ
+         * أصلًا (لا تلخيص جديد سيحدث)، لكن وضعه قبل فحص الكاش كان
+         * سيرفض ملفًا كبيرًا حتى لو عنده كاش جاهز بلا داعٍ — لذلك هو
+         * بعد فحص is_published مباشرة لكن قبل إنشاء أي AiQuestion.
+         */
+        if ((int) ($courseFile->size_bytes ?? 0) > self::SUMMARIZE_MAX_FILE_SIZE) {
+            $hasCachedResponse = \App\Models\CourseFileAiResponse::where('course_file_id', $courseFile->id)
+                ->where('mode', $mode)
+                ->exists();
+
+            if (!$hasCachedResponse) {
+                return [
+                    'status' => 'too_large',
+                    'message' => self::FILE_TOO_BIG_FOR_SUMMARY_MESSAGE,
+                ];
+            }
         }
 
         /*

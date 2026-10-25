@@ -3897,7 +3897,7 @@ class TelegramWebhookController extends Controller
             return;
         }
 
-        if ($result['status'] === 'limit') {
+        if (in_array($result['status'], ['limit', 'too_large'], true)) {
             $bot->sendMessage($chatId, $result['message']);
 
             return;
